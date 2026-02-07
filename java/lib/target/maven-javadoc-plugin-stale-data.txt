@@ -1,0 +1,86 @@
+@options
+@packages
+-classpath
+'/home/kaique/.m2/repository/org/springframework/boot/spring-boot-starter-data-redis/3.5.10/spring-boot-starter-data-redis-3.5.10.jar:/home/kaique/.m2/repository/org/springframework/boot/spring-boot-starter/3.5.10/spring-boot-starter-3.5.10.jar:/home/kaique/.m2/repository/org/springframework/boot/spring-boot-starter-logging/3.5.10/spring-boot-starter-logging-3.5.10.jar:/home/kaique/.m2/repository/ch/qos/logback/logback-classic/1.5.25/logback-classic-1.5.25.jar:/home/kaique/.m2/repository/ch/qos/logback/logback-core/1.5.25/logback-core-1.5.25.jar:/home/kaique/.m2/repository/org/apache/logging/log4j/log4j-to-slf4j/2.24.3/log4j-to-slf4j-2.24.3.jar:/home/kaique/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar:/home/kaique/.m2/repository/org/slf4j/jul-to-slf4j/2.0.17/jul-to-slf4j-2.0.17.jar:/home/kaique/.m2/repository/jakarta/annotation/jakarta.annotation-api/2.1.1/jakarta.annotation-api-2.1.1.jar:/home/kaique/.m2/repository/org/yaml/snakeyaml/2.4/snakeyaml-2.4.jar:/home/kaique/.m2/repository/io/lettuce/lettuce-core/6.6.0.RELEASE/lettuce-core-6.6.0.RELEASE.jar:/home/kaique/.m2/repository/redis/clients/authentication/redis-authx-core/0.1.1-beta2/redis-authx-core-0.1.1-beta2.jar:/home/kaique/.m2/repository/io/netty/netty-common/4.1.130.Final/netty-common-4.1.130.Final.jar:/home/kaique/.m2/repository/io/netty/netty-handler/4.1.130.Final/netty-handler-4.1.130.Final.jar:/home/kaique/.m2/repository/io/netty/netty-resolver/4.1.130.Final/netty-resolver-4.1.130.Final.jar:/home/kaique/.m2/repository/io/netty/netty-buffer/4.1.130.Final/netty-buffer-4.1.130.Final.jar:/home/kaique/.m2/repository/io/netty/netty-transport-native-unix-common/4.1.130.Final/netty-transport-native-unix-common-4.1.130.Final.jar:/home/kaique/.m2/repository/io/netty/netty-codec/4.1.130.Final/netty-codec-4.1.130.Final.jar:/home/kaique/.m2/repository/io/netty/netty-transport/4.1.130.Final/netty-transport-4.1.130.Final.jar:/home/kaique/.m2/repository/io/projectreactor/reactor-core/3.7.15/reactor-core-3.7.15.jar:/home/kaique/.m2/repository/org/reactivestreams/reactive-streams/1.0.4/reactive-streams-1.0.4.jar:/home/kaique/.m2/repository/org/springframework/data/spring-data-redis/3.5.8/spring-data-redis-3.5.8.jar:/home/kaique/.m2/repository/org/springframework/data/spring-data-keyvalue/3.5.8/spring-data-keyvalue-3.5.8.jar:/home/kaique/.m2/repository/org/springframework/data/spring-data-commons/3.5.8/spring-data-commons-3.5.8.jar:/home/kaique/.m2/repository/org/springframework/spring-tx/6.2.15/spring-tx-6.2.15.jar:/home/kaique/.m2/repository/org/springframework/spring-beans/6.2.15/spring-beans-6.2.15.jar:/home/kaique/.m2/repository/org/springframework/spring-oxm/6.2.15/spring-oxm-6.2.15.jar:/home/kaique/.m2/repository/org/springframework/spring-aop/6.2.15/spring-aop-6.2.15.jar:/home/kaique/.m2/repository/org/springframework/spring-context-support/6.2.15/spring-context-support-6.2.15.jar:/home/kaique/.m2/repository/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar:/home/kaique/.m2/repository/org/springframework/boot/spring-boot-autoconfigure/3.5.10/spring-boot-autoconfigure-3.5.10.jar:/home/kaique/.m2/repository/org/springframework/boot/spring-boot/3.5.10/spring-boot-3.5.10.jar:/home/kaique/.m2/repository/org/springframework/spring-context/6.2.15/spring-context-6.2.15.jar:/home/kaique/.m2/repository/org/springframework/spring-expression/6.2.15/spring-expression-6.2.15.jar:/home/kaique/.m2/repository/io/micrometer/micrometer-observation/1.15.8/micrometer-observation-1.15.8.jar:/home/kaique/.m2/repository/io/micrometer/micrometer-commons/1.15.8/micrometer-commons-1.15.8.jar:/home/kaique/.m2/repository/org/springframework/boot/spring-boot-configuration-processor/3.5.10/spring-boot-configuration-processor-3.5.10.jar:/home/kaique/.m2/repository/jakarta/xml/bind/jakarta.xml.bind-api/4.0.4/jakarta.xml.bind-api-4.0.4.jar:/home/kaique/.m2/repository/jakarta/activation/jakarta.activation-api/2.1.4/jakarta.activation-api-2.1.4.jar:/home/kaique/.m2/repository/org/springframework/spring-core/6.2.15/spring-core-6.2.15.jar:/home/kaique/.m2/repository/org/springframework/spring-jcl/6.2.15/spring-jcl-6.2.15.jar'
+-encoding
+'UTF-8'
+-protected
+-source
+'17'
+-sourcepath
+'/home/kaique/facul/tcc/anycall/lib/src/main/java:/home/kaique/facul/tcc/anycall/lib/target/generated-sources/annotations'
+-author
+-bottom
+'Copyright &#169; 2026. All rights reserved.'
+-charset
+'UTF-8'
+-d
+'/home/kaique/facul/tcc/anycall/lib/target/apidocs'
+-docencoding
+'UTF-8'
+-doctitle
+'AnyCall 0.0.1-SNAPSHOT API'
+-use
+-version
+-windowtitle
+'AnyCall 0.0.1-SNAPSHOT API'
+kaiquebt.dev.anycall
+/home/kaique/.m2/repository/org/springframework/boot/spring-boot-starter-data-redis/3.5.10/spring-boot-starter-data-redis-3.5.10.jar = 1769081739000
+/home/kaique/.m2/repository/org/springframework/boot/spring-boot-starter/3.5.10/spring-boot-starter-3.5.10.jar = 1769081740000
+/home/kaique/.m2/repository/org/springframework/boot/spring-boot-starter-logging/3.5.10/spring-boot-starter-logging-3.5.10.jar = 1769081740000
+/home/kaique/.m2/repository/ch/qos/logback/logback-classic/1.5.25/logback-classic-1.5.25.jar = 1768663379000
+/home/kaique/.m2/repository/ch/qos/logback/logback-core/1.5.25/logback-core-1.5.25.jar = 1768663379000
+/home/kaique/.m2/repository/org/apache/logging/log4j/log4j-to-slf4j/2.24.3/log4j-to-slf4j-2.24.3.jar = 1745362827223
+/home/kaique/.m2/repository/org/apache/logging/log4j/log4j-api/2.24.3/log4j-api-2.24.3.jar = 1745362827370
+/home/kaique/.m2/repository/org/slf4j/jul-to-slf4j/2.0.17/jul-to-slf4j-2.0.17.jar = 1745362827308
+/home/kaique/.m2/repository/jakarta/annotation/jakarta.annotation-api/2.1.1/jakarta.annotation-api-2.1.1.jar = 1745362827418
+/home/kaique/.m2/repository/org/yaml/snakeyaml/2.4/snakeyaml-2.4.jar = 1757377332503
+/home/kaique/.m2/repository/io/lettuce/lettuce-core/6.6.0.RELEASE/lettuce-core-6.6.0.RELEASE.jar = 1746020509000
+/home/kaique/.m2/repository/redis/clients/authentication/redis-authx-core/0.1.1-beta2/redis-authx-core-0.1.1-beta2.jar = 1742280203000
+/home/kaique/.m2/repository/io/netty/netty-common/4.1.130.Final/netty-common-4.1.130.Final.jar = 1765801717000
+/home/kaique/.m2/repository/io/netty/netty-handler/4.1.130.Final/netty-handler-4.1.130.Final.jar = 1765801716000
+/home/kaique/.m2/repository/io/netty/netty-resolver/4.1.130.Final/netty-resolver-4.1.130.Final.jar = 1765801716000
+/home/kaique/.m2/repository/io/netty/netty-buffer/4.1.130.Final/netty-buffer-4.1.130.Final.jar = 1765801716000
+/home/kaique/.m2/repository/io/netty/netty-transport-native-unix-common/4.1.130.Final/netty-transport-native-unix-common-4.1.130.Final.jar = 1765801717000
+/home/kaique/.m2/repository/io/netty/netty-codec/4.1.130.Final/netty-codec-4.1.130.Final.jar = 1765801717000
+/home/kaique/.m2/repository/io/netty/netty-transport/4.1.130.Final/netty-transport-4.1.130.Final.jar = 1765801716000
+/home/kaique/.m2/repository/io/projectreactor/reactor-core/3.7.15/reactor-core-3.7.15.jar = 1768297658000
+/home/kaique/.m2/repository/org/reactivestreams/reactive-streams/1.0.4/reactive-streams-1.0.4.jar = 1653252067000
+/home/kaique/.m2/repository/org/springframework/data/spring-data-redis/3.5.8/spring-data-redis-3.5.8.jar = 1768555010000
+/home/kaique/.m2/repository/org/springframework/data/spring-data-keyvalue/3.5.8/spring-data-keyvalue-3.5.8.jar = 1768555011000
+/home/kaique/.m2/repository/org/springframework/data/spring-data-commons/3.5.8/spring-data-commons-3.5.8.jar = 1768555011000
+/home/kaique/.m2/repository/org/springframework/spring-tx/6.2.15/spring-tx-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/springframework/spring-beans/6.2.15/spring-beans-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/springframework/spring-oxm/6.2.15/spring-oxm-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/springframework/spring-aop/6.2.15/spring-aop-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/springframework/spring-context-support/6.2.15/spring-context-support-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar = 1745362830241
+/home/kaique/.m2/repository/org/springframework/boot/spring-boot-autoconfigure/3.5.10/spring-boot-autoconfigure-3.5.10.jar = 1769081741000
+/home/kaique/.m2/repository/org/springframework/boot/spring-boot/3.5.10/spring-boot-3.5.10.jar = 1769081740000
+/home/kaique/.m2/repository/org/springframework/spring-context/6.2.15/spring-context-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/springframework/spring-expression/6.2.15/spring-expression-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/io/micrometer/micrometer-observation/1.15.8/micrometer-observation-1.15.8.jar = 1768247664000
+/home/kaique/.m2/repository/io/micrometer/micrometer-commons/1.15.8/micrometer-commons-1.15.8.jar = 1768247664000
+/home/kaique/.m2/repository/org/springframework/boot/spring-boot-configuration-processor/3.5.10/spring-boot-configuration-processor-3.5.10.jar = 1769081739000
+/home/kaique/.m2/repository/jakarta/xml/bind/jakarta.xml.bind-api/4.0.4/jakarta.xml.bind-api-4.0.4.jar = 1757925551000
+/home/kaique/.m2/repository/jakarta/activation/jakarta.activation-api/2.1.4/jakarta.activation-api-2.1.4.jar = 1757983202849
+/home/kaique/.m2/repository/org/springframework/spring-core/6.2.15/spring-core-6.2.15.jar = 1765448373000
+/home/kaique/.m2/repository/org/springframework/spring-jcl/6.2.15/spring-jcl-6.2.15.jar = 1765448373000
+/home/kaique/facul/tcc/anycall/lib/src/main/java = 1770498633783
+/home/kaique/facul/tcc/anycall/lib/target/generated-sources/annotations = 1770498888021
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/member-search-index.js = 1770498895364
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/index.html = 1770498895376
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/package-search-index.js = 1770498895364
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/index-all.html = 1770498895374
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/stylesheet.css = 1770498895385
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/allclasses-index.html = 1770498895360
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/script.js = 1770498895386
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/search.js = 1770498895388
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/module-search-index.js = 1770498895363
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/element-list = 1770498895313
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/overview-tree.html = 1770498895347
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/type-search-index.js = 1770498895364
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/help-doc.html = 1770498895383
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/tag-search-index.js = 1770498895365
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/allpackages-index.html = 1770498895363
+/home/kaique/facul/tcc/anycall/lib/target/apidocs/jquery-ui.overrides.css = 1770498895395
