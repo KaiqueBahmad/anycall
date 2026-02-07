@@ -1,15 +1,12 @@
 package kaiquebt.dev.anycall;
 
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.ComponentScan;
 
 @AutoConfiguration
-@ComponentScan(basePackages = "dev.kaiquebt.anycall")
+@EnableConfigurationProperties(AnycallProperties.class)
+@ComponentScan(basePackages = "kaiquebt.dev.anycall")
 public class AnycallAutoConfiguration {
-
-	public static void main(String[] args) {
-		SpringApplication.run(AnycallAutoConfiguration.class, args);
-	}
 
 }
