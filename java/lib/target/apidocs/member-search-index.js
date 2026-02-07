@@ -1,1 +1,0 @@
-memberSearchIndex = [{"p":"kaiquebt.dev.anycall","c":"AnycallApplication","l":"AnycallApplication()","u":"%3Cinit%3E()"},{"p":"kaiquebt.dev.anycall","c":"AnycallApplication","l":"main(String[])","u":"main(java.lang.String[])"}];updateSearchResults();
