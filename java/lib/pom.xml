@@ -48,20 +48,24 @@
     </dependencyManagement>
     
     <dependencies>
-        <!-- Spring Boot Data Redis - provided scope -->
+        <!-- Spring Boot Data Redis -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
-            <scope>provided</scope>
         </dependency>
-        
-        <!-- Spring Boot Autoconfigure (opcional, se criar auto-configuração) -->
+
+        <!-- Jackson for JSON serialization -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Autoconfigure -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
-            <scope>provided</scope>
         </dependency>
-        
+
         <!-- Annotation Processor para auto-configuração -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -73,13 +77,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- Redis para os testes -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

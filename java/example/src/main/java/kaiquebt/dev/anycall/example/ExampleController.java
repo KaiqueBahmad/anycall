@@ -1,23 +1,28 @@
 package kaiquebt.dev.anycall.example;
 
-import kaiquebt.dev.anycall.AnycallProperties;
-import org.springframework.web.bind.annotation.GetMapping;
+import kaiquebt.dev.anycall.AnyCallClient;
+import kaiquebt.dev.anycall.example.model.CreateProductRequest;
+import kaiquebt.dev.anycall.example.model.Product;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Example controller demonstrating how to use AnyCall configuration properties.
+ * Example controller demonstrating how to use AnyCall client.
  */
 @RestController
 public class ExampleController {
 
-    private final AnycallProperties anycallProperties;
+    private final AnyCallClient anyCall;
 
-    public ExampleController(AnycallProperties anycallProperties) {
-        this.anycallProperties = anycallProperties;
+    public ExampleController(AnyCallClient anyCall) {
+        this.anyCall = anyCall;
     }
 
-    @GetMapping("/config")
-    public String getConfig() {
-        return "AnyCall foo property: " + anycallProperties.foo();
+    @PostMapping("/products")
+    public Product createProduct(@RequestBody CreateProductRequest request) {
+        Product product = anyCall.call("create-new-product", request, Product.class);
+        System.out.println(product);
+        return product;
     }
 }

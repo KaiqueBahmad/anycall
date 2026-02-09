@@ -1,0 +1,52 @@
+package kaiquebt.dev.anycall;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.ApplicationContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
+
+/**
+ * Main entry point for creating AnyCall servers and clients.
+ */
+public class AnyCall {
+
+    private AnyCall() {
+        // Utility class
+    }
+
+    /**
+     * Creates a new server builder using the ApplicationContext to obtain required beans.
+     *
+     * @param applicationContext the Spring ApplicationContext
+     * @return a server builder
+     */
+    public static AnyCallServerBuilder server(ApplicationContext applicationContext) {
+        StringRedisTemplate redisTemplate = applicationContext.getBean(StringRedisTemplate.class);
+        ObjectMapper objectMapper = getObjectMapper(applicationContext);
+        return new AnyCallServerBuilder(redisTemplate, objectMapper, applicationContext);
+    }
+
+    /**
+     * Creates a new server builder with explicit dependencies.
+     *
+     * @param redisTemplate the Redis template
+     * @param objectMapper the object mapper
+     * @param applicationContext the Spring ApplicationContext
+     * @return a server builder
+     */
+    public static AnyCallServerBuilder server(
+        StringRedisTemplate redisTemplate,
+        ObjectMapper objectMapper,
+        ApplicationContext applicationContext
+    ) {
+        return new AnyCallServerBuilder(redisTemplate, objectMapper, applicationContext);
+    }
+
+    private static ObjectMapper getObjectMapper(ApplicationContext applicationContext) {
+        try {
+            return applicationContext.getBean(ObjectMapper.class);
+        } catch (Exception e) {
+            // If no ObjectMapper bean is found, create a default one
+            return new ObjectMapper();
+        }
+    }
+}
