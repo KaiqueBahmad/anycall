@@ -21,7 +21,12 @@ public class ProductController {
 
     @PostMapping("/products")
     public Product createProduct(@RequestBody CreateProductRequest request) {
+        long startTime = System.currentTimeMillis();
         Product product = anyCall.call("create-new-product", request, Product.class);
+        long endTime = System.currentTimeMillis();
+        System.out.println("Execution time: " + (endTime - startTime) + "ms");
+        
+        
         System.out.println(product);
         return product;
     }
