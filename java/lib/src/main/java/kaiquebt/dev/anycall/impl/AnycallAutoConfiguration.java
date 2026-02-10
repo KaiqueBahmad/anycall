@@ -1,6 +1,7 @@
-package kaiquebt.dev.anycall;
+package kaiquebt.dev.anycall.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kaiquebt.dev.anycall.AnyCallClient;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -38,6 +39,6 @@ public class AnycallAutoConfiguration {
         ObjectMapper objectMapper,
         AnycallProperties properties
     ) {
-        return new AnyCallClient(redisTemplate, objectMapper, properties.timeout());
+        return new AnyCallClientImpl(redisTemplate, objectMapper, properties.timeout());
     }
 }

@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall;
+package kaiquebt.dev.anycall.impl;
 
 import java.lang.reflect.Method;
 

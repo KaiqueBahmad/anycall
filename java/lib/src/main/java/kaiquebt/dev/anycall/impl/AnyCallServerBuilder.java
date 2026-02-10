@@ -1,6 +1,9 @@
-package kaiquebt.dev.anycall;
+package kaiquebt.dev.anycall.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import kaiquebt.dev.anycall.AnyCallServer;
+import kaiquebt.dev.anycall.AnyCallSupplier;
+import kaiquebt.dev.anycall.Supply;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -42,7 +45,7 @@ public class AnyCallServerBuilder {
      */
     public AnyCallServer start() {
         Map<String, MethodHandler> methodHandlers = scanAndRegisterMethods();
-        AnyCallServer server = new AnyCallServer(redisTemplate, objectMapper, group, methodHandlers);
+        AnyCallServer server = new AnyCallServerImpl(redisTemplate, objectMapper, group, methodHandlers);
         return server.start();
     }
 
