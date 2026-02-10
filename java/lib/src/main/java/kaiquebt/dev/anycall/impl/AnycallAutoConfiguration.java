@@ -39,6 +39,11 @@ public class AnycallAutoConfiguration {
         ObjectMapper objectMapper,
         AnycallProperties properties
     ) {
-        return new AnyCallClientImpl(redisTemplate, objectMapper, properties.timeout());
+        return new AnyCallClientImpl(
+            redisTemplate,
+            objectMapper,
+            properties.timeout(),
+            properties.metricsEnabled()
+        );
     }
 }

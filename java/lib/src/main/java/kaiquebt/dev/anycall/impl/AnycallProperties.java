@@ -9,16 +9,21 @@ import java.time.Duration;
  */
 @ConfigurationProperties(prefix = "anycall")
 public record AnycallProperties(
-    Duration timeout
+    Duration timeout,
+    Boolean metricsEnabled
 ) {
     public AnycallProperties {
         // Default timeout of 30 seconds if not specified
         if (timeout == null) {
             timeout = Duration.ofSeconds(30);
         }
+        // Default metrics disabled
+        if (metricsEnabled == null) {
+            metricsEnabled = false;
+        }
     }
 
     public AnycallProperties() {
-        this(Duration.ofSeconds(30));
+        this(Duration.ofSeconds(30), false);
     }
 }

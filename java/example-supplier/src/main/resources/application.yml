@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: anycall-example-supplier
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+anycall:
+  timeout: 30s
+  metrics-enabled: true
+
+logging:
+  level:
+    root: INFO
+    kaiquebt.dev.anycall.impl: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

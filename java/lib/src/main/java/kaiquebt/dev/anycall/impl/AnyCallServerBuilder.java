@@ -45,7 +45,23 @@ public class AnyCallServerBuilder {
      */
     public AnyCallServer start() {
         Map<String, MethodHandler> methodHandlers = scanAndRegisterMethods();
-        AnyCallServer server = new AnyCallServerImpl(redisTemplate, objectMapper, group, methodHandlers);
+
+        // Get metrics configuration from application context
+        boolean metricsEnabled = false;
+        try {
+            AnycallProperties properties = applicationContext.getBean(AnycallProperties.class);
+            metricsEnabled = properties.metricsEnabled();
+        } catch (Exception e) {
+            // Properties bean not found, use default
+        }
+
+        AnyCallServer server = new AnyCallServerImpl(
+            redisTemplate,
+            objectMapper,
+            group,
+            methodHandlers,
+            metricsEnabled
+        );
         return server.start();
     }
 
