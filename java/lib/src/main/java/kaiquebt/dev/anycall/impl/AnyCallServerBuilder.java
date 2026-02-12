@@ -5,6 +5,7 @@ import kaiquebt.dev.anycall.AnyCallServer;
 import kaiquebt.dev.anycall.AnyCallSupplier;
 import kaiquebt.dev.anycall.Supply;
 import org.springframework.context.ApplicationContext;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.lang.reflect.Method;
@@ -46,6 +47,9 @@ public class AnyCallServerBuilder {
     public AnyCallServer start() {
         Map<String, MethodHandler> methodHandlers = scanAndRegisterMethods();
 
+        // Get Redis connection factory from application context
+        RedisConnectionFactory connectionFactory = applicationContext.getBean(RedisConnectionFactory.class);
+
         // Get metrics configuration from application context
         boolean metricsEnabled = false;
         try {
@@ -60,6 +64,7 @@ public class AnyCallServerBuilder {
             objectMapper,
             group,
             methodHandlers,
+            connectionFactory,
             metricsEnabled
         );
         return server.start();

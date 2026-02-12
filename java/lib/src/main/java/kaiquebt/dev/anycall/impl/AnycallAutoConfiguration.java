@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
@@ -37,11 +38,13 @@ public class AnycallAutoConfiguration {
     public AnyCallClient anyCallClient(
         StringRedisTemplate redisTemplate,
         ObjectMapper objectMapper,
+        RedisConnectionFactory connectionFactory,
         AnycallProperties properties
     ) {
         return new AnyCallClientImpl(
             redisTemplate,
             objectMapper,
+            connectionFactory,
             properties.timeout(),
             properties.metricsEnabled()
         );
