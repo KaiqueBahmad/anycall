@@ -48,14 +48,18 @@ public class AnyCallClientImpl implements AnyCallClient {
         // Create listener container for responses
         this.listenerContainer = new RedisMessageListenerContainer();
         this.listenerContainer.setConnectionFactory(connectionFactory);
-        this.listenerContainer.start();
+        try {
+            this.listenerContainer.afterPropertiesSet();
+            this.listenerContainer.start();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize AnyCall client listener container", e);
+        }
     }
 
     @Override
     public <T> T call(String methodName, Object request, Class<T> responseType) {
         long startTime = metricsEnabled ? System.currentTimeMillis() : 0;
-        String requestId = null;
-
+        String _requestId = null;
         try {
             if (metricsEnabled) {
                 log.info("[METRICS] [CLIENT] Starting call to method: {}", methodName);
@@ -66,7 +70,8 @@ public class AnyCallClientImpl implements AnyCallClient {
 
             // Create the request
             AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, payload);
-            requestId = anyCallRequest.requestId();
+            String requestId = anyCallRequest.requestId();
+            _requestId = requestId;
             String requestJson = objectMapper.writeValueAsString(anyCallRequest);
 
             if (metricsEnabled) {
@@ -133,9 +138,9 @@ public class AnyCallClientImpl implements AnyCallClient {
 
             return result;
         } catch (Exception e) {
-            if (metricsEnabled && requestId != null) {
+            if (metricsEnabled && _requestId != null) {
                 long totalTime = System.currentTimeMillis() - startTime;
-                log.error("[METRICS] [CLIENT] [{}] Call failed after {}ms: {}", requestId, totalTime, e.getMessage());
+                log.error("[METRICS] [CLIENT] [{}] Call failed after {}ms: {}", _requestId, totalTime, e.getMessage());
             }
             if (e instanceof AnyCallException) {
                 throw (AnyCallException) e;

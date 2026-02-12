@@ -76,7 +76,13 @@ public class AnyCallServerImpl implements AnyCallServer {
         if (running.compareAndSet(false, true)) {
             log.info("Starting AnyCall server for group: {}", group);
             log.info("Registered methods: {}", methodHandlers.keySet());
-            listenerContainer.start();
+            try {
+                listenerContainer.afterPropertiesSet();
+                listenerContainer.start();
+            } catch (Exception e) {
+                running.set(false);
+                throw new RuntimeException("Failed to start AnyCall server", e);
+            }
         }
         return this;
     }
@@ -86,7 +92,11 @@ public class AnyCallServerImpl implements AnyCallServer {
         if (running.compareAndSet(true, false)) {
             log.info("Stopping AnyCall server for group: {}", group);
             listenerContainer.stop();
-            listenerContainer.destroy();
+            try {
+                listenerContainer.destroy();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
