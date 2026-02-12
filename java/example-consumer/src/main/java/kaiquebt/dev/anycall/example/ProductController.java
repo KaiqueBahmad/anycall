@@ -19,15 +19,11 @@ public class ProductController {
         this.anyCall = anyCall;
     }
 
-    @PostMapping("/products")
-    public Product createProduct(@RequestBody CreateProductRequest request) {
+    @PostMapping("/ping")
+    public String createProduct() {
         long startTime = System.currentTimeMillis();
-        Product product = anyCall.call("create-new-product", request, Product.class);
+        anyCall.call("create-new-product", new CreateProductRequest("teste", 123), Product.class);
         long endTime = System.currentTimeMillis();
-        System.out.println("Execution time: " + (endTime - startTime) + "ms");
-        
-        
-        System.out.println(product);
-        return product;
+        return (endTime - startTime)+ "";
     }
 }
