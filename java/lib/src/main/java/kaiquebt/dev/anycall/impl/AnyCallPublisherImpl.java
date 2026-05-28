@@ -5,14 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import kaiquebt.dev.anycall.AnyCallException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.connection.stream.StreamRecords;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-/**
- * Default implementation of AnyCallPublisher using Redis pub/sub.
- */
+import java.util.Collections;
+
 public class AnyCallPublisherImpl implements AnyCallPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallPublisherImpl.class);
+    private static final String DATA_FIELD = "data";
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -23,22 +24,24 @@ public class AnyCallPublisherImpl implements AnyCallPublisher {
     }
 
     @Override
-    public void publish(String channel, Object message) {
+    public void publish(String stream, Object message) {
         try {
             String jsonMessage = objectMapper.writeValueAsString(message);
-            publishString(channel, jsonMessage);
+            publishString(stream, jsonMessage);
         } catch (JsonProcessingException e) {
-            throw new AnyCallException("Failed to serialize message for channel: " + channel, e);
+            throw new AnyCallException("Failed to serialize message for stream: " + stream, e);
         }
     }
 
     @Override
-    public void publishString(String channel, String message) {
+    public void publishString(String stream, String message) {
         try {
-            redisTemplate.convertAndSend(channel, message);
-            log.debug("Published message to channel: {}", channel);
+            redisTemplate.opsForStream().add(
+                StreamRecords.newRecord().in(stream).ofMap(Collections.singletonMap(DATA_FIELD, message))
+            );
+            log.debug("Published message to stream: {}", stream);
         } catch (Exception e) {
-            throw new AnyCallException("Failed to publish message to channel: " + channel, e);
+            throw new AnyCallException("Failed to publish message to stream: " + stream, e);
         }
     }
 }
