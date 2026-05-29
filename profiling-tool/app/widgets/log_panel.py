@@ -50,25 +50,47 @@ class LogPanel(QWidget):
         # Column headers
         headers = QHBoxLayout()
         headers.setContentsMargins(0, 0, 0, 0)
-        headers.setSpacing(48)
-        for col_name in ["CONSUMER", "SUPPLIER", "DURATION", "STATUS"]:
-            lbl = QLabel(col_name)
-            lbl.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
-            headers.addWidget(lbl)
+        headers.setSpacing(16)
+
+        header_consumer = QLabel("CONSUMER")
+        header_consumer.setMinimumWidth(120)
+        header_consumer.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
+        headers.addWidget(header_consumer)
+
+        header_supplier = QLabel("SUPPLIER")
+        header_supplier.setMinimumWidth(120)
+        header_supplier.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
+        headers.addWidget(header_supplier)
+
+        header_duration = QLabel("DURATION")
+        header_duration.setMinimumWidth(100)
+        header_duration.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
+        headers.addWidget(header_duration)
+
+        header_status = QLabel("STATUS")
+        header_status.setMinimumWidth(80)
+        header_status.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
+        headers.addWidget(header_status)
+
         headers.addStretch()
         ml.addLayout(headers)
 
         # Data row
         data_row = QHBoxLayout()
         data_row.setContentsMargins(0, 8, 0, 8)
-        data_row.setSpacing(48)
+        data_row.setSpacing(16)
+
         self._v_consumer = QLabel("—")
+        self._v_consumer.setMinimumWidth(120)
         self._v_consumer.setStyleSheet(f"color: {TEXT}; font-size: 13px; font-weight: 500;")
         self._v_supplier = QLabel("—")
+        self._v_supplier.setMinimumWidth(120)
         self._v_supplier.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
         self._v_duration = QLabel("—")
+        self._v_duration.setMinimumWidth(100)
         self._v_duration.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-family: 'SF Mono', 'Courier', monospace;")
         self._v_status = QLabel("—")
+        self._v_status.setMinimumWidth(80)
         self._v_status.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-weight: 500;")
 
         data_row.addWidget(self._v_consumer)
