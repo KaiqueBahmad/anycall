@@ -43,19 +43,6 @@ class ConsumerCard(QFrame):
             font-weight: 600;
         """)
 
-        # Name and method stacked vertically
-        info_layout = QVBoxLayout()
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(2)
-
-        name_lbl = QLabel(self.consumer.name)
-        name_lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500; background: transparent;")
-        method_lbl = QLabel(f"· {self.consumer.method}()")
-        method_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
-
-        info_layout.addWidget(name_lbl)
-        info_layout.addWidget(method_lbl)
-
         # Run button
         self._run_btn = QPushButton("▶")
         self._run_btn.setFixedSize(36, 36)
@@ -81,5 +68,5 @@ class ConsumerCard(QFrame):
         self._run_btn.clicked.connect(lambda: self.run_requested.emit(self.consumer.id))
 
         layout.addWidget(badge)
-        layout.addLayout(info_layout)
+        layout.addStretch()
         layout.addWidget(self._run_btn)
