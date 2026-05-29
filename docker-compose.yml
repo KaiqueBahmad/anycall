@@ -16,7 +16,7 @@ services:
 
   supplier:
     build:
-      context: .
+      context: ./java
       dockerfile: example-supplier/Dockerfile
     container_name: anycall-supplier
     depends_on:
@@ -32,14 +32,12 @@ services:
 
   consumer:
     build:
-      context: .
+      context: ./java
       dockerfile: example-consumer/Dockerfile
     container_name: anycall-consumer
     depends_on:
       redis:
         condition: service_healthy
-      supplier:
-        condition: service_started
     environment:
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379

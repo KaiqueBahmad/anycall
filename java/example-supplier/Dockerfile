@@ -3,16 +3,16 @@ FROM maven:3.9-eclipse-temurin-17 AS builder
 
 WORKDIR /build
 
-# Copy parent pom and lib
-COPY ../lib/pom.xml ../lib/pom.xml
-COPY ../lib/src ../lib/src
+# Copy lib pom and source
+COPY lib/pom.xml ./lib/
+COPY lib/src ./lib/src
 
-# Copy supplier example
-COPY pom.xml .
-COPY src ./src
+# Copy supplier pom and source
+COPY example-supplier/pom.xml ./
+COPY example-supplier/src ./src
 
 # Install lib locally then build supplier
-RUN cd ../lib && mvn clean install -DskipTests && \
+RUN cd lib && mvn clean install -DskipTests && \
     cd /build && mvn clean package -DskipTests
 
 # Runtime stage
