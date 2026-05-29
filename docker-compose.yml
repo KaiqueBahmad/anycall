@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -7,9 +5,52 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    restart: unless-stopped
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - anycall
+
+  supplier:
+    build:
+      context: .
+      dockerfile: example-supplier/Dockerfile
+    container_name: anycall-supplier
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+    ports:
+      - "8081:8080"
+    networks:
+      - anycall
+
+  consumer:
+    build:
+      context: .
+      dockerfile: example-consumer/Dockerfile
+    container_name: anycall-consumer
+    depends_on:
+      redis:
+        condition: service_healthy
+      supplier:
+        condition: service_started
+    environment:
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+    ports:
+      - "8082:8080"
+    networks:
+      - anycall
 
 volumes:
-  redis-data:
+  redis_data:
+
+networks:
+  anycall:
+    driver: bridge
