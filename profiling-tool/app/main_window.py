@@ -13,7 +13,6 @@ from app.theme import BG_PANEL, BORDER, TEXT_MUTED, PANEL_WIDTH
 from app.widgets.supplier_card import SupplierCard
 from app.widgets.consumer_card import ConsumerCard
 from app.widgets.log_panel import LogPanel
-from app.widgets.supplier_drawer import SupplierDrawer
 
 
 class MainWindow(QMainWindow):
@@ -51,9 +50,6 @@ class MainWindow(QMainWindow):
         # Right panel: Execution Log
         root.addWidget(self._build_right_panel(central), stretch=1)
 
-        # Drawer is a floating child of central — not part of the layout
-        self._drawer = SupplierDrawer(central)
-
     def _build_left_panel(self, parent: QWidget) -> QWidget:
         panel = QWidget(parent)
         panel.setFixedWidth(PANEL_WIDTH)
@@ -87,8 +83,6 @@ class MainWindow(QMainWindow):
 
         for supplier in self._suppliers.values():
             card = SupplierCard(supplier)
-            card.toggled.connect(self._on_supplier_toggled)
-            card.log_requested.connect(self._on_log_requested)
             self._supplier_cards[supplier.id] = card
             vbox.addWidget(card)
 
@@ -116,7 +110,6 @@ class MainWindow(QMainWindow):
         for consumer in self._consumers.values():
             card = ConsumerCard(consumer)
             card.run_requested.connect(self._on_run_requested)
-            card.set_runnable(self._suppliers[consumer.supplier_id].active)
             self._consumer_cards[consumer.id] = card
             vbox.addWidget(card)
 
@@ -159,21 +152,9 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- handlers
 
-    def _on_supplier_toggled(self, supplier_id: str, active: bool):
-        for consumer in self._consumers.values():
-            if consumer.supplier_id == supplier_id:
-                self._consumer_cards[consumer.id].set_runnable(active)
-
-    def _on_log_requested(self, supplier_id: str):
-        supplier = self._suppliers[supplier_id]
-        h = self.centralWidget().height()
-        self._drawer.open_for(supplier, PANEL_WIDTH, h)
-
     def _on_run_requested(self, consumer_id: str):
         consumer = self._consumers[consumer_id]
         supplier = self._suppliers[consumer.supplier_id]
-        if not supplier.active:
-            return
 
         duration = random.randint(4, 80)
         now = datetime.datetime.now()
@@ -216,9 +197,3 @@ class MainWindow(QMainWindow):
             "checkStock":    '{"sku": "WGT-X", "available": 150, "reserved": 12}',
         }.get(method, '{"result": "ok"}')
 
-    # ------------------------------------------------------------------ misc
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, "_drawer") and self._drawer.isVisible():
-            self._drawer.resize(PANEL_WIDTH, self.centralWidget().height())

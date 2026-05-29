@@ -33,7 +33,7 @@ class ConsumerCard(QFrame):
             self.consumer.language, self.consumer.language.upper()
         )
         badge = QLabel(lang_name)
-        badge.setFixedHeight(24)
+        badge.setFixedSize(60, 24)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(f"""
             background-color: {accent}20;
@@ -41,7 +41,6 @@ class ConsumerCard(QFrame):
             border: 1px solid {accent}60;
             font-size: 10px;
             font-weight: 600;
-            padding: 2px 8px;
         """)
 
         # Name and method stacked vertically
@@ -84,10 +83,3 @@ class ConsumerCard(QFrame):
         layout.addWidget(badge)
         layout.addLayout(info_layout)
         layout.addWidget(self._run_btn)
-
-    def set_runnable(self, enabled: bool):
-        self._run_btn.setEnabled(enabled)
-        if not enabled:
-            self._run_btn.setToolTip("Supplier não está ativo")
-        else:
-            self._run_btn.setToolTip("")

@@ -6,7 +6,7 @@ from PySide6.QtGui import QTextCursor
 
 from app.models import ExecutionResult
 from app.theme import (
-    BG_PANEL, BG_SURFACE, BORDER,
+    BORDER,
     TEXT, TEXT_MUTED, TEXT_SUBTLE,
     SUCCESS, WARNING, ERROR, ACCENT_ON,
 )
@@ -24,70 +24,99 @@ class LogPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header
-        header = QFrame()
-        header.setFixedHeight(40)
-        header.setStyleSheet(f"background: {BG_SURFACE}; border-bottom: 1px solid {BORDER};")
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(16, 0, 16, 0)
+        # Title container with margins
+        title_container = QWidget()
+        title_layout = QVBoxLayout(title_container)
+        title_layout.setContentsMargins(16, 12, 16, 0)
+        title_layout.setSpacing(0)
         title = QLabel("EXECUTION LOG")
-        title.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;")
-        hl.addWidget(title)
-        hl.addStretch()
+        title.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; font-weight: 600; letter-spacing: 1px;")
+        title_layout.addWidget(title)
+        layout.addWidget(title_container)
 
-        # Meta bar
-        self._meta_bar = QFrame()
-        self._meta_bar.hide()
-        self._meta_bar.setFixedHeight(56)
-        self._meta_bar.setStyleSheet(f"background: {BG_PANEL}; border-bottom: 1px solid {BORDER};")
-        ml = QHBoxLayout(self._meta_bar)
-        ml.setContentsMargins(16, 8, 16, 8)
-        ml.setSpacing(32)
+        # Meta bar container with margins
+        meta_container = QWidget()
+        meta_container.hide()
+        meta_layout = QVBoxLayout(meta_container)
+        meta_layout.setContentsMargins(16, 8, 16, 0)
+        meta_layout.setSpacing(0)
 
-        self._v_consumer = self._make_chip("CONSUMER", ml)
-        self._v_supplier = self._make_chip("SUPPLIER", ml)
-        self._v_duration = self._make_chip("DURATION", ml)
-        self._v_status   = self._make_chip("STATUS", ml)
-        ml.addStretch()
+        # Meta bar (column headers + data)
+        self._meta_bar = QWidget()
+        ml = QVBoxLayout(self._meta_bar)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.setSpacing(0)
+
+        # Column headers
+        headers = QHBoxLayout()
+        headers.setContentsMargins(0, 0, 0, 0)
+        headers.setSpacing(48)
+        for col_name in ["CONSUMER", "SUPPLIER", "DURATION", "STATUS"]:
+            lbl = QLabel(col_name)
+            lbl.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;")
+            headers.addWidget(lbl)
+        headers.addStretch()
+        ml.addLayout(headers)
+
+        # Data row
+        data_row = QHBoxLayout()
+        data_row.setContentsMargins(0, 8, 0, 8)
+        data_row.setSpacing(48)
+        self._v_consumer = QLabel("—")
+        self._v_consumer.setStyleSheet(f"color: {TEXT}; font-size: 13px; font-weight: 500;")
+        self._v_supplier = QLabel("—")
+        self._v_supplier.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px;")
+        self._v_duration = QLabel("—")
+        self._v_duration.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-family: 'SF Mono', 'Courier', monospace;")
+        self._v_status = QLabel("—")
+        self._v_status.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-weight: 500;")
+
+        data_row.addWidget(self._v_consumer)
+        data_row.addWidget(self._v_supplier)
+        data_row.addWidget(self._v_duration)
+        data_row.addWidget(self._v_status)
+        data_row.addStretch()
+        ml.addLayout(data_row)
+
+        # Separator below table
+        sep_table = QFrame()
+        sep_table.setFixedHeight(1)
+        sep_table.setStyleSheet(f"background: {BORDER};")
+        ml.addWidget(sep_table)
+
+        meta_layout.addWidget(self._meta_bar)
+        meta_container.setLayout(meta_layout)
+        self._meta_bar_container = meta_container
 
         # Placeholder
         self._placeholder = QLabel("Execute a consumer to see logs here")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         self._placeholder.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 13px;")
 
-        # Log text
+        # Log text with margins
+        log_container = QWidget()
+        log_layout = QVBoxLayout(log_container)
+        log_layout.setContentsMargins(16, 12, 16, 0)
+        log_layout.setSpacing(0)
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.hide()
         self._log.setStyleSheet(f"""
             QTextEdit {{
-                background: {BG_PANEL};
+                background: transparent;
                 color: {TEXT};
                 border: none;
                 font-family: {MONO};
                 font-size: 11px;
-                padding: 16px 16px;
+                padding: 0px;
             }}
         """)
+        log_layout.addWidget(self._log)
 
-        layout.addWidget(header)
-        layout.addWidget(self._meta_bar)
+        layout.addWidget(self._meta_bar_container)
+        layout.addWidget(sep_table)
         layout.addWidget(self._placeholder)
-        layout.addWidget(self._log)
-
-    def _make_chip(self, label: str, parent_layout) -> QLabel:
-        col = QWidget()
-        cl = QVBoxLayout(col)
-        cl.setContentsMargins(0, 4, 0, 4)
-        cl.setSpacing(2)
-        lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 9px; font-weight: 600;")
-        val = QLabel("—")
-        val.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-weight: 500;")
-        cl.addWidget(lbl)
-        cl.addWidget(val)
-        parent_layout.addWidget(col)
-        return val
+        layout.addWidget(log_container, stretch=1)
 
     def show_result(self, result: ExecutionResult):
         duration_color = WARNING if result.duration_ms > 50 else SUCCESS
@@ -98,14 +127,14 @@ class LogPanel(QWidget):
 
         self._v_duration.setText(f"{result.duration_ms}ms")
         self._v_duration.setStyleSheet(
-            f"color: {duration_color}; font-size: 11px; font-weight: 500;"
+            f"color: {duration_color}; font-size: 11px; font-family: 'SF Mono', 'Courier', monospace;"
         )
 
         self._v_status.setText("OK" if result.success else "ERROR")
-        self._v_status.setStyleSheet(f"color: {status_color}; font-size: 11px; font-weight: 600;")
+        self._v_status.setStyleSheet(f"color: {status_color}; font-size: 11px; font-weight: 500;")
 
         self._placeholder.hide()
-        self._meta_bar.show()
+        self._meta_bar_container.show()
         self._log.show()
 
         self._log.clear()

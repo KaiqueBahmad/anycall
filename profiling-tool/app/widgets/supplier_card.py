@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Signal, Qt
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel
+from PySide6.QtCore import Signal
 
 from app.models import Supplier
 from app.theme import BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT_ON, ACCENT_OFF
@@ -8,7 +8,6 @@ from .toggle import ToggleSwitch
 
 class SupplierCard(QFrame):
     toggled = Signal(str, bool)
-    log_requested = Signal(str)
 
     def __init__(self, supplier: Supplier, parent=None):
         super().__init__(parent)
@@ -42,36 +41,15 @@ class SupplierCard(QFrame):
         row1.addStretch()
         row1.addWidget(self._toggle)
 
-        # Row 2: group + log button
+        # Row 2: group
         row2 = QHBoxLayout()
         row2.setContentsMargins(0, 0, 0, 0)
         row2.setSpacing(8)
         group_lbl = QLabel(self.supplier.group)
         group_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
 
-        log_btn = QPushButton("Log")
-        log_btn.setFixedHeight(24)
-        log_btn.setFixedWidth(44)
-        log_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        log_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1px solid {BORDER};
-                color: {TEXT_MUTED};
-                font-size: 11px;
-                padding: 0px 6px;
-            }}
-            QPushButton:hover {{
-                background: {BORDER};
-                color: {TEXT};
-                border-color: {TEXT_MUTED};
-            }}
-        """)
-        log_btn.clicked.connect(lambda: self.log_requested.emit(self.supplier.id))
-
         row2.addWidget(group_lbl)
         row2.addStretch()
-        row2.addWidget(log_btn)
 
         layout.addLayout(row1)
         layout.addLayout(row2)
