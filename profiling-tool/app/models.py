@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -29,13 +29,8 @@ class ExecutionResult:
 
 MOCK_SUPPLIERS = [
     Supplier("s1", "Java", "java-workers"),
-    Supplier("s2", "Python", "python-workers"),
-    Supplier("s3", "Go", "go-workers"),
 ]
 
 MOCK_CONSUMERS = [
-    Consumer("c1", "ProductConsumer", "java",   "createProduct", "s1"),
-    Consumer("c2", "ProductConsumer", "python",  "createProduct", "s1"),
-    Consumer("c3", "OrderConsumer",   "java",    "createOrder",   "s2"),
-    Consumer("c4", "InventoryConsumer","go",     "checkStock",    "s3"),
+    Consumer("c1", "ProductConsumer", "java", "createProduct", "s1"),
 ]
