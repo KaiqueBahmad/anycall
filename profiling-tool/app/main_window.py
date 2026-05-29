@@ -1,18 +1,21 @@
 import uuid
 import random
 import datetime
+import subprocess
+import os
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QScrollArea, QFrame, QSplitter,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from app.models import MOCK_SUPPLIERS, MOCK_CONSUMERS, Supplier, Consumer, ExecutionResult
 from app.theme import BG_PANEL, BORDER, TEXT_MUTED, PANEL_WIDTH
 from app.widgets.supplier_card import SupplierCard
 from app.widgets.consumer_card import ConsumerCard
 from app.widgets.log_panel import LogPanel
+from app.widgets.container_warning_popup import ContainerWarningPopup
 
 
 class MainWindow(QMainWindow):
@@ -28,6 +31,7 @@ class MainWindow(QMainWindow):
         self._consumer_cards: dict[str, ConsumerCard] = {}
 
         self._build_ui()
+        QTimer.singleShot(500, self._check_running_containers)
 
     # ------------------------------------------------------------------ build
 
@@ -49,6 +53,12 @@ class MainWindow(QMainWindow):
 
         # Right panel: Execution Log
         root.addWidget(self._build_right_panel(central), stretch=1)
+
+        # Popup overlay
+        self._popup = ContainerWarningPopup(central)
+        self._popup.confirmed.connect(lambda: self._on_stop_containers(self._root_dir))
+        self._popup.cancelled.connect(lambda: None)
+        self._popup.hide()
 
     def _build_left_panel(self, parent: QWidget) -> QWidget:
         panel = QWidget(parent)
@@ -149,6 +159,42 @@ class MainWindow(QMainWindow):
         hl.addWidget(lbl)
         hl.addStretch()
         return header
+
+    def _check_running_containers(self):
+        try:
+            self._root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            result = subprocess.run(
+                ["docker", "compose", "ps", "--quiet"],
+                cwd=self._root_dir,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            running_containers = result.stdout.strip()
+            if running_containers:
+                self._popup.show()
+                self._popup.raise_()
+        except Exception:
+            pass
+
+    def _on_stop_containers(self, root_dir: str):
+        try:
+            subprocess.run(
+                ["docker", "compose", "down"],
+                cwd=root_dir,
+                capture_output=True,
+                timeout=30,
+            )
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._popup and self._popup.isVisible():
+            central = self.centralWidget()
+            if central:
+                self._popup.setGeometry(central.rect())
 
     # --------------------------------------------------------------- handlers
 
