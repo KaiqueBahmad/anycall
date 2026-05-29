@@ -56,7 +56,6 @@ class SupplierCard(QFrame):
                 color: {TEXT_MUTED};
                 font-size: 11px;
                 padding: 0px 6px;
-                border-radius: 2px;
             }}
             QPushButton:hover {{
                 background: {BORDER};
@@ -96,6 +95,5 @@ class SupplierCard(QFrame):
             #supplierCard {{
                 background-color: {bg};
                 border: {border};
-                border-radius: 3px;
             }}
         """)

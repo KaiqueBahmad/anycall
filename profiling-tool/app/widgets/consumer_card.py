@@ -19,7 +19,6 @@ class ConsumerCard(QFrame):
             #consumerCard {{
                 background-color: {BG_SURFACE};
                 border: 1px solid {BORDER};
-                border-radius: 3px;
             }}
         """)
         self.setFixedHeight(56)
@@ -47,11 +46,12 @@ class ConsumerCard(QFrame):
 
         # Name + method
         name_lbl = QLabel(self.consumer.name)
-        name_lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500;")
+        name_lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500; background: transparent;")
         method_lbl = QLabel(f"· {self.consumer.method}()")
-        method_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
+        method_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
 
         info_layout = QHBoxLayout()
+        info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(6)
         info_layout.addWidget(name_lbl)
         info_layout.addWidget(method_lbl)
@@ -69,7 +69,6 @@ class ConsumerCard(QFrame):
                 font-size: 12px;
                 font-weight: 600;
                 padding: 0px;
-                border-radius: 4px;
             }}
             QPushButton:hover {{
                 background: {ACCENT_ON}25;

@@ -28,9 +28,9 @@ class ExecutionResult:
 
 
 MOCK_SUPPLIERS = [
-    Supplier("s1", "product-service", "product-workers"),
-    Supplier("s2", "order-service", "order-workers"),
-    Supplier("s3", "inventory-service", "inventory-workers"),
+    Supplier("s1", "Java", "java-workers"),
+    Supplier("s2", "Python", "python-workers"),
+    Supplier("s3", "Go", "go-workers"),
 ]
 
 MOCK_CONSUMERS = [

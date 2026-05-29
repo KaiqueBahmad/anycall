@@ -32,6 +32,15 @@ QMainWindow, QWidget {{
     color: {TEXT};
 }}
 QScrollArea {{ border: none; }}
+QListWidget {{
+    background: transparent;
+    border: none;
+}}
+QListWidget::item {{
+    background: transparent;
+    border: none;
+    padding: 0;
+}}
 QScrollBar:vertical {{
     background: transparent;
     width: 8px;
