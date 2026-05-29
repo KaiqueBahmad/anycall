@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
 from PySide6.QtCore import Signal, Qt
 
 from app.models import Consumer
@@ -24,7 +24,7 @@ class ConsumerCard(QFrame):
         self.setFixedHeight(56)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
         # Language badge — full name
@@ -44,18 +44,18 @@ class ConsumerCard(QFrame):
             padding: 2px 8px;
         """)
 
-        # Name + method
+        # Name and method stacked vertically
+        info_layout = QVBoxLayout()
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(2)
+
         name_lbl = QLabel(self.consumer.name)
         name_lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500; background: transparent;")
         method_lbl = QLabel(f"· {self.consumer.method}()")
         method_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
 
-        info_layout = QHBoxLayout()
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(6)
         info_layout.addWidget(name_lbl)
         info_layout.addWidget(method_lbl)
-        info_layout.addStretch()
 
         # Run button
         self._run_btn = QPushButton("▶")

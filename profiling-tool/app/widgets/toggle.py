@@ -34,9 +34,8 @@ class ToggleSwitch(QAbstractButton):
 
     def paintEvent(self, _):
         p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         w, h = self.width(), self.height()
-        radius = h / 2
 
         off = QColor(ACCENT_OFF)
         on  = QColor(ACCENT_ON)
@@ -48,10 +47,10 @@ class ToggleSwitch(QAbstractButton):
 
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(track)
-        p.drawRoundedRect(0, 0, w, h, int(radius), int(radius))
+        p.drawRect(0, 0, w, h)
 
         margin = 2
         size = h - 2 * margin
         x = margin + self._t * (w - h)
         p.setBrush(QColor(TEXT))
-        p.drawRoundedRect(int(x), margin, int(size), int(size), 2, 2)
+        p.drawRect(int(x), margin, int(size), int(size))

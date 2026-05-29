@@ -23,27 +23,31 @@ class SupplierCard(QFrame):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(6)
 
-        # Row 1: status + name
+        # Row 1: status + name + toggle
         row1 = QHBoxLayout()
+        row1.setContentsMargins(0, 0, 0, 0)
         row1.setSpacing(8)
         self._dot = QLabel("●")
         self._dot.setFixedWidth(8)
         self._dot.setStyleSheet(f"font-size: 6px;")
         name_lbl = QLabel(self.supplier.name)
         name_lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500;")
-        row1.addWidget(self._dot)
-        row1.addWidget(name_lbl)
-        row1.addStretch()
-
-        # Row 2: group + toggle + button
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        group_lbl = QLabel(self.supplier.group)
-        group_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
 
         self._toggle = ToggleSwitch()
         self._toggle.setChecked(self.supplier.active)
         self._toggle.toggled.connect(self._on_toggle)
+
+        row1.addWidget(self._dot)
+        row1.addWidget(name_lbl)
+        row1.addStretch()
+        row1.addWidget(self._toggle)
+
+        # Row 2: group + log button
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(0, 0, 0, 0)
+        row2.setSpacing(8)
+        group_lbl = QLabel(self.supplier.group)
+        group_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
 
         log_btn = QPushButton("Log")
         log_btn.setFixedHeight(24)
@@ -67,7 +71,6 @@ class SupplierCard(QFrame):
 
         row2.addWidget(group_lbl)
         row2.addStretch()
-        row2.addWidget(self._toggle)
         row2.addWidget(log_btn)
 
         layout.addLayout(row1)
