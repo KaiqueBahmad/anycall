@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall;
+package kaiquebt.dev.anycall.core;
 
 import org.springframework.stereotype.Component;
 

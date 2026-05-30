@@ -1,9 +1,10 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import kaiquebt.dev.anycall.AnyCallServer;
-import kaiquebt.dev.anycall.AnyCallSupplier;
-import kaiquebt.dev.anycall.Supply;
+import kaiquebt.dev.anycall.core.AnyCallServer;
+import kaiquebt.dev.anycall.core.AnyCallSupplier;
+import kaiquebt.dev.anycall.annotation.Supply;
+import kaiquebt.dev.anycall.config.AnycallProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 

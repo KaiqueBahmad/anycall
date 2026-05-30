@@ -1,8 +1,11 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import kaiquebt.dev.anycall.AnyCallClient;
-import kaiquebt.dev.anycall.AnyCallException;
+import kaiquebt.dev.anycall.core.AnyCallClient;
+import kaiquebt.dev.anycall.exception.AnyCallException;
+import kaiquebt.dev.anycall.model.AnyCallRequest;
+import kaiquebt.dev.anycall.model.AnyCallResponse;
+import kaiquebt.dev.anycall.publisher.AnycallQueues;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.connection.stream.*;

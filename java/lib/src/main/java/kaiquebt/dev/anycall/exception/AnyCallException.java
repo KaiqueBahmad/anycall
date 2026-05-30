@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall;
+package kaiquebt.dev.anycall.exception;
 
 /**
  * Exception thrown when an AnyCall operation fails.

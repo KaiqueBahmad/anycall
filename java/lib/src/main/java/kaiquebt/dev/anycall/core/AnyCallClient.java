@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall;
+package kaiquebt.dev.anycall.core;
 
 /**
  * Client for making remote procedure calls via Redis.

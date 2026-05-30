@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.publisher;
 
 /**
  * Publisher for sending messages to Redis channels using pub/sub.

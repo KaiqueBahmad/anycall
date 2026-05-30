@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.model;
 
 /**
  * Represents a response sent from server to client via Redis.

@@ -1,7 +1,8 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import kaiquebt.dev.anycall.AnyCallClient;
+import kaiquebt.dev.anycall.core.AnyCallClient;
+import kaiquebt.dev.anycall.client.AnyCallClientImpl;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;

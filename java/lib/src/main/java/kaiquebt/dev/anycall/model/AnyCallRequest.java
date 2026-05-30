@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.model;
 
 import java.util.UUID;
 

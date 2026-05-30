@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall.impl;
+package kaiquebt.dev.anycall.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
