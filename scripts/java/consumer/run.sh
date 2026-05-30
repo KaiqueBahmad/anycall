@@ -16,6 +16,6 @@ if ! docker compose exec -T supplier wget -qO- http://localhost:8080/health > /d
 fi
 
 echo "Running consumer..."
-docker compose run --rm consumer
+docker compose up consumer
 
 echo "✓ Consumer completed"
