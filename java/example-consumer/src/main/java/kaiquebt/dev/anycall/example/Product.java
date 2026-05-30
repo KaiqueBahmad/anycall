@@ -1,4 +1,4 @@
-package kaiquebt.dev.anycall.example.model;
+package kaiquebt.dev.anycall.example;
 
 public record Product(String name, int priceInCents) {
 }

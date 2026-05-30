@@ -1,8 +1,7 @@
 package kaiquebt.dev.anycall.example;
 
 import kaiquebt.dev.anycall.AnyCallClient;
-import kaiquebt.dev.anycall.example.model.CreateProductRequest;
-import kaiquebt.dev.anycall.example.model.Product;
+
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
