@@ -4,12 +4,19 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 
-class ContainerWarningPopup(QWidget):
+class ConfirmationDialog(QWidget):
+    """Generic confirmation dialog overlay."""
+
     confirmed = Signal()
     cancelled = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, title: str, message: str, confirm_text: str = "Yes",
+                 cancel_text: str = "No", parent=None):
         super().__init__(parent)
+        self._title = title
+        self._message = message
+        self._confirm_text = confirm_text
+        self._cancel_text = cancel_text
         self.setStyleSheet("""
             QWidget {
                 background-color: rgba(0, 0, 0, 150);
@@ -22,7 +29,6 @@ class ContainerWarningPopup(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Dialog box
         dialog = QFrame()
         dialog.setStyleSheet("""
             QFrame {
@@ -34,8 +40,7 @@ class ContainerWarningPopup(QWidget):
         dialog_layout.setContentsMargins(24, 24, 24, 24)
         dialog_layout.setSpacing(16)
 
-        # Title
-        title = QLabel("Running Containers Detected")
+        title = QLabel(self._title)
         title.setStyleSheet("""
             color: #ffffff;
             font-size: 16px;
@@ -43,8 +48,7 @@ class ContainerWarningPopup(QWidget):
         """)
         dialog_layout.addWidget(title)
 
-        # Message
-        message = QLabel("There are running containers in docker-compose.\n\nDo you want to stop them?")
+        message = QLabel(self._message)
         message.setStyleSheet("""
             color: #b0b0b0;
             font-size: 13px;
@@ -53,12 +57,11 @@ class ContainerWarningPopup(QWidget):
         message.setWordWrap(True)
         dialog_layout.addWidget(message)
 
-        # Buttons
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(12)
         buttons_layout.addStretch()
 
-        cancel_btn = QPushButton("No")
+        cancel_btn = QPushButton(self._cancel_text)
         cancel_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3a3a3a;
@@ -78,7 +81,7 @@ class ContainerWarningPopup(QWidget):
         cancel_btn.clicked.connect(self._on_cancel)
         buttons_layout.addWidget(cancel_btn)
 
-        confirm_btn = QPushButton("Yes, Stop Them")
+        confirm_btn = QPushButton(self._confirm_text)
         confirm_btn.setStyleSheet("""
             QPushButton {
                 background-color: #e74c3c;

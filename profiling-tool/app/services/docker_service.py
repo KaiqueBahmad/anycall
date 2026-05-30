@@ -1,64 +1,49 @@
 import subprocess
 import logging
-from enum import Enum
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 
-class ServiceType(Enum):
-    REDIS = "redis"
-    SUPPLIER = "supplier"
-
-
 @dataclass
-class ServiceStatus:
+class ServiceConfig:
+    """Configuration for a Docker-managed service."""
     name: str
-    healthy: bool
-    last_check: float = 0
+    health_command: list[str]
+
+
+SERVICES = {
+    "redis": ServiceConfig("redis", ["redis-cli", "ping"]),
+    "supplier": ServiceConfig("supplier", ["curl", "-f", "http://localhost:8080/health"]),
+}
 
 
 class DockerService:
     def __init__(self, root_dir: str):
         self.root_dir = root_dir
-        self._statuses: dict[str, ServiceStatus] = {}
 
-    def start_redis(self) -> bool:
-        """Start Redis service."""
-        return self._run_compose("up", "-d", "--remove-orphans", "redis")
-
-    def start_supplier(self) -> bool:
-        """Start supplier service (requires redis to be running)."""
-        return self._run_compose("up", "-d", "--remove-orphans", "supplier")
+    def start_service(self, service_name: str) -> bool:
+        """Start a service."""
+        return self._run_compose("up", "-d", "--remove-orphans", service_name)
 
     def stop_all(self) -> bool:
         """Stop all services."""
         return self._run_compose("down", "--remove-orphans", "-v")
 
-    def stop_redis(self) -> bool:
-        """Stop only redis (this will also stop dependent services)."""
-        return self._run_compose("down", "--remove-orphans", "-v")
-
-    def check_redis_health(self) -> bool:
-        """Check if Redis is healthy."""
-        try:
-            logger.debug("Checking redis health with redis-cli ping")
-            result = self._exec_in_container("redis", ["redis-cli", "ping"])
-            logger.debug(f"Redis health check result: {result}")
-            return result
-        except Exception as e:
-            logger.error(f"Error checking redis health: {str(e)}", exc_info=True)
+    def check_service_health(self, service_name: str) -> bool:
+        """Check if a service is healthy."""
+        if service_name not in SERVICES:
+            logger.warning(f"Unknown service: {service_name}")
             return False
 
-    def check_supplier_health(self) -> bool:
-        """Check if Supplier is healthy."""
+        config = SERVICES[service_name]
         try:
-            logger.debug("Checking supplier health with curl")
-            result = self._exec_in_container("supplier", ["curl", "-f", "http://localhost:8080/health"])
-            logger.debug(f"Supplier health check result: {result}")
+            logger.debug(f"Checking {service_name} health")
+            result = self._exec_in_container(service_name, config.health_command)
+            logger.debug(f"{service_name} health check result: {result}")
             return result
         except Exception as e:
-            logger.error(f"Error checking supplier health: {str(e)}", exc_info=True)
+            logger.error(f"Error checking {service_name} health: {str(e)}", exc_info=True)
             return False
 
     def get_running_services(self) -> set[str]:

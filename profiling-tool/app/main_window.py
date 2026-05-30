@@ -7,15 +7,17 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 
-from app.models import MOCK_SUPPLIERS, MOCK_CONSUMERS, Supplier, Consumer
+from app.models import Supplier, Consumer
+from app.fixtures import MOCK_SUPPLIERS, MOCK_CONSUMERS
 from app.theme import BG_PANEL, BORDER, TEXT_MUTED, PANEL_WIDTH
 from app.widgets.supplier_card import SupplierCard
 from app.widgets.consumer_card import ConsumerCard
 from app.widgets.log_panel import LogPanel
-from app.widgets.container_warning_popup import ContainerWarningPopup
+from app.widgets.container_warning_popup import ConfirmationDialog
 from app.widgets.service_status_bar import ServiceStatusBar
 from app.services.state import ServiceStateManager, ServiceState
 from app.services.service_manager import ServiceManager
+from app.services.events import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +31,10 @@ class MainWindow(QMainWindow):
 
         self._root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-        # Initialize state and service management
+        self._events = EventBus()
         self._state_manager = ServiceStateManager()
-        self._service_manager = ServiceManager(self._root_dir, self._state_manager)
+        self._service_manager = ServiceManager(self._root_dir, self._state_manager, self._events)
 
-        # Data
         self._suppliers: dict[str, Supplier] = {s.id: s for s in MOCK_SUPPLIERS}
         self._consumers: dict[str, Consumer] = {c.id: c for c in MOCK_CONSUMERS}
         self._supplier_cards: dict[str, SupplierCard] = {}
@@ -51,7 +52,6 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Left panel
         root.addWidget(self._build_left_panel(central))
 
         divider = QFrame()
@@ -59,11 +59,15 @@ class MainWindow(QMainWindow):
         divider.setStyleSheet(f"background: {BORDER};")
         root.addWidget(divider)
 
-        # Right panel
         root.addWidget(self._build_right_panel(central), stretch=1)
 
-        # Popup overlay
-        self._popup = ContainerWarningPopup(central)
+        self._popup = ConfirmationDialog(
+            title="Running Containers Detected",
+            message="There are running containers in docker-compose.\n\nDo you want to stop them?",
+            confirm_text="Yes, Stop Them",
+            cancel_text="No",
+            parent=central,
+        )
         self._popup.confirmed.connect(self._on_stop_all)
         self._popup.cancelled.connect(lambda: None)
         self._popup.hide()
@@ -80,14 +84,13 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(1)
 
-        # ── Redis Status ────────────────────────────────────────────────
         redis_widget = QWidget()
         redis_layout = QVBoxLayout(redis_widget)
         redis_layout.setContentsMargins(0, 0, 0, 0)
         redis_layout.setSpacing(0)
 
-        self._redis_status = ServiceStatusBar("REDIS", self._state_manager, "redis")
-        self._redis_status.toggled.connect(lambda active: self._service_manager.toggle_redis(active, self._log_panel.add_log_line))
+        self._redis_status = ServiceStatusBar("REDIS", self._events, "redis")
+        self._redis_status.toggled.connect(self._service_manager.toggle_redis)
         redis_layout.addWidget(self._redis_status)
 
         redis_scroll = QScrollArea()
@@ -97,7 +100,6 @@ class MainWindow(QMainWindow):
         redis_scroll.setWidget(QWidget())
         redis_layout.addWidget(redis_scroll)
 
-        # ── Suppliers ────────────────────────────────────────────────────
         suppliers_widget = QWidget()
         sl = QVBoxLayout(suppliers_widget)
         sl.setContentsMargins(0, 0, 0, 0)
@@ -126,7 +128,6 @@ class MainWindow(QMainWindow):
         scroll.setWidget(container)
         sl.addWidget(scroll)
 
-        # ── Consumers ────────────────────────────────────────────────────
         consumers_widget = QWidget()
         cl = QVBoxLayout(consumers_widget)
         cl.setContentsMargins(0, 0, 0, 0)
@@ -184,33 +185,25 @@ class MainWindow(QMainWindow):
         return header
 
     def _setup_listeners(self):
-        """Setup listeners for state changes."""
-        self._state_manager.register_listener(self._on_state_changed)
+        """Setup listeners for events."""
+        self._events.log_message.connect(self._log_panel.add_log_line)
+        self._events.state_changed.connect(self._on_service_state_changed)
 
-    def _on_state_changed(self):
+    def _on_service_state_changed(self, service_name: str, state_value: str):
         """Called when any service state changes."""
-        # Update UI based on current state
-        pass
+        try:
+            state = ServiceState(state_value)
+        except ValueError:
+            return
+
+        if service_name == "supplier" and service_name in self._supplier_cards:
+            card = self._supplier_cards[service_name]
+            card.set_loading(state in (ServiceState.STARTING, ServiceState.STOPPING))
 
     def _check_running_containers(self):
         """Check if there are running containers at startup and sync state."""
         try:
-            running = self._service_manager.docker.get_running_services()
-            all_services = self._service_manager.docker.get_all_services()
-
-            has_running = bool(running)
-            has_stopped = bool(all_services) and not has_running
-
-            logger.info(f"Docker check - Running services: {running}, All: {all_services}")
-
-            # Sync internal state with actual Docker state
-            if "redis" in running:
-                logger.info("Redis is running, syncing state")
-                self._state_manager.set_state("redis", ServiceState.RUNNING)
-
-            if "supplier" in running:
-                logger.info("Supplier is running, syncing state")
-                self._state_manager.set_state("supplier", ServiceState.RUNNING)
+            has_running, has_stopped = self._service_manager.check_and_sync_running_containers()
 
             if has_running or has_stopped:
                 self._popup.show()
@@ -224,21 +217,20 @@ class MainWindow(QMainWindow):
 
         if active:
             logger.info(f"Starting supplier: {supplier.name}")
-            self._service_manager.start_supplier(self._log_panel.add_log_line)
+            self._service_manager.start_supplier()
         else:
             logger.info(f"Stopping supplier: {supplier.name}")
-            self._service_manager.stop_supplier(self._log_panel.add_log_line)
+            self._service_manager.stop_supplier()
 
     def _on_run_requested(self, consumer_id: str):
         """Handle consumer run request."""
         consumer = self._consumers[consumer_id]
         logger.info(f"Running consumer: {consumer.name}")
-        # TODO: Implement consumer execution
 
     def _on_stop_all(self):
         """Stop all services."""
         logger.info("Stopping all services")
-        self._service_manager.stop_redis(self._log_panel.add_log_line)
+        self._service_manager.stop_all()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -246,3 +238,8 @@ class MainWindow(QMainWindow):
             central = self.centralWidget()
             if central:
                 self._popup.setGeometry(central.rect())
+
+    def closeEvent(self, event):
+        """Cleanup when closing."""
+        logger.info("Closing application")
+        super().closeEvent(event)

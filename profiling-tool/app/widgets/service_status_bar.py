@@ -2,22 +2,23 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 from PySide6.QtCore import Signal, Qt
 
 from app.theme import TEXT, TEXT_MUTED, ACCENT_ON, ACCENT_OFF
-from app.services.state import ServiceStateManager, ServiceState
+from app.services.state import ServiceState
+from app.services.events import EventBus
 
 
 class ServiceStatusBar(QFrame):
-    """Shows service status (Redis) with toggle button."""
+    """Shows service status with toggle button."""
 
     toggled = Signal(bool)
 
-    def __init__(self, label: str, state_manager: ServiceStateManager, service_name: str, parent=None):
+    def __init__(self, label: str, event_bus: EventBus, service_name: str, parent=None):
         super().__init__(parent)
         self.label = label
         self.service_name = service_name
-        self.state_manager = state_manager
+        self.event_bus = event_bus
         self._is_running = False
         self._setup()
-        self.state_manager.register_listener(self._on_state_changed)
+        self.event_bus.state_changed.connect(self._on_state_changed)
 
     def _setup(self):
         self.setObjectName("serviceStatusBar")
@@ -27,16 +28,13 @@ class ServiceStatusBar(QFrame):
         layout.setContentsMargins(16, 0, 16, 0)
         layout.setSpacing(12)
 
-        # Status indicator (circle)
         self._dot = QLabel("●")
         self._dot.setFixedSize(8, 8)
         self._dot.setStyleSheet(f"color: {ACCENT_OFF}; font-size: 8px;")
 
-        # Label
         lbl = QLabel(self.label)
         lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500; font-size: 11px;")
 
-        # Toggle button
         self._btn = QPushButton("Start")
         self._btn.setFixedSize(50, 24)
         self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -67,12 +65,18 @@ class ServiceStatusBar(QFrame):
     def _on_button_clicked(self):
         self.toggled.emit(not self._is_running)
 
-    def _on_state_changed(self):
+    def _on_state_changed(self, service_name: str, state_value: str):
         """Called when any service state changes."""
-        state = self.state_manager.get_state(self.service_name)
+        if service_name != self.service_name:
+            return
+
+        try:
+            state = ServiceState(state_value)
+        except ValueError:
+            return
+
         self._is_running = state == ServiceState.RUNNING
 
-        # Update button
         is_loading = state in (ServiceState.STARTING, ServiceState.STOPPING)
         self._btn.setEnabled(not is_loading)
 
@@ -113,7 +117,6 @@ class ServiceStatusBar(QFrame):
                 }}
             """)
 
-        # Update indicator dot
         if state == ServiceState.RUNNING:
             self._dot.setStyleSheet(f"color: {ACCENT_ON}; font-size: 8px;")
         elif state in (ServiceState.STARTING, ServiceState.STOPPING):

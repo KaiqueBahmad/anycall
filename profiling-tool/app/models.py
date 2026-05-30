@@ -26,12 +26,3 @@ class ExecutionResult:
     duration_ms: int
     lines: list[str]
     success: bool = True
-
-
-MOCK_SUPPLIERS = [
-    Supplier("s1", "Java", "java-workers"),
-]
-
-MOCK_CONSUMERS = [
-    Consumer("c1", "ProductConsumer", "java", "createProduct", "s1"),
-]
