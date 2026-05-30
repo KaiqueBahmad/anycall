@@ -3,8 +3,8 @@ spring:
     name: anycall-example-supplier
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
 
 anycall:
   timeout: 30s
