@@ -164,15 +164,19 @@ class ServiceManager:
         """Generic service stop implementation."""
         try:
             logger.info(f"Starting stop_{service_name} operation")
-            self.events.log_message.emit("$ docker compose down --remove-orphans -v", "info")
+            self.events.log_message.emit(f"$ docker compose down --remove-orphans -v {service_name}", "info")
 
-            if self.docker.stop_all():
-                self._set_state("redis", ServiceState.STOPPED)
-                self._set_state("supplier", ServiceState.STOPPED)
-                self.events.log_message.emit("✓ All services stopped", "success")
+            if self.docker.stop_service(service_name):
+                self._set_state(service_name, ServiceState.STOPPED)
+
+                # If redis is stopped, supplier depends on it so mark it stopped too
+                if service_name == "redis":
+                    self._set_state("supplier", ServiceState.STOPPED)
+
+                self.events.log_message.emit(f"✓ {service_name} stopped", "success")
             else:
                 self._set_state(service_name, ServiceState.ERROR)
-                self.events.log_message.emit("✗ Failed to stop services", "error")
+                self.events.log_message.emit(f"✗ Failed to stop {service_name}", "error")
 
             logger.info(f"stop_{service_name} operation completed")
 

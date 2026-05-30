@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
 
         for supplier in self._suppliers.values():
             card = SupplierCard(supplier)
-            card.toggled.connect(lambda active, sid=supplier.id: self._on_supplier_toggled(sid, active))
+            card.toggled.connect(lambda supplier_id, active, sid=supplier.id: self._on_supplier_toggled(sid, active))
             self._supplier_cards[supplier.id] = card
             vbox.addWidget(card)
 

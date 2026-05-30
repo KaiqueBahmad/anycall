@@ -26,6 +26,10 @@ class DockerService:
         """Start a service."""
         return self._run_compose("up", "-d", "--remove-orphans", service_name)
 
+    def stop_service(self, service_name: str) -> bool:
+        """Stop a specific service."""
+        return self._run_compose("down", "--remove-orphans", "-v", service_name)
+
     def stop_all(self) -> bool:
         """Stop all services."""
         return self._run_compose("down", "--remove-orphans", "-v")
