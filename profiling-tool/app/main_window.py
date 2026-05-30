@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
         for supplier in self._suppliers.values():
             card = SupplierCard(supplier)
             card.toggled.connect(lambda supplier_id, active, sid=supplier.id: self._on_supplier_toggled(sid, active))
+            card.build_requested.connect(self._on_build_requested)
             self._supplier_cards[supplier.id] = card
             vbox.addWidget(card)
 
@@ -226,6 +227,12 @@ class MainWindow(QMainWindow):
         """Handle consumer run request."""
         consumer = self._consumers[consumer_id]
         logger.info(f"Running consumer: {consumer.name}")
+
+    def _on_build_requested(self, supplier_id: str):
+        """Handle supplier build request."""
+        supplier = self._suppliers[supplier_id]
+        logger.info(f"Building supplier: {supplier.name}")
+        self._service_manager.build_supplier()
 
     def _on_stop_all(self):
         """Stop all services."""

@@ -104,6 +104,14 @@ class ServiceManager:
         self.events.log_message.emit("# Stopping all services", "header")
         self.stop_redis()
 
+    def build_supplier(self):
+        """Build supplier Docker image."""
+        self.events.log_message.emit("# Building supplier image", "header")
+
+        thread = threading.Thread(target=self._do_build_supplier)
+        thread.daemon = True
+        thread.start()
+
     def _do_start_service(self, service_name: str):
         """Generic service start implementation."""
         cancel_event = self._service_tasks[service_name]
@@ -208,6 +216,35 @@ class ServiceManager:
 
         logger.warning(f"Health check failed for {service_name} after {max_retries} attempts")
         return False
+
+    def _do_build_supplier(self):
+        """Build supplier Docker image."""
+        try:
+            logger.info("Starting supplier build")
+            self.events.log_message.emit("$ docker compose build supplier", "info")
+
+            result = subprocess.run(
+                ["docker", "compose", "build", "--no-cache", "supplier"],
+                cwd=self.docker.root_dir,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+
+            if result.returncode == 0:
+                self.events.log_message.emit("✓ Build successful", "success")
+                logger.info("Build completed successfully")
+            else:
+                error_output = result.stderr or result.stdout
+                self.events.log_message.emit(f"✗ Build failed: {error_output}", "error")
+                logger.error(f"Build failed: {error_output}")
+
+        except subprocess.TimeoutExpired:
+            self.events.log_message.emit("✗ Build timeout", "error")
+            logger.error("Build timeout")
+        except Exception as e:
+            logger.error(f"Error building supplier: {str(e)}", exc_info=True)
+            self.events.log_message.emit(f"✗ Error: {str(e)}", "error")
 
     def _set_state(self, service_name: str, state: ServiceState):
         """Update service state and emit event."""

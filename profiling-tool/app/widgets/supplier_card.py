@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel
-from PySide6.QtCore import Signal, QTimer
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton
+from PySide6.QtCore import Signal, QTimer, Qt
 
 from app.models import Supplier
 from app.theme import BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT_ON
@@ -8,6 +8,7 @@ from .toggle import ToggleSwitch
 
 class SupplierCard(QFrame):
     toggled = Signal(str, bool)
+    build_requested = Signal(str)  # supplier_id
 
     def __init__(self, supplier: Supplier, parent=None):
         super().__init__(parent)
@@ -49,15 +50,38 @@ class SupplierCard(QFrame):
         row1.addStretch()
         row1.addWidget(self._toggle)
 
-        # Row 2: group
+        # Row 2: group + build button
         row2 = QHBoxLayout()
         row2.setContentsMargins(0, 0, 0, 0)
         row2.setSpacing(8)
         group_lbl = QLabel(self.supplier.group)
         group_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px;")
 
+        build_btn = QPushButton("⟳ Build")
+        build_btn.setFixedSize(70, 20)
+        build_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        build_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {ACCENT_ON}15;
+                color: {ACCENT_ON};
+                border: 1px solid {ACCENT_ON}60;
+                border-radius: 3px;
+                font-size: 9px;
+                font-weight: 500;
+                padding: 2px;
+            }}
+            QPushButton:hover {{
+                background: {ACCENT_ON}25;
+            }}
+            QPushButton:pressed {{
+                background: {ACCENT_ON}35;
+            }}
+        """)
+        build_btn.clicked.connect(lambda: self.build_requested.emit(self.supplier.id))
+
         row2.addWidget(group_lbl)
         row2.addStretch()
+        row2.addWidget(build_btn)
 
         layout.addLayout(row1)
         layout.addLayout(row2)
