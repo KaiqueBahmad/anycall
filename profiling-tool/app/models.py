@@ -7,6 +7,7 @@ class Supplier:
     name: str
     group: str
     active: bool = False
+    loading: bool = False
 
 
 @dataclass

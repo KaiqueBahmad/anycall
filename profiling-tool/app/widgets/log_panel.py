@@ -149,6 +149,27 @@ class LogPanel(QWidget):
         self._v_duration.setText("—")
         self._v_status.setText("—")
 
+    def add_log_line(self, line: str, line_type: str = "info"):
+        cursor = self._log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+
+        color_map = {
+            "info": TEXT_MUTED,
+            "success": SUCCESS,
+            "error": ERROR,
+            "warning": WARNING,
+            "header": TEXT_SUBTLE,
+        }
+        color = color_map.get(line_type, TEXT_MUTED)
+
+        esc = line.replace("&", "&amp;").replace("<", "&lt;")
+        html = f'<span style="color:{color};">{esc}</span><br>'
+
+        self._log.insertHtml(html)
+        cursor = self._log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._log.setTextCursor(cursor)
+
     def show_result(self, result: ExecutionResult):
         duration_color = WARNING if result.duration_ms > 50 else SUCCESS
         status_color   = SUCCESS if result.success else ERROR

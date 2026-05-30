@@ -1,8 +1,8 @@
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, QTimer
 
 from app.models import Supplier
-from app.theme import BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT_ON, ACCENT_OFF
+from app.theme import BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT_ON
 from .toggle import ToggleSwitch
 
 
@@ -12,6 +12,8 @@ class SupplierCard(QFrame):
     def __init__(self, supplier: Supplier, parent=None):
         super().__init__(parent)
         self.supplier = supplier
+        self._loading_timer = None
+        self._spinner_state = 0
         self._setup()
 
     def _setup(self):
@@ -32,11 +34,17 @@ class SupplierCard(QFrame):
         name_lbl = QLabel(self.supplier.name)
         name_lbl.setStyleSheet(f"color: {TEXT}; font-weight: 500;")
 
+        self._spinner = QLabel("⠋")
+        self._spinner.setFixedWidth(8)
+        self._spinner.setStyleSheet(f"color: {ACCENT_ON}; font-size: 6px;")
+        self._spinner.hide()
+
         self._toggle = ToggleSwitch()
         self._toggle.setChecked(self.supplier.active)
         self._toggle.toggled.connect(self._on_toggle)
 
         row1.addWidget(self._dot)
+        row1.addWidget(self._spinner)
         row1.addWidget(name_lbl)
         row1.addStretch()
         row1.addWidget(self._toggle)
@@ -78,3 +86,37 @@ class SupplierCard(QFrame):
                 border: {border};
             }}
         """)
+
+    def set_loading(self, loading: bool):
+        self.supplier.loading = loading
+        self._toggle.setEnabled(not loading)
+
+        if loading:
+            self._dot.hide()
+            self._spinner.show()
+            self._start_spinner()
+        else:
+            self._stop_spinner()
+            self._spinner.hide()
+            self._dot.show()
+            self._refresh_dot()
+
+    def _start_spinner(self):
+        self._spinner_state = 0
+
+        if self._loading_timer:
+            self._loading_timer.stop()
+
+        self._loading_timer = QTimer()
+        self._loading_timer.timeout.connect(self._animate_spinner)
+        self._loading_timer.start(80)
+
+    def _stop_spinner(self):
+        if self._loading_timer:
+            self._loading_timer.stop()
+            self._loading_timer = None
+
+    def _animate_spinner(self):
+        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self._spinner_state = (self._spinner_state + 1) % len(spinner_chars)
+        self._spinner.setText(spinner_chars[self._spinner_state])

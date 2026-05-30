@@ -3,6 +3,7 @@ import subprocess
 import os
 import time
 import threading
+import logging
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
@@ -16,6 +17,16 @@ from app.widgets.supplier_card import SupplierCard
 from app.widgets.consumer_card import ConsumerCard
 from app.widgets.log_panel import LogPanel
 from app.widgets.container_warning_popup import ContainerWarningPopup
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/tmp/anycall_profiling.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -191,28 +202,80 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_supplier_toggled(self, supplier_id: str, active: bool):
-        thread = threading.Thread(target=self._toggle_docker_compose, args=(active,))
+        supplier = self._suppliers[supplier_id]
+        action = "Starting" if active else "Stopping"
+
+        logger.info(f"{action} supplier: {supplier.name} (ID: {supplier_id})")
+        self._log_panel.add_log_line(f"# {action} supplier: {supplier.name}", "header")
+
+        self._supplier_cards[supplier_id].set_loading(True)
+        thread = threading.Thread(target=self._toggle_docker_compose, args=(supplier_id, active))
         thread.daemon = True
         thread.start()
 
-    def _toggle_docker_compose(self, active: bool):
+    def _toggle_docker_compose(self, supplier_id: str, active: bool):
+        supplier = self._suppliers[supplier_id]
+        action = "up" if active else "down"
+        start_time = time.time()
+
         try:
             if active:
-                subprocess.run(
-                    ["docker", "compose", "up", "-d", "redis", "supplier"],
+                cmd = ["docker", "compose", "up", "-d", "--remove-orphans", "redis", "supplier"]
+                logger.info(f"Executing: {' '.join(cmd)}")
+                QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"$ docker compose up -d --remove-orphans redis supplier", "info"))
+
+                result = subprocess.run(
+                    cmd,
                     cwd=self._root_dir,
                     capture_output=True,
+                    text=True,
                     timeout=60,
                 )
+
+                if result.returncode == 0:
+                    elapsed = time.time() - start_time
+                    msg = f"✓ Supplier {supplier.name} started successfully ({elapsed:.2f}s)"
+                    logger.info(msg)
+                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "success"))
+                else:
+                    error_msg = result.stderr or result.stdout
+                    logger.error(f"Failed to start supplier: {error_msg}")
+                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {error_msg}", "error"))
             else:
-                subprocess.run(
-                    ["docker", "compose", "down"],
+                cmd = ["docker", "compose", "down", "--remove-orphans"]
+                logger.info(f"Executing: {' '.join(cmd)}")
+                QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"$ docker compose down --remove-orphans", "info"))
+
+                result = subprocess.run(
+                    cmd,
                     cwd=self._root_dir,
                     capture_output=True,
+                    text=True,
                     timeout=30,
                 )
-        except Exception:
-            pass
+
+                if result.returncode == 0:
+                    elapsed = time.time() - start_time
+                    msg = f"✓ Supplier {supplier.name} stopped successfully ({elapsed:.2f}s)"
+                    logger.info(msg)
+                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "success"))
+                else:
+                    error_msg = result.stderr or result.stdout
+                    logger.error(f"Failed to stop supplier: {error_msg}")
+                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {error_msg}", "error"))
+
+        except subprocess.TimeoutExpired:
+            elapsed = time.time() - start_time
+            msg = f"✗ Timeout after {elapsed:.2f}s"
+            logger.error(f"Timeout executing docker {action} for {supplier.name}")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "error"))
+        except Exception as e:
+            elapsed = time.time() - start_time
+            msg = f"✗ Exception: {str(e)}"
+            logger.error(f"Exception executing docker {action} for {supplier.name}: {str(e)}")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "error"))
+        finally:
+            QTimer.singleShot(0, lambda: self._supplier_cards[supplier_id].set_loading(False))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -225,24 +288,39 @@ class MainWindow(QMainWindow):
 
     def _on_run_requested(self, consumer_id: str):
         self._current_consumer_id = consumer_id
+        consumer = self._consumers[consumer_id]
+        logger.info(f"Running consumer: {consumer.name} (ID: {consumer_id})")
         thread = threading.Thread(target=self._execute_consumer)
         thread.daemon = True
         thread.start()
 
     def _execute_consumer(self):
         try:
-            # Restart consumer service to trigger execution
-            subprocess.run(
+            logger.info("Executing: docker compose restart consumer")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("$ docker compose restart consumer", "info"))
+
+            result = subprocess.run(
                 ["docker", "compose", "restart", "consumer"],
                 cwd=self._root_dir,
                 capture_output=True,
+                text=True,
                 timeout=10,
             )
+
+            if result.returncode == 0:
+                logger.info("Consumer restarted successfully")
+            else:
+                logger.error(f"Failed to restart consumer: {result.stderr or result.stdout}")
+
             # Wait for consumer to execute and then fetch logs
             time.sleep(2.5)
             QTimer.singleShot(0, self._fetch_execution_logs)
-        except Exception:
-            pass
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout restarting consumer")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✗ Timeout restarting consumer", "error"))
+        except Exception as e:
+            logger.error(f"Exception executing consumer: {str(e)}")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {str(e)}", "error"))
 
     def _fetch_execution_logs(self):
         consumer_id = self._current_consumer_id
@@ -257,6 +335,7 @@ class MainWindow(QMainWindow):
         ]
 
         try:
+            logger.info(f"Fetching logs for consumer {consumer.name}")
             # Get logs from both containers
             result = subprocess.run(
                 ["docker", "compose", "logs"],
@@ -272,10 +351,14 @@ class MainWindow(QMainWindow):
             # Calculate duration from logs if possible
             duration = 50
             success = "ERROR" not in result.stdout.lower()
+
+            status = "✓ Success" if success else "✗ Failed"
+            logger.info(f"Execution completed: {status} ({duration}ms)")
         except Exception as e:
             lines.append(f"Error: {str(e)}")
             duration = 0
             success = False
+            logger.error(f"Error fetching logs: {str(e)}")
 
         self._log_panel.show_result(
             ExecutionResult(
