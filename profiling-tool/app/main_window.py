@@ -1,8 +1,4 @@
-import datetime
-import subprocess
 import os
-import time
-import threading
 import logging
 
 from PySide6.QtWidgets import (
@@ -11,21 +7,16 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 
-from app.models import MOCK_SUPPLIERS, MOCK_CONSUMERS, Supplier, Consumer, ExecutionResult
+from app.models import MOCK_SUPPLIERS, MOCK_CONSUMERS, Supplier, Consumer
 from app.theme import BG_PANEL, BORDER, TEXT_MUTED, PANEL_WIDTH
 from app.widgets.supplier_card import SupplierCard
 from app.widgets.consumer_card import ConsumerCard
 from app.widgets.log_panel import LogPanel
 from app.widgets.container_warning_popup import ContainerWarningPopup
+from app.widgets.service_status_bar import ServiceStatusBar
+from app.services.state import ServiceStateManager, ServiceState
+from app.services.service_manager import ServiceManager
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/tmp/anycall_profiling.log'),
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger(__name__)
 
 
@@ -36,15 +27,21 @@ class MainWindow(QMainWindow):
         self.resize(1100, 700)
         self.setMinimumSize(820, 520)
 
+        self._root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        # Initialize state and service management
+        self._state_manager = ServiceStateManager()
+        self._service_manager = ServiceManager(self._root_dir, self._state_manager)
+
+        # Data
         self._suppliers: dict[str, Supplier] = {s.id: s for s in MOCK_SUPPLIERS}
         self._consumers: dict[str, Consumer] = {c.id: c for c in MOCK_CONSUMERS}
         self._supplier_cards: dict[str, SupplierCard] = {}
         self._consumer_cards: dict[str, ConsumerCard] = {}
 
         self._build_ui()
+        self._setup_listeners()
         QTimer.singleShot(500, self._check_running_containers)
-
-    # ------------------------------------------------------------------ build
 
     def _build_ui(self):
         central = QWidget()
@@ -54,7 +51,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Left panel: Suppliers and Consumers (vertical splitter)
+        # Left panel
         root.addWidget(self._build_left_panel(central))
 
         divider = QFrame()
@@ -62,12 +59,12 @@ class MainWindow(QMainWindow):
         divider.setStyleSheet(f"background: {BORDER};")
         root.addWidget(divider)
 
-        # Right panel: Execution Log
+        # Right panel
         root.addWidget(self._build_right_panel(central), stretch=1)
 
         # Popup overlay
         self._popup = ContainerWarningPopup(central)
-        self._popup.confirmed.connect(lambda: self._on_stop_containers(self._root_dir))
+        self._popup.confirmed.connect(self._on_stop_all)
         self._popup.cancelled.connect(lambda: None)
         self._popup.hide()
 
@@ -83,7 +80,24 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(1)
 
-        # ── suppliers ──────────────────────────────────────────────────
+        # ── Redis Status ────────────────────────────────────────────────
+        redis_widget = QWidget()
+        redis_layout = QVBoxLayout(redis_widget)
+        redis_layout.setContentsMargins(0, 0, 0, 0)
+        redis_layout.setSpacing(0)
+
+        self._redis_status = ServiceStatusBar("REDIS", self._state_manager, "redis")
+        self._redis_status.toggled.connect(lambda active: self._service_manager.toggle_redis(active, self._log_panel.add_log_line))
+        redis_layout.addWidget(self._redis_status)
+
+        redis_scroll = QScrollArea()
+        redis_scroll.setWidgetResizable(True)
+        redis_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        redis_scroll.setStyleSheet("background: transparent;")
+        redis_scroll.setWidget(QWidget())
+        redis_layout.addWidget(redis_scroll)
+
+        # ── Suppliers ────────────────────────────────────────────────────
         suppliers_widget = QWidget()
         sl = QVBoxLayout(suppliers_widget)
         sl.setContentsMargins(0, 0, 0, 0)
@@ -104,7 +118,7 @@ class MainWindow(QMainWindow):
 
         for supplier in self._suppliers.values():
             card = SupplierCard(supplier)
-            card.toggled.connect(self._on_supplier_toggled)
+            card.toggled.connect(lambda active, sid=supplier.id: self._on_supplier_toggled(sid, active))
             self._supplier_cards[supplier.id] = card
             vbox.addWidget(card)
 
@@ -112,7 +126,7 @@ class MainWindow(QMainWindow):
         scroll.setWidget(container)
         sl.addWidget(scroll)
 
-        # ── consumers ──────────────────────────────────────────────────
+        # ── Consumers ────────────────────────────────────────────────────
         consumers_widget = QWidget()
         cl = QVBoxLayout(consumers_widget)
         cl.setContentsMargins(0, 0, 0, 0)
@@ -139,9 +153,10 @@ class MainWindow(QMainWindow):
         scroll.setWidget(container)
         cl.addWidget(scroll)
 
+        splitter.addWidget(redis_widget)
         splitter.addWidget(suppliers_widget)
         splitter.addWidget(consumers_widget)
-        splitter.setSizes([220, 280])
+        splitter.setSizes([80, 220, 280])
 
         layout.addWidget(splitter)
         return panel
@@ -159,181 +174,71 @@ class MainWindow(QMainWindow):
     def _section_header(self, title: str) -> QFrame:
         header = QFrame()
         header.setFixedHeight(40)
-        header.setStyleSheet(
-            f"background: {BG_PANEL}; border-bottom: 1px solid {BORDER};"
-        )
+        header.setStyleSheet(f"background: {BG_PANEL}; border-bottom: 1px solid {BORDER};")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 0, 16, 0)
         lbl = QLabel(title)
-        lbl.setStyleSheet(
-            f"color: {TEXT_MUTED}; font-size: 10px; font-weight: 600;"
-        )
+        lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; font-weight: 600;")
         hl.addWidget(lbl)
         hl.addStretch()
         return header
 
+    def _setup_listeners(self):
+        """Setup listeners for state changes."""
+        self._state_manager.register_listener(self._on_state_changed)
+
+    def _on_state_changed(self):
+        """Called when any service state changes."""
+        # Update UI based on current state
+        pass
+
     def _check_running_containers(self):
+        """Check if there are running containers at startup and sync state."""
         try:
-            self._root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            running = self._service_manager.docker.get_running_services()
+            all_services = self._service_manager.docker.get_all_services()
 
-            # Check for running containers
-            result = subprocess.run(
-                ["docker", "compose", "ps", "--quiet"],
-                cwd=self._root_dir,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+            has_running = bool(running)
+            has_stopped = bool(all_services) and not has_running
 
-            running_containers = result.stdout.strip()
-            has_running = bool(running_containers)
+            logger.info(f"Docker check - Running services: {running}, All: {all_services}")
 
-            # Check for stopped containers that might cause conflicts
-            has_stopped = False
-            try:
-                result_all = subprocess.run(
-                    ["docker", "compose", "ps", "-a", "--quiet"],
-                    cwd=self._root_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                all_containers = result_all.stdout.strip()
-                has_stopped = bool(all_containers) and not has_running
+            # Sync internal state with actual Docker state
+            if "redis" in running:
+                logger.info("Redis is running, syncing state")
+                self._state_manager.set_state("redis", ServiceState.RUNNING)
 
-                logger.info(f"Docker check - Running: {has_running}, Stopped: {has_stopped}")
-            except Exception:
-                pass
+            if "supplier" in running:
+                logger.info("Supplier is running, syncing state")
+                self._state_manager.set_state("supplier", ServiceState.RUNNING)
 
             if has_running or has_stopped:
                 self._popup.show()
                 self._popup.raise_()
         except Exception as e:
             logger.warning(f"Error checking containers: {str(e)}")
-            pass
-
-    def _on_stop_containers(self, root_dir: str):
-        try:
-            logger.info("Starting Docker cleanup...")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("# Cleaning up Docker containers...", "header"))
-
-            # Step 1: Try normal down with remove-orphans and volumes
-            logger.info("Step 1: docker compose down --remove-orphans -v")
-            result = subprocess.run(
-                ["docker", "compose", "down", "--remove-orphans", "-v"],
-                cwd=root_dir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            if result.returncode == 0:
-                logger.info("Successfully cleaned up with docker compose down")
-                QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✓ Docker compose cleaned", "success"))
-            else:
-                logger.warning(f"Docker compose down returned code {result.returncode}: {result.stderr}")
-                QTimer.singleShot(0, lambda: self._log_panel.add_log_line("⚠ docker compose down encountered issues, trying force cleanup...", "warning"))
-
-                # Step 2: If compose down fails, try to remove containers by name
-                logger.info("Step 2: Force removing containers...")
-                containers = ["anycall-redis", "anycall-supplier", "anycall-consumer"]
-                for container in containers:
-                    try:
-                        subprocess.run(
-                            ["docker", "container", "rm", "-f", container],
-                            capture_output=True,
-                            timeout=10,
-                        )
-                        logger.info(f"Removed container: {container}")
-                    except Exception as e:
-                        logger.debug(f"Could not remove {container}: {str(e)}")
-
-                QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✓ Force cleanup completed", "success"))
-
-            logger.info("Docker cleanup completed")
-
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout during Docker cleanup")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✗ Timeout during cleanup", "error"))
-        except Exception as e:
-            logger.error(f"Error during Docker cleanup: {str(e)}")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {str(e)}", "error"))
 
     def _on_supplier_toggled(self, supplier_id: str, active: bool):
+        """Handle supplier toggle."""
         supplier = self._suppliers[supplier_id]
-        action = "Starting" if active else "Stopping"
 
-        logger.info(f"{action} supplier: {supplier.name} (ID: {supplier_id})")
-        self._log_panel.add_log_line(f"# {action} supplier: {supplier.name}", "header")
+        if active:
+            logger.info(f"Starting supplier: {supplier.name}")
+            self._service_manager.start_supplier(self._log_panel.add_log_line)
+        else:
+            logger.info(f"Stopping supplier: {supplier.name}")
+            self._service_manager.stop_supplier(self._log_panel.add_log_line)
 
-        self._supplier_cards[supplier_id].set_loading(True)
-        thread = threading.Thread(target=self._toggle_docker_compose, args=(supplier_id, active))
-        thread.daemon = True
-        thread.start()
+    def _on_run_requested(self, consumer_id: str):
+        """Handle consumer run request."""
+        consumer = self._consumers[consumer_id]
+        logger.info(f"Running consumer: {consumer.name}")
+        # TODO: Implement consumer execution
 
-    def _toggle_docker_compose(self, supplier_id: str, active: bool):
-        supplier = self._suppliers[supplier_id]
-        action = "up" if active else "down"
-        start_time = time.time()
-
-        try:
-            if active:
-                cmd = ["docker", "compose", "up", "-d", "--remove-orphans", "redis", "supplier"]
-                logger.info(f"Executing: {' '.join(cmd)}")
-                QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"$ docker compose up -d --remove-orphans redis supplier", "info"))
-
-                result = subprocess.run(
-                    cmd,
-                    cwd=self._root_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-
-                if result.returncode == 0:
-                    elapsed = time.time() - start_time
-                    msg = f"✓ Supplier {supplier.name} started successfully ({elapsed:.2f}s)"
-                    logger.info(msg)
-                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "success"))
-                else:
-                    error_msg = result.stderr or result.stdout
-                    logger.error(f"Failed to start supplier: {error_msg}")
-                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {error_msg}", "error"))
-            else:
-                cmd = ["docker", "compose", "down", "--remove-orphans"]
-                logger.info(f"Executing: {' '.join(cmd)}")
-                QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"$ docker compose down --remove-orphans", "info"))
-
-                result = subprocess.run(
-                    cmd,
-                    cwd=self._root_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-
-                if result.returncode == 0:
-                    elapsed = time.time() - start_time
-                    msg = f"✓ Supplier {supplier.name} stopped successfully ({elapsed:.2f}s)"
-                    logger.info(msg)
-                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "success"))
-                else:
-                    error_msg = result.stderr or result.stdout
-                    logger.error(f"Failed to stop supplier: {error_msg}")
-                    QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {error_msg}", "error"))
-
-        except subprocess.TimeoutExpired:
-            elapsed = time.time() - start_time
-            msg = f"✗ Timeout after {elapsed:.2f}s"
-            logger.error(f"Timeout executing docker {action} for {supplier.name}")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "error"))
-        except Exception as e:
-            elapsed = time.time() - start_time
-            msg = f"✗ Exception: {str(e)}"
-            logger.error(f"Exception executing docker {action} for {supplier.name}: {str(e)}")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(msg, "error"))
-        finally:
-            QTimer.singleShot(0, lambda: self._supplier_cards[supplier_id].set_loading(False))
+    def _on_stop_all(self):
+        """Stop all services."""
+        logger.info("Stopping all services")
+        self._service_manager.stop_redis(self._log_panel.add_log_line)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -341,91 +246,3 @@ class MainWindow(QMainWindow):
             central = self.centralWidget()
             if central:
                 self._popup.setGeometry(central.rect())
-
-    # --------------------------------------------------------------- handlers
-
-    def _on_run_requested(self, consumer_id: str):
-        self._current_consumer_id = consumer_id
-        consumer = self._consumers[consumer_id]
-        logger.info(f"Running consumer: {consumer.name} (ID: {consumer_id})")
-        thread = threading.Thread(target=self._execute_consumer)
-        thread.daemon = True
-        thread.start()
-
-    def _execute_consumer(self):
-        try:
-            logger.info("Executing: docker compose restart consumer")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("$ docker compose restart consumer", "info"))
-
-            result = subprocess.run(
-                ["docker", "compose", "restart", "consumer"],
-                cwd=self._root_dir,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-            if result.returncode == 0:
-                logger.info("Consumer restarted successfully")
-            else:
-                logger.error(f"Failed to restart consumer: {result.stderr or result.stdout}")
-
-            # Wait for consumer to execute and then fetch logs
-            time.sleep(2.5)
-            QTimer.singleShot(0, self._fetch_execution_logs)
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout restarting consumer")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✗ Timeout restarting consumer", "error"))
-        except Exception as e:
-            logger.error(f"Exception executing consumer: {str(e)}")
-            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {str(e)}", "error"))
-
-    def _fetch_execution_logs(self):
-        consumer_id = self._current_consumer_id
-        consumer = self._consumers[consumer_id]
-        supplier = self._suppliers[consumer.supplier_id]
-
-        now = datetime.datetime.now()
-        lines = [
-            f"# {consumer.name}  ·  {consumer.language.upper()}  →  {supplier.name}",
-            f"# {now.strftime('%Y-%m-%d %H:%M:%S')}",
-            "",
-        ]
-
-        try:
-            logger.info(f"Fetching logs for consumer {consumer.name}")
-            # Get logs from both containers
-            result = subprocess.run(
-                ["docker", "compose", "logs"],
-                cwd=self._root_dir,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-
-            log_lines = result.stdout.strip().split("\n")
-            lines.extend(log_lines)
-
-            # Calculate duration from logs if possible
-            duration = 50
-            success = "ERROR" not in result.stdout.lower()
-
-            status = "✓ Success" if success else "✗ Failed"
-            logger.info(f"Execution completed: {status} ({duration}ms)")
-        except Exception as e:
-            lines.append(f"Error: {str(e)}")
-            duration = 0
-            success = False
-            logger.error(f"Error fetching logs: {str(e)}")
-
-        self._log_panel.show_result(
-            ExecutionResult(
-                consumer=consumer,
-                supplier=supplier,
-                duration_ms=duration,
-                lines=lines,
-                success=success,
-            )
-        )
-
-
