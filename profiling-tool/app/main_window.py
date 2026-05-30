@@ -175,6 +175,8 @@ class MainWindow(QMainWindow):
     def _check_running_containers(self):
         try:
             self._root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+            # Check for running containers
             result = subprocess.run(
                 ["docker", "compose", "ps", "--quiet"],
                 cwd=self._root_dir,
@@ -184,22 +186,78 @@ class MainWindow(QMainWindow):
             )
 
             running_containers = result.stdout.strip()
-            if running_containers:
+            has_running = bool(running_containers)
+
+            # Check for stopped containers that might cause conflicts
+            has_stopped = False
+            try:
+                result_all = subprocess.run(
+                    ["docker", "compose", "ps", "-a", "--quiet"],
+                    cwd=self._root_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                all_containers = result_all.stdout.strip()
+                has_stopped = bool(all_containers) and not has_running
+
+                logger.info(f"Docker check - Running: {has_running}, Stopped: {has_stopped}")
+            except Exception:
+                pass
+
+            if has_running or has_stopped:
                 self._popup.show()
                 self._popup.raise_()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error checking containers: {str(e)}")
             pass
 
     def _on_stop_containers(self, root_dir: str):
         try:
-            subprocess.run(
-                ["docker", "compose", "down"],
+            logger.info("Starting Docker cleanup...")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("# Cleaning up Docker containers...", "header"))
+
+            # Step 1: Try normal down with remove-orphans and volumes
+            logger.info("Step 1: docker compose down --remove-orphans -v")
+            result = subprocess.run(
+                ["docker", "compose", "down", "--remove-orphans", "-v"],
                 cwd=root_dir,
                 capture_output=True,
+                text=True,
                 timeout=30,
             )
-        except Exception:
-            pass
+
+            if result.returncode == 0:
+                logger.info("Successfully cleaned up with docker compose down")
+                QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✓ Docker compose cleaned", "success"))
+            else:
+                logger.warning(f"Docker compose down returned code {result.returncode}: {result.stderr}")
+                QTimer.singleShot(0, lambda: self._log_panel.add_log_line("⚠ docker compose down encountered issues, trying force cleanup...", "warning"))
+
+                # Step 2: If compose down fails, try to remove containers by name
+                logger.info("Step 2: Force removing containers...")
+                containers = ["anycall-redis", "anycall-supplier", "anycall-consumer"]
+                for container in containers:
+                    try:
+                        subprocess.run(
+                            ["docker", "container", "rm", "-f", container],
+                            capture_output=True,
+                            timeout=10,
+                        )
+                        logger.info(f"Removed container: {container}")
+                    except Exception as e:
+                        logger.debug(f"Could not remove {container}: {str(e)}")
+
+                QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✓ Force cleanup completed", "success"))
+
+            logger.info("Docker cleanup completed")
+
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout during Docker cleanup")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line("✗ Timeout during cleanup", "error"))
+        except Exception as e:
+            logger.error(f"Error during Docker cleanup: {str(e)}")
+            QTimer.singleShot(0, lambda: self._log_panel.add_log_line(f"✗ Error: {str(e)}", "error"))
 
     def _on_supplier_toggled(self, supplier_id: str, active: bool):
         supplier = self._suppliers[supplier_id]
