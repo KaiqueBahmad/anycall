@@ -44,7 +44,7 @@ services:
       redis:
         condition: service_healthy
       supplier:
-        condition: service_started
+        condition: service_healthy
     environment:
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
