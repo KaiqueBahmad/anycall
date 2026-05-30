@@ -61,7 +61,6 @@ class LogPanel(QWidget):
 
         # Meta bar container
         meta_container = QWidget()
-        meta_container.hide()
         meta_layout = QVBoxLayout(meta_container)
         meta_layout.setContentsMargins(16, 8, 16, 0)
         meta_layout.setSpacing(0)
@@ -120,11 +119,6 @@ class LogPanel(QWidget):
         meta_container.setLayout(meta_layout)
         self._meta_bar_container = meta_container
 
-        # Placeholder
-        self._placeholder = QLabel("Execute a consumer to see logs here")
-        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        self._placeholder.setStyleSheet(f"color: {TEXT_SUBTLE}; font-size: 13px;")
-
         # Log text
         log_container = QWidget()
         log_layout = QVBoxLayout(log_container)
@@ -133,7 +127,6 @@ class LogPanel(QWidget):
 
         self._log = QTextEdit()
         self._log.setReadOnly(True)
-        self._log.hide()
         self._log.setStyleSheet(f"""
             QTextEdit {{
                 background: transparent;
@@ -147,33 +140,32 @@ class LogPanel(QWidget):
         log_layout.addWidget(self._log)
 
         layout.addWidget(self._meta_bar_container)
-        layout.addWidget(self._placeholder)
         layout.addWidget(log_container, stretch=1)
 
     def _on_clear(self):
         self._log.clear()
-        self._placeholder.show()
-        self._meta_bar_container.hide()
-        self._log.hide()
+        self._v_consumer.setText("—")
+        self._v_supplier.setText("—")
+        self._v_duration.setText("—")
+        self._v_status.setText("—")
 
     def show_result(self, result: ExecutionResult):
         duration_color = WARNING if result.duration_ms > 50 else SUCCESS
         status_color   = SUCCESS if result.success else ERROR
 
-        self._v_consumer.setText(result.consumer.name)
-        self._v_supplier.setText(result.supplier.name)
+        self._v_consumer.setText(result.consumer.name if result.consumer else "—")
+        self._v_supplier.setText(result.supplier.name if result.supplier else "—")
 
-        self._v_duration.setText(f"{result.duration_ms}ms")
-        self._v_duration.setStyleSheet(
-            f"color: {duration_color}; font-size: 11px; font-family: 'SF Mono', 'Courier', monospace;"
-        )
+        if result.duration_ms > 0:
+            self._v_duration.setText(f"{result.duration_ms}ms")
+            self._v_duration.setStyleSheet(
+                f"color: {duration_color}; font-size: 11px; font-family: 'SF Mono', 'Courier', monospace;"
+            )
+        else:
+            self._v_duration.setText("—")
 
         self._v_status.setText("OK" if result.success else "ERROR")
         self._v_status.setStyleSheet(f"color: {status_color}; font-size: 11px; font-weight: 500;")
-
-        self._placeholder.hide()
-        self._meta_bar_container.show()
-        self._log.show()
 
         self._log.clear()
         html_lines = []

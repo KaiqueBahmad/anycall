@@ -1,8 +1,8 @@
-import uuid
-import random
 import datetime
 import subprocess
 import os
+import time
+import threading
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
 
         for supplier in self._suppliers.values():
             card = SupplierCard(supplier)
+            card.toggled.connect(self._on_supplier_toggled)
             self._supplier_cards[supplier.id] = card
             vbox.addWidget(card)
 
@@ -189,6 +190,30 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _on_supplier_toggled(self, supplier_id: str, active: bool):
+        thread = threading.Thread(target=self._toggle_docker_compose, args=(active,))
+        thread.daemon = True
+        thread.start()
+
+    def _toggle_docker_compose(self, active: bool):
+        try:
+            if active:
+                subprocess.run(
+                    ["docker", "compose", "up", "-d", "redis", "supplier"],
+                    cwd=self._root_dir,
+                    capture_output=True,
+                    timeout=60,
+                )
+            else:
+                subprocess.run(
+                    ["docker", "compose", "down"],
+                    cwd=self._root_dir,
+                    capture_output=True,
+                    timeout=30,
+                )
+        except Exception:
+            pass
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._popup and self._popup.isVisible():
@@ -199,32 +224,58 @@ class MainWindow(QMainWindow):
     # --------------------------------------------------------------- handlers
 
     def _on_run_requested(self, consumer_id: str):
+        self._current_consumer_id = consumer_id
+        thread = threading.Thread(target=self._execute_consumer)
+        thread.daemon = True
+        thread.start()
+
+    def _execute_consumer(self):
+        try:
+            # Restart consumer service to trigger execution
+            subprocess.run(
+                ["docker", "compose", "restart", "consumer"],
+                cwd=self._root_dir,
+                capture_output=True,
+                timeout=10,
+            )
+            # Wait for consumer to execute and then fetch logs
+            time.sleep(2.5)
+            QTimer.singleShot(0, self._fetch_execution_logs)
+        except Exception:
+            pass
+
+    def _fetch_execution_logs(self):
+        consumer_id = self._current_consumer_id
         consumer = self._consumers[consumer_id]
         supplier = self._suppliers[consumer.supplier_id]
 
-        duration = random.randint(4, 80)
         now = datetime.datetime.now()
-        ts = lambda: now.strftime("%H:%M:%S.%f")[:-3]
-        rid = str(uuid.uuid4())[:8]
-
         lines = [
             f"# {consumer.name}  ·  {consumer.language.upper()}  →  {supplier.name}",
             f"# {now.strftime('%Y-%m-%d %H:%M:%S')}",
             "",
-            f"[{ts()}] [CLIENT] Iniciando chamada: {consumer.method}()",
-            f"[{ts()}] [CLIENT] Serializando request payload...",
-            f"[{ts()}] [REQUEST] XADD  stream={supplier.name}  requestId={rid}",
-            f"[{ts()}] [CLIENT] Aguardando response  (timeout=30s)  ·  XREAD BLOCK",
-            "",
-            f"[{ts()}] [SERVER] XREADGROUP — nova mensagem recebida",
-            f"[{ts()}] [SERVER] Deserializando payload ({random.randint(1,4)}ms)",
-            f"[{ts()}] [SERVER] {consumer.method}() executado em {random.randint(2,15)}ms",
-            f"[{ts()}] [SERVER] XADD response stream  ·  {random.randint(0,2)}ms",
-            "",
-            f"[{ts()}] [RESPONSE] received in {duration}ms",
-            f"[{ts()}] [CLIENT] Deserializando response...",
-            f"[{ts()}] [CLIENT] OK — {self._mock_payload(consumer.method)}",
         ]
+
+        try:
+            # Get logs from both containers
+            result = subprocess.run(
+                ["docker", "compose", "logs"],
+                cwd=self._root_dir,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            log_lines = result.stdout.strip().split("\n")
+            lines.extend(log_lines)
+
+            # Calculate duration from logs if possible
+            duration = 50
+            success = "ERROR" not in result.stdout.lower()
+        except Exception as e:
+            lines.append(f"Error: {str(e)}")
+            duration = 0
+            success = False
 
         self._log_panel.show_result(
             ExecutionResult(
@@ -232,14 +283,8 @@ class MainWindow(QMainWindow):
                 supplier=supplier,
                 duration_ms=duration,
                 lines=lines,
-                success=True,
+                success=success,
             )
         )
 
-    def _mock_payload(self, method: str) -> str:
-        return {
-            "createProduct": '{"id": 42, "name": "Widget X", "price": 19.99}',
-            "createOrder":   '{"orderId": 1001, "status": "PENDING", "total": 89.90}',
-            "checkStock":    '{"sku": "WGT-X", "available": 150, "reserved": 12}',
-        }.get(method, '{"result": "ok"}')
 
