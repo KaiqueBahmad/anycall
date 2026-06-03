@@ -1,0 +1,11 @@
+# IMPORTANT: do NOT add target/ here — the image copies target/*.jar (see R1).
+.git
+.gitignore
+**/.idea
+**/*.iml
+**/.vscode
+**/*.log
+**/mvnw
+**/mvnw.cmd
+**/.mvn
+**/src

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>dev.kaiquebt</groupId>
+    <artifactId>anycall-aggregator</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>AnyCall Aggregator</name>
+    <description>Reactor aggregator: lib + example modules. Builds in dependency order so dependents type-check against the freshly compiled lib (not the ~/.m2 copy).</description>
+
+    <!--
+      Agregador PURO: apenas lista os modulos. Os filhos NAO precisam declarar <parent>.
+      A ordem de build e' resolvida pelo reactor a partir do GAV dev.kaiquebt:anycall,
+      que supplier e consumer declaram como dependencia.
+    -->
+    <modules>
+        <module>lib</module>
+        <module>example-supplier</module>
+        <module>example-consumer</module>
+    </modules>
+
+</project>

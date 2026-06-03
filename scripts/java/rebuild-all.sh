@@ -1,31 +1,38 @@
 #!/bin/bash
 set -e
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.."   # -> repo root
 
 prefix() {
-  local label=$1
-  shift
+  local label=$1; shift
   "$@" 2>&1 | sed "s/^/[$label] /"
   return ${PIPESTATUS[0]}
 }
 
-prefix lib      mvn -f java/lib/pom.xml clean install -DskipTests &
-PID_LIB=$!
-prefix supplier mvn -f java/example-supplier/pom.xml clean install -DskipTests &
-PID_SUPPLIER=$!
-prefix consumer mvn -f java/example-consumer/pom.xml clean install -DskipTests &
-PID_CONSUMER=$!
+# Usage:
+#   ./rebuild-all.sh         full reactor build
+#   ./rebuild-all.sh lib     rebuild lib + its dependents only (-amd)
+CHANGED="$1"
 
 set +e
-wait $PID_LIB;      LIB_STATUS=$?
-wait $PID_SUPPLIER; SUPPLIER_STATUS=$?
-wait $PID_CONSUMER; CONSUMER_STATUS=$?
+if [ -n "$CHANGED" ]; then
+  prefix mvn mvn -f java/pom.xml clean install -DskipTests -T1C -pl "$CHANGED" -amd
+else
+  prefix mvn mvn -f java/pom.xml clean install -DskipTests -T1C
+fi
+MVN_STATUS=$?
+
+SUPPLIER_STATUS=0
+CONSUMER_STATUS=0
+if [ $MVN_STATUS -eq 0 ]; then
+  # No --no-cache. clean above guarantees one fresh jar in each target/.
+  prefix supplier docker compose build supplier; SUPPLIER_STATUS=$?
+  prefix consumer docker compose build consumer; CONSUMER_STATUS=$?
+fi
 
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-[ $LIB_STATUS -eq 0 ]      && echo "✓ lib"      || echo "✗ lib"
-[ $SUPPLIER_STATUS -eq 0 ] && echo "✓ supplier" || echo "✗ supplier"
-[ $CONSUMER_STATUS -eq 0 ] && echo "✓ consumer" || echo "✗ consumer"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-[ $LIB_STATUS -eq 0 ] && [ $SUPPLIER_STATUS -eq 0 ] && [ $CONSUMER_STATUS -eq 0 ] || exit 1
+echo "----------------------------------------"
+[ $MVN_STATUS -eq 0 ]      && echo "OK  maven (reactor)" || echo "FAIL maven (reactor)"
+[ $SUPPLIER_STATUS -eq 0 ] && echo "OK  supplier docker" || echo "FAIL supplier docker"
+[ $CONSUMER_STATUS -eq 0 ] && echo "OK  consumer docker" || echo "FAIL consumer docker"
+echo "----------------------------------------"
+[ $MVN_STATUS -eq 0 ] && [ $SUPPLIER_STATUS -eq 0 ] && [ $CONSUMER_STATUS -eq 0 ] || exit 1

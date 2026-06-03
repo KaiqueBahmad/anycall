@@ -18,7 +18,8 @@ services:
   supplier:
     build:
       context: ./java
-      dockerfile: example-supplier/Dockerfile
+      dockerfile: Dockerfile
+      target: supplier
     container_name: anycall-supplier
     depends_on:
       redis:
@@ -38,7 +39,8 @@ services:
   consumer:
     build:
       context: ./java
-      dockerfile: example-consumer/Dockerfile
+      dockerfile: Dockerfile
+      target: consumer
     container_name: anycall-consumer
     depends_on:
       redis:
