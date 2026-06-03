@@ -1,23 +1,28 @@
 package kaiquebt.dev.anycall.publisher;
 
 /**
- * Publisher for sending messages to Redis channels using pub/sub.
+ * Publisher interface for sending messages to Redis streams.
+ * Provides methods for publishing objects (serialized to JSON) and raw strings to Redis streams.
  */
 public interface AnyCallPublisher {
 
     /**
-     * Publishes a message to a Redis channel.
+     * Publishes a serialized message to a Redis stream.
+     * The message object is serialized to JSON before being published.
      *
-     * @param channel the channel name
-     * @param message the message to publish
+     * @param channel the name of the Redis stream to publish to
+     * @param message the message object to serialize and publish
+     * @throws kaiquebt.dev.anycall.exception.AnyCallException if serialization or publishing fails
      */
     void publish(String channel, Object message);
 
     /**
-     * Publishes a string message to a Redis channel.
+     * Publishes a string message to a Redis stream.
+     * The message is published as-is without additional serialization.
      *
-     * @param channel the channel name
+     * @param channel the name of the Redis stream to publish to
      * @param message the string message to publish
+     * @throws kaiquebt.dev.anycall.exception.AnyCallException if publishing fails
      */
     void publishString(String channel, String message);
 }

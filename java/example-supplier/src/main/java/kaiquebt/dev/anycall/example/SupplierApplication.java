@@ -25,6 +25,7 @@ public class SupplierApplication implements CommandLineRunner {
     }
 
 	public static void main(String[] args) {
+        System.out.println("teste123");
 		SpringApplication.run(SupplierApplication.class, args);
 	}
 

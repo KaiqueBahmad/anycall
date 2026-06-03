@@ -2,18 +2,18 @@ package kaiquebt.dev.anycall.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kaiquebt.dev.anycall.core.AnyCallClient;
+import kaiquebt.dev.anycall.core.RedisStreamAdapter;
 import kaiquebt.dev.anycall.exception.AnyCallException;
 import kaiquebt.dev.anycall.model.AnyCallRequest;
 import kaiquebt.dev.anycall.model.AnyCallResponse;
 import kaiquebt.dev.anycall.publisher.AnycallQueues;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.redis.connection.stream.*;
-import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class AnyCallClientImpl implements AnyCallClient {
 
@@ -21,28 +21,40 @@ public class AnyCallClientImpl implements AnyCallClient {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
     private static final String DATA_FIELD = "data";
 
-    private final StringRedisTemplate redisTemplate;
+    private final RedisStreamAdapter redis;
     private final ObjectMapper objectMapper;
     private final Duration timeout;
     private final boolean metricsEnabled;
 
-    public AnyCallClientImpl(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
-        this(redisTemplate, objectMapper, DEFAULT_TIMEOUT, false);
+    public AnyCallClientImpl(RedisStreamAdapter redis, ObjectMapper objectMapper) {
+        this(redis, objectMapper, DEFAULT_TIMEOUT, false);
     }
 
-    public AnyCallClientImpl(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, Duration timeout) {
-        this(redisTemplate, objectMapper, timeout, false);
+    public AnyCallClientImpl(RedisStreamAdapter redis, ObjectMapper objectMapper, Duration timeout) {
+        this(redis, objectMapper, timeout, false);
     }
 
-    public AnyCallClientImpl(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, Duration timeout, boolean metricsEnabled) {
-        this.redisTemplate = redisTemplate;
+    public AnyCallClientImpl(RedisStreamAdapter redis, ObjectMapper objectMapper, Duration timeout, boolean metricsEnabled) {
+        this.redis = redis;
         this.objectMapper = objectMapper;
         this.timeout = timeout;
         this.metricsEnabled = metricsEnabled;
     }
 
+    /**
+     * Makes a synchronous remote procedure call via Redis.
+     * Serializes the request, publishes it to the appropriate request stream,
+     * waits for the response on a dedicated stream, and deserializes the result.
+     *
+     * @param <T> the type of the expected response
+     * @param methodName the name of the remote method to invoke
+     * @param request the request payload object to be serialized
+     * @param responseType the class type for deserializing the response
+     * @return the deserialized response from the remote method
+     * @throws kaiquebt.dev.anycall.exception.AnyCallException if the call fails, times out,
+     *         or the remote method returns an error
+     */
     @Override
-    @SuppressWarnings("unchecked")
     public <T> T call(String methodName, Object request, Class<T> responseType) {
         long startTime = metricsEnabled ? System.currentTimeMillis() : 0;
         String _requestId = null;
@@ -54,7 +66,6 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             String payload = objectMapper.writeValueAsString(request);
-
             AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, payload);
             String requestId = anyCallRequest.requestId();
             _requestId = requestId;
@@ -65,25 +76,19 @@ public class AnyCallClientImpl implements AnyCallClient {
                     System.currentTimeMillis() - startTime);
             }
 
-            // Publish request to stream
             long beforePush = metricsEnabled ? System.currentTimeMillis() : 0;
             String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
-            redisTemplate.opsForStream().add(
-                StreamRecords.newRecord().in(requestStream).ofMap(Collections.singletonMap(DATA_FIELD, requestJson))
-            );
+            redis.add(requestStream, Collections.singletonMap(DATA_FIELD, requestJson));
 
             if (metricsEnabled) {
                 log.info("[METRICS] [CLIENT] [{}] Request published to stream in {}ms", requestId,
                     System.currentTimeMillis() - beforePush);
             }
 
-            // Block-read the response stream from the beginning (0-0 avoids missing fast responses)
             responseStream = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
             long beforeWait = metricsEnabled ? System.currentTimeMillis() : 0;
 
-            StreamReadOptions readOptions = StreamReadOptions.empty().block(timeout).count(1);
-            List<MapRecord<String, Object, Object>> records = redisTemplate.opsForStream()
-                .read(readOptions, StreamOffset.create(responseStream, ReadOffset.from("0-0")));
+            List<Object> records = redis.read(responseStream, timeout);
 
             if (metricsEnabled) {
                 log.info("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
@@ -94,9 +99,9 @@ public class AnyCallClientImpl implements AnyCallClient {
                 throw new AnyCallException("Timeout waiting for response from method: " + methodName);
             }
 
-            // Deserialize response
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
-            String responseJson = (String) records.get(0).getValue().get(DATA_FIELD);
+            Map<String, String> data = (Map<String, String>) records.get(1);
+            String responseJson = data.get(DATA_FIELD);
             AnyCallResponse response = objectMapper.readValue(responseJson, AnyCallResponse.class);
 
             if (response.hasError()) {
@@ -124,7 +129,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             throw new AnyCallException("Failed to call method: " + methodName, e);
         } finally {
             if (responseStream != null) {
-                redisTemplate.delete(responseStream);
+                redis.delete(responseStream);
             }
         }
     }

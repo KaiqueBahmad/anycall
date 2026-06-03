@@ -1,112 +1,101 @@
 package kaiquebt.dev.anycall.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import kaiquebt.dev.anycall.core.AnyCallServer;
-import kaiquebt.dev.anycall.core.AnyCallSupplier;
 import kaiquebt.dev.anycall.annotation.Supply;
 import kaiquebt.dev.anycall.config.AnycallProperties;
-import org.springframework.context.ApplicationContext;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import kaiquebt.dev.anycall.core.AnyCallServer;
+import kaiquebt.dev.anycall.core.RedisStreamAdapter;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Builder for creating and configuring an AnyCallServer.
- */
 public class AnyCallServerBuilder {
 
-    private final StringRedisTemplate redisTemplate;
+    private final RedisStreamAdapter redis;
     private final ObjectMapper objectMapper;
-    private final ApplicationContext applicationContext;
+    private final Map<String, MethodHandler> handlers;
     private String group = "default";
+    private boolean metricsEnabled = false;
 
-    public AnyCallServerBuilder(
-        StringRedisTemplate redisTemplate,
-        ObjectMapper objectMapper,
-        ApplicationContext applicationContext
-    ) {
-        this.redisTemplate = redisTemplate;
+    public AnyCallServerBuilder(RedisStreamAdapter redis, ObjectMapper objectMapper) {
+        this.redis = redis;
         this.objectMapper = objectMapper;
-        this.applicationContext = applicationContext;
+        this.handlers = new HashMap<>();
     }
 
-    /**
-     * Sets the consumer group name.
-     */
     public AnyCallServerBuilder group(String group) {
         this.group = group;
         return this;
     }
 
-    /**
-     * Builds and starts the server.
-     * Scans for beans annotated with @AnyCallSupplier and registers their @Supply methods.
-     */
-    public AnyCallServer start() {
-        Map<String, MethodHandler> methodHandlers = scanAndRegisterMethods();
+    public AnyCallServerBuilder metrics(boolean enabled) {
+        this.metricsEnabled = enabled;
+        return this;
+    }
 
-        boolean metricsEnabled = false;
-        try {
-            AnycallProperties properties = applicationContext.getBean(AnycallProperties.class);
-            metricsEnabled = properties.metricsEnabled();
-        } catch (Exception e) {
-            // Properties bean not found, use default
+    public AnyCallServerBuilder properties(AnycallProperties properties) {
+        this.metricsEnabled = properties.metricsEnabled();
+        return this;
+    }
+
+    public AnyCallServerBuilder register(Object supplier) {
+        scanAndRegisterSupplier(supplier);
+        return this;
+    }
+
+    public AnyCallServerBuilder register(Object... suppliers) {
+        for (Object supplier : suppliers) {
+            scanAndRegisterSupplier(supplier);
+        }
+        return this;
+    }
+
+    public AnyCallServerBuilder register(Iterable<?> suppliers) {
+        for (Object supplier : suppliers) {
+            scanAndRegisterSupplier(supplier);
+        }
+        return this;
+    }
+
+    public AnyCallServer start() {
+        if (handlers.isEmpty()) {
+            throw new IllegalStateException(
+                "No methods annotated with @Supply found. " +
+                "Register at least one supplier using register() method."
+            );
         }
 
         AnyCallServer server = new AnyCallServerImpl(
-            redisTemplate,
+            redis,
             objectMapper,
             group,
-            methodHandlers,
+            handlers,
             metricsEnabled
         );
         return server.start();
     }
 
-    private Map<String, MethodHandler> scanAndRegisterMethods() {
-        Map<String, MethodHandler> handlers = new HashMap<>();
+    private void scanAndRegisterSupplier(Object supplier) {
+        Class<?> supplierClass = supplier.getClass();
 
-        // Find all beans annotated with @AnyCallSupplier
-        Map<String, Object> supplierBeans = applicationContext.getBeansWithAnnotation(AnyCallSupplier.class);
+        for (Method method : supplierClass.getDeclaredMethods()) {
+            Supply supplyAnnotation = method.getAnnotation(Supply.class);
 
-        for (Object bean : supplierBeans.values()) {
-            Class<?> beanClass = bean.getClass();
+            if (supplyAnnotation != null) {
+                String methodName = supplyAnnotation.value();
 
-            // Scan all methods in the bean
-            for (Method method : beanClass.getDeclaredMethods()) {
-                Supply supplyAnnotation = method.getAnnotation(Supply.class);
-
-                if (supplyAnnotation != null) {
-                    String methodName = supplyAnnotation.value();
-
-                    // Validate method signature
-                    if (method.getParameterCount() != 1) {
-                        throw new IllegalStateException(
-                            "Method " + method.getName() + " annotated with @Supply must have exactly one parameter"
-                        );
-                    }
-
-                    Class<?> parameterType = method.getParameterTypes()[0];
-
-                    // Make the method accessible
-                    method.setAccessible(true);
-
-                    // Register the handler
-                    MethodHandler handler = new MethodHandler(bean, method, parameterType);
-                    handlers.put(methodName, handler);
+                if (method.getParameterCount() != 1) {
+                    throw new IllegalStateException(
+                        "Method " + method.getName() + " annotated with @Supply must have exactly one parameter"
+                    );
                 }
+
+                Class<?> parameterType = method.getParameterTypes()[0];
+                method.setAccessible(true);
+
+                handlers.put(methodName, new MethodHandler(supplier, method, parameterType));
             }
         }
-
-        if (handlers.isEmpty()) {
-            throw new IllegalStateException(
-                "No methods annotated with @Supply found. " +
-                "Make sure you have classes annotated with @AnyCallSupplier containing @Supply methods."
-            );
-        }
-
-        return handlers;
     }
 }
