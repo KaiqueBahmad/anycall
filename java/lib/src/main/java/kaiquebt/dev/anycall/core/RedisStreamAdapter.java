@@ -32,8 +32,10 @@ public class RedisStreamAdapter implements AutoCloseable {
 
     public List<Object> read(String streamKey, Duration timeout) {
         try {
+            XReadArgs args = new XReadArgs();
+            args.block(timeout);
             XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.from(streamKey, "0-0");
-            List<io.lettuce.core.StreamMessage<String, String>> result = streamCommands.xread(offset);
+            List<io.lettuce.core.StreamMessage<String, String>> result = streamCommands.xread(args, offset);
 
             if (result != null && !result.isEmpty()) {
                 io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
