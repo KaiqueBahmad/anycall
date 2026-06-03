@@ -13,43 +13,79 @@ import org.springframework.stereotype.Component;
 @SpringBootApplication
 public class ConsumerApplication {
 
-	public static void main(String[] args) {
-		SpringApplication.run(ConsumerApplication.class, args);
-	}
+    public static void main(String[] args) {
+        SpringApplication.run(ConsumerApplication.class, args);
+    }
 
-	@Bean
-	public RedisStreamAdapter redisStreamAdapter() {
-		return new RedisStreamAdapter("redis://redis:6379");
-	}
+    @Bean
+    public RedisStreamAdapter redisStreamAdapter() {
+        return new RedisStreamAdapter("redis://redis:6379");
+    }
 
-	@Bean
-	public AnyCallClient anyCallClient(RedisStreamAdapter redis) {
-		return new AnyCallClientImpl(redis, new ObjectMapper());
-	}
+    @Bean
+    public AnyCallClient anyCallClient(RedisStreamAdapter redis) {
+        return new AnyCallClientImpl(redis, new ObjectMapper());
+    }
 
-	@Component
-	public static class ConsumerRunner implements CommandLineRunner {
-		private final AnyCallClient anyCall;
+    @Component
+    public static class ConsumerRunner implements CommandLineRunner {
+        private final AnyCallClient anyCall;
 
-		public ConsumerRunner(AnyCallClient anyCall) {
-			this.anyCall = anyCall;
-		}
+        public ConsumerRunner(AnyCallClient anyCall) {
+            this.anyCall = anyCall;
+        }
 
-		@Override
-		public void run(String... args) throws Exception {
-			try {
-				System.out.println("[Consumer] Chamando supplier...");
-				long startTime = System.currentTimeMillis();
-				Product response = anyCall.call("create-new-product", new CreateProductRequest("teste", 123), Product.class);
-				long endTime = System.currentTimeMillis();
-				System.out.println("[Consumer] Resposta recebida em " + (endTime - startTime) + "ms");
-				System.out.println("[Consumer] Produto: " + response);
-			} catch (Exception e) {
-				System.err.println("[Consumer] Erro ao chamar supplier: " + e.getMessage());
-				e.printStackTrace();
-			} finally {
-				System.exit(0);
-			}
-		}
-	}
+        @Override
+        public void run(String... args) throws Exception {
+            int total = 100;
+            long[] timings = new long[total];
+            int ok = 0;
+
+            try {
+                long suiteStart = System.currentTimeMillis();
+
+                for (int i = 1; i <= total; i++) {
+                    // Build the payload OUTSIDE the timed section
+                    CreateProductRequest request = new CreateProductRequest("test-" + i, 123 + i);
+
+                    try {
+                        long startTime = System.nanoTime();
+                        Product response = anyCall.call("create-new-product", request, Product.class);
+                        long elapsed = (System.nanoTime() - startTime) / 1_000_000; // ns -> ms
+
+                        timings[ok] = elapsed;
+                        ok++;
+                        if (i % 10 == 0 || i == 1) {
+                            System.out.println("[Consumer] Call " + i + "/" + total + " -> " + elapsed + "ms");
+                        }
+                    } catch (Exception e) {
+                        System.err.println("[Consumer] Error on call " + i + ": " + e.getMessage());
+                    }
+                }
+
+                long suiteElapsed = System.currentTimeMillis() - suiteStart;
+
+                System.out.println("[Consumer] ---- Summary ----");
+                System.out.println("[Consumer] Succeeded: " + ok + "/" + total);
+                System.out.println("[Consumer] Total wall time: " + suiteElapsed + "ms");
+
+                if (ok > 0) {
+                    long[] sorted = java.util.Arrays.copyOf(timings, ok);
+                    java.util.Arrays.sort(sorted);
+                    long sum = 0;
+                    for (long t : sorted)
+                        sum += t;
+
+                    System.out.println("[Consumer] Min: " + sorted[0] + "ms");
+                    System.out.println("[Consumer] Avg: " + (sum / ok) + "ms");
+                    System.out.println("[Consumer] p50: " + sorted[(int) (ok * 0.50)] + "ms");
+                    System.out.println("[Consumer] p95: " + sorted[(int) Math.min(ok - 1, ok * 0.95)] + "ms");
+                    System.out.println("[Consumer] p99: " + sorted[(int) Math.min(ok - 1, ok * 0.99)] + "ms");
+                    System.out.println("[Consumer] Max: " + sorted[ok - 1] + "ms");
+                }
+            } finally {
+                System.exit(0);
+            }
+        }
+    }
 }
