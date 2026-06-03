@@ -1,18 +1,17 @@
-spring:
-  application:
-    name: anycall-example-supplier
-  data:
-    redis:
-      host: ${SPRING_REDIS_HOST:localhost}
-      port: ${SPRING_REDIS_PORT:6379}
+redis:
+  uri: ${REDIS_URI:redis://localhost:6379}
 
 anycall:
   timeout: 30s
   metrics-enabled: true
 
+# NOTE: This file is for reference only (not read by the application)
+# Actual logging is configured via logback.xml
 logging:
   level:
     root: INFO
-    kaiquebt.dev.anycall.impl: INFO
+    kaiquebt.dev.anycall: INFO
+    io.lettuce.core: WARN
+    io.netty: WARN
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} -- %msg%n"
