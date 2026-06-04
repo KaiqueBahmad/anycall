@@ -37,11 +37,27 @@ public class ConsumerApplication {
 
         @Override
         public void run(String... args) throws Exception {
-            int total = 100;
-            long[] timings = new long[total];
-            int ok = 0;
-
             try {
+                System.out.println("[Consumer] ---- Warmup Call ----");
+                CreateProductRequest warmupRequest = new CreateProductRequest("warmup", 0);
+                long warmupStart = System.nanoTime();
+                try {
+                    Product warmupResponse = anyCall.call("create-new-product", warmupRequest, Product.class);
+                    long warmupElapsed = (System.nanoTime() - warmupStart) / 1_000_000;
+                    System.out.println("[Consumer] Warmup call succeeded in " + warmupElapsed + "ms");
+                    System.out.println("[Consumer] Response: " + warmupResponse);
+                } catch (Exception e) {
+                    System.err.println("[Consumer] Warmup call failed: " + e.getMessage());
+                }
+
+                System.out.println("[Consumer] Sleeping for 1 second before load test...");
+                Thread.sleep(1000);
+
+                System.out.println("[Consumer]\n---- Load Test Loop ----");
+                int total = 100;
+                long[] timings = new long[total];
+                int ok = 0;
+
                 long suiteStart = System.currentTimeMillis();
 
                 for (int i = 1; i <= total; i++) {
