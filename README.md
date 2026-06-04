@@ -12,7 +12,7 @@ e consistente entre diferentes linguagens.
 
 ## Exemplos de Uso
 
-### Java (Spring Boot)
+### Java
 
 **Server**
 ```java

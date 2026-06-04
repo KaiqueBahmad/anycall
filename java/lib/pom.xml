@@ -2,23 +2,23 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    
+
     <groupId>dev.kaiquebt</groupId>
     <artifactId>anycall</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
-    
+
     <name>AnyCall</name>
-    <description>AnyCall - Redis-based library for Spring Boot</description>
-    <url>https://github.com/kaiquebt/anycall</url>
-    
+    <description>AnyCall - Redis-based RPC</description>
+    <url>https://github.com/KaiqueBahmad/anycall</url>
+
     <licenses>
         <license>
             <name>MIT License</name>
             <url>https://opensource.org/licenses/MIT</url>
         </license>
     </licenses>
-    
+
     <developers>
         <developer>
             <name>Kaique</name>
@@ -26,7 +26,7 @@
             <organization>kaiquebt.dev</organization>
         </developer>
     </developers>
-    
+
     <properties>
         <java.version>17</java.version>
         <lettuce.version>6.3.2.RELEASE</lettuce.version>
@@ -67,7 +67,7 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-    
+
     <build>
         <plugins>
             <!-- Compiler Plugin -->
@@ -80,9 +80,8 @@
                     <target>17</target>
                 </configuration>
             </plugin>
-            
-            <!-- REMOVIDO spring-boot-maven-plugin - não é necessário para bibliotecas -->
-            
+
+
             <!-- Source Plugin - para gerar JAR com código-fonte -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -97,7 +96,7 @@
                     </execution>
                 </executions>
             </plugin>
-            
+
             <!-- Javadoc Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -114,5 +113,5 @@
             </plugin>
         </plugins>
     </build>
-    
+
 </project>

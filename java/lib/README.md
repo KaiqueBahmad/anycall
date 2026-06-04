@@ -1,6 +1,6 @@
 # AnyCall Library
 
-Esta é a implementação da biblioteca AnyCall - uma biblioteca Redis-based para Spring Boot.
+Esta é a implementação da biblioteca AnyCall - uma biblioteca Redis-based para RPC em Java.
 
 ## Estrutura
 
