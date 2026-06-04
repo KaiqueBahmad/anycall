@@ -28,6 +28,7 @@ public class SupplierApplication {
             .start();
 
         writeHealthFile();
+
         logger.info("Application ready. Supplier listening on streams.");
 
         Thread.currentThread().join();

@@ -12,7 +12,6 @@ import java.util.Map;
 
 public class AnyCallServerBuilder {
 
-    private static final String WORKER_GROUP = "anycall-workers";
     private final RedisStreamAdapter redis;
     private final ObjectMapper objectMapper;
     private final Map<String, MethodHandler> handlers;
@@ -64,7 +63,6 @@ public class AnyCallServerBuilder {
         AnyCallServer server = new AnyCallServerImpl(
             redis,
             objectMapper,
-            WORKER_GROUP,
             handlers,
             metricsEnabled
         );

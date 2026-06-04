@@ -31,12 +31,11 @@ public class AnyCallServerImpl implements AnyCallServer {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallServerImpl.class);
     private static final String DATA_FIELD = "data";
+    private static final String GROUP_PREFIX = "anycall-workers";
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
 
     private final RedisStreamAdapter redis;
     private final ObjectMapper objectMapper;
-    private final String group;
-    private final String consumerId;
     private final Map<String, MethodHandler> methodHandlers;
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
@@ -45,23 +44,19 @@ public class AnyCallServerImpl implements AnyCallServer {
     public AnyCallServerImpl(
         RedisStreamAdapter redis,
         ObjectMapper objectMapper,
-        String group,
         Map<String, MethodHandler> methodHandlers
     ) {
-        this(redis, objectMapper, group, methodHandlers, false);
+        this(redis, objectMapper, methodHandlers, false);
     }
 
     public AnyCallServerImpl(
         RedisStreamAdapter redis,
         ObjectMapper objectMapper,
-        String group,
         Map<String, MethodHandler> methodHandlers,
         boolean metricsEnabled
     ) {
         this.redis = redis;
         this.objectMapper = objectMapper;
-        this.group = group;
-        this.consumerId = group + "-" + UUID.randomUUID();
         this.methodHandlers = new HashMap<>(methodHandlers);
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
@@ -77,7 +72,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     @Override
     public AnyCallServer start() {
         if (running.compareAndSet(false, true)) {
-            log.info("Starting AnyCall server for group: {}", group);
+            log.info("Starting AnyCall server");
             log.info("Registered methods: {}", methodHandlers.keySet());
             executor = Executors.newFixedThreadPool(methodHandlers.size());
 
@@ -85,11 +80,12 @@ public class AnyCallServerImpl implements AnyCallServer {
                 String methodName = entry.getKey();
                 MethodHandler handler = entry.getValue();
                 String streamKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+                String group = GROUP_PREFIX + ":" + methodName;
 
-                ensureConsumerGroup(streamKey);
-                log.info("Listening on stream: {}", streamKey);
+                ensureConsumerGroup(streamKey, group);
+                log.info("Listening on stream: {} with group: {}", streamKey, group);
 
-                executor.submit(() -> pollStream(streamKey, handler));
+                executor.submit(() -> pollStream(streamKey, handler, group));
             }
         }
         return this;
@@ -103,7 +99,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     @Override
     public void stop() {
         if (running.compareAndSet(true, false)) {
-            log.info("Stopping AnyCall server for group: {}", group);
+            log.info("Stopping AnyCall server");
             if (executor != null) {
                 executor.shutdown();
                 try {
@@ -133,8 +129,9 @@ public class AnyCallServerImpl implements AnyCallServer {
      * Creates the group if it doesn't exist, handling cases where the stream hasn't been created yet.
      *
      * @param streamKey the Redis stream key to ensure a consumer group for
+     * @param group the consumer group name
      */
-    private void ensureConsumerGroup(String streamKey) {
+    private void ensureConsumerGroup(String streamKey, String group) {
         try {
             redis.createGroup(streamKey, group);
             log.info("Created consumer group '{}' for stream: {}", group, streamKey);
@@ -154,8 +151,10 @@ public class AnyCallServerImpl implements AnyCallServer {
      *
      * @param streamKey the Redis stream key to poll
      * @param handler the method handler for processing requests from this stream
+     * @param group the consumer group name
      */
-    private void pollStream(String streamKey, MethodHandler handler) {
+    private void pollStream(String streamKey, MethodHandler handler, String group) {
+        String consumerId = group + "-" + UUID.randomUUID();
         while (running.get()) {
             try {
                 List<Object> records = redis.readGroup(streamKey, group, consumerId, POLL_BLOCK_TIMEOUT);
