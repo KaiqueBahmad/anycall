@@ -27,7 +27,7 @@ public class ConsumerApplication {
             }
 
             System.out.println("[Consumer]\n---- Load Test Loop ----");
-            int total = 1;
+            int total = 100;
             long[] timings = new long[total];
             int ok = 0;
 
