@@ -198,17 +198,17 @@ public class AnyCallServerImpl implements AnyCallServer {
             methodName = request.methodName();
 
             if (metricsEnabled) {
-                log.info("[METRICS] [SERVER] [{}] Request deserialized in {}ms", requestId,
+                log.debug("[METRICS] [SERVER] [{}] Request deserialized in {}ms", requestId,
                     System.currentTimeMillis() - beforeDeserialize);
             } else {
-                log.info("Processing request: {} for method: {}", requestId, methodName);
+                log.debug("Processing request: {} for method: {}", requestId, methodName);
             }
 
             long beforePayloadDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
             Object parameter = objectMapper.readValue(request.payload(), handler.parameterType());
 
             if (metricsEnabled) {
-                log.info("[METRICS] [SERVER] [{}] Payload deserialized in {}ms", requestId,
+                log.debug("[METRICS] [SERVER] [{}] Payload deserialized in {}ms", requestId,
                     System.currentTimeMillis() - beforePayloadDeserialize);
             }
 
@@ -216,7 +216,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             Object result = handler.method().invoke(handler.bean(), parameter);
 
             if (metricsEnabled) {
-                log.info("[METRICS] [SERVER] [{}] Method '{}' executed in {}ms", requestId, methodName,
+                log.debug("[METRICS] [SERVER] [{}] Method '{}' executed in {}ms", requestId, methodName,
                     System.currentTimeMillis() - beforeInvoke);
             }
 
@@ -224,7 +224,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             String resultJson = objectMapper.writeValueAsString(result);
 
             if (metricsEnabled) {
-                log.info("[METRICS] [SERVER] [{}] Result serialized in {}ms", requestId,
+                log.debug("[METRICS] [SERVER] [{}] Result serialized in {}ms", requestId,
                     System.currentTimeMillis() - beforeSerialize);
             }
 
@@ -233,12 +233,12 @@ public class AnyCallServerImpl implements AnyCallServer {
             sendResponse(response);
 
             if (metricsEnabled) {
-                log.info("[METRICS] [SERVER] [{}] Response sent in {}ms", requestId,
+                log.debug("[METRICS] [SERVER] [{}] Response sent in {}ms", requestId,
                     System.currentTimeMillis() - beforeSend);
-                log.info("[METRICS] [SERVER] [{}] Total processing time: {}ms", requestId,
+                log.debug("[METRICS] [SERVER] [{}] Total processing time: {}ms", requestId,
                     System.currentTimeMillis() - startTime);
             } else {
-                log.info("Request {} processed successfully", requestId);
+                log.debug("Request {} processed successfully", requestId);
             }
 
         } catch (Exception e) {

@@ -62,7 +62,7 @@ public class AnyCallClientImpl implements AnyCallClient {
 
         try {
             if (metricsEnabled) {
-                log.info("[METRICS] [CLIENT] Starting call to method: {}", methodName);
+                log.debug("[METRICS] [CLIENT] Starting call to method: {}", methodName);
             }
 
             String payload = objectMapper.writeValueAsString(request);
@@ -72,7 +72,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             String requestJson = objectMapper.writeValueAsString(anyCallRequest);
 
             if (metricsEnabled) {
-                log.info("[METRICS] [CLIENT] [{}] Request serialized in {}ms", requestId,
+                log.debug("[METRICS] [CLIENT] [{}] Request serialized in {}ms", requestId,
                     System.currentTimeMillis() - startTime);
             }
 
@@ -81,7 +81,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             redis.add(requestStream, Collections.singletonMap(DATA_FIELD, requestJson));
 
             if (metricsEnabled) {
-                log.info("[METRICS] [CLIENT] [{}] Request published to stream in {}ms", requestId,
+                log.debug("[METRICS] [CLIENT] [{}] Request published to stream in {}ms", requestId,
                     System.currentTimeMillis() - beforePush);
             }
 
@@ -91,7 +91,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             List<Object> records = redis.read(responseStream, timeout);
 
             if (metricsEnabled) {
-                log.info("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
+                log.debug("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
                     System.currentTimeMillis() - beforeWait);
             }
 
@@ -111,9 +111,9 @@ public class AnyCallClientImpl implements AnyCallClient {
             T result = objectMapper.readValue(response.payload(), responseType);
 
             if (metricsEnabled) {
-                log.info("[METRICS] [CLIENT] [{}] Response deserialized in {}ms", requestId,
+                log.debug("[METRICS] [CLIENT] [{}] Response deserialized in {}ms", requestId,
                     System.currentTimeMillis() - beforeDeserialize);
-                log.info("[METRICS] [CLIENT] [{}] Total call duration: {}ms", requestId,
+                log.debug("[METRICS] [CLIENT] [{}] Total call duration: {}ms", requestId,
                     System.currentTimeMillis() - startTime);
             }
 
