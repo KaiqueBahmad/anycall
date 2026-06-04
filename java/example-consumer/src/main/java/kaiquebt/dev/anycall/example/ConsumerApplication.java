@@ -24,7 +24,7 @@ public class ConsumerApplication {
 
     @Bean
     public AnyCallClient anyCallClient(RedisStreamAdapter redis) {
-        return new AnyCallClientImpl(redis, new ObjectMapper(), java.time.Duration.ofSeconds(30), true);
+        return new AnyCallClientImpl(redis, new ObjectMapper(), java.time.Duration.ofSeconds(30), false);
     }
 
     @Component
@@ -49,9 +49,6 @@ public class ConsumerApplication {
                 } catch (Exception e) {
                     System.err.println("[Consumer] Warmup call failed: " + e.getMessage());
                 }
-
-                System.out.println("[Consumer] Sleeping for 1 second before load test...");
-                Thread.sleep(1000);
 
                 System.out.println("[Consumer]\n---- Load Test Loop ----");
                 int total = 100;
