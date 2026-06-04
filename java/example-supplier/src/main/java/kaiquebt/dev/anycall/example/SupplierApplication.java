@@ -24,7 +24,6 @@ public class SupplierApplication {
 
         AnyCallServer server = AnyCall.server(redis)
             .register(supplier)
-            .group("product-workers")
             .metrics(false)
             .start();
 

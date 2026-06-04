@@ -12,21 +12,16 @@ import java.util.Map;
 
 public class AnyCallServerBuilder {
 
+    private static final String WORKER_GROUP = "anycall-workers";
     private final RedisStreamAdapter redis;
     private final ObjectMapper objectMapper;
     private final Map<String, MethodHandler> handlers;
-    private String group = "default";
     private boolean metricsEnabled = false;
 
     public AnyCallServerBuilder(RedisStreamAdapter redis, ObjectMapper objectMapper) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.handlers = new HashMap<>();
-    }
-
-    public AnyCallServerBuilder group(String group) {
-        this.group = group;
-        return this;
     }
 
     public AnyCallServerBuilder metrics(boolean enabled) {
@@ -69,7 +64,7 @@ public class AnyCallServerBuilder {
         AnyCallServer server = new AnyCallServerImpl(
             redis,
             objectMapper,
-            group,
+            WORKER_GROUP,
             handlers,
             metricsEnabled
         );

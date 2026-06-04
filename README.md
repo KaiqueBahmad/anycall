@@ -27,7 +27,7 @@ public class ProductSupplier {
 @Bean
 AnyCallServer anyCallServer(RedisClient redis) {
     return AnyCall.server(redis)
-                  .group("product-workers")
+                  .register(new ProductSupplier())
                   .start();
 }
 ```
