@@ -24,7 +24,7 @@ public class ConsumerApplication {
 
     @Bean
     public AnyCallClient anyCallClient(RedisStreamAdapter redis) {
-        return new AnyCallClientImpl(redis, new ObjectMapper());
+        return new AnyCallClientImpl(redis, new ObjectMapper(), java.time.Duration.ofSeconds(30), true);
     }
 
     @Component
