@@ -1,13 +1,14 @@
 package kaiquebt.dev.anycall.example;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.junit.Test;
 
-@SpringBootTest
-class AnycallExampleApplicationTests {
+public class AnycallExampleApplicationTests {
 
 	@Test
-	void contextLoads() {
+	public void testBasic() {
+		CreateProductRequest request = new CreateProductRequest("test", 123);
+		assert request.name().equals("test");
+		assert request.priceInCents() == 123;
 	}
 
 }
