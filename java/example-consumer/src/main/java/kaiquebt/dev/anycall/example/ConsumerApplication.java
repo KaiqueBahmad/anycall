@@ -12,7 +12,7 @@ public class ConsumerApplication {
     public static void main(String[] args) {
         try {
             RedisStreamAdapter redisAdapter = new RedisStreamAdapter("redis://redis:6379");
-            AnyCallClient anyCall = new AnyCallClientImpl(redisAdapter, new ObjectMapper(), Duration.ofSeconds(30), false);
+            AnyCallClient anyCall = new AnyCallClientImpl(redisAdapter, new ObjectMapper(), Duration.ofSeconds(30), true);
 
             System.out.println("[Consumer] ---- Warmup Call ----");
             CreateProductRequest warmupRequest = new CreateProductRequest("warmup", 0);
@@ -27,7 +27,7 @@ public class ConsumerApplication {
             }
 
             System.out.println("[Consumer]\n---- Load Test Loop ----");
-            int total = 100;
+            int total = 1;
             long[] timings = new long[total];
             int ok = 0;
 
