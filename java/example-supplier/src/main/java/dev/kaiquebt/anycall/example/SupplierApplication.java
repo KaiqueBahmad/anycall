@@ -20,10 +20,9 @@ public class SupplierApplication {
 
         ProductSupplier supplier = new ProductSupplier();
 
-        AnyCallServer server = AnyCall.server(redisUri)
-            .register(supplier)
-            .metrics(false)
-            .start();
+        AnyCallServer server = AnyCall.server(redisUri);
+        server.register(supplier);
+        server.start();
 
         writeHealthFile();
 

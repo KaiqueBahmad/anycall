@@ -18,6 +18,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Internal implementation of AnyCallClient.
+ * <p>
+ * <strong>This class is not intended for direct use. Use {@link dev.kaiquebt.anycall.core.AnyCall#client(String)} instead.</strong>
+ * </p>
+ */
 public class AnyCallClientImpl implements AnyCallClient {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallClientImpl.class);

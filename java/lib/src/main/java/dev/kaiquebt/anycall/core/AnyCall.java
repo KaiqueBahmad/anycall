@@ -1,18 +1,31 @@
 package dev.kaiquebt.anycall.core;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.kaiquebt.anycall.server.AnyCallServerBuilder;
+import dev.kaiquebt.anycall.client.AnyCallClientImpl;
+import dev.kaiquebt.anycall.server.AnyCallServerImpl;
+import java.time.Duration;
 
 public class AnyCall {
 
     private AnyCall() {
     }
 
-    public static AnyCallServerBuilder server(String redisUri) {
-        return server(redisUri, new ObjectMapper());
+    public static AnyCallClient client(String redisUri) {
+        return new AnyCallClientImpl(redisUri);
     }
 
-    public static AnyCallServerBuilder server(String redisUri, ObjectMapper objectMapper) {
-        return new AnyCallServerBuilder(redisUri, objectMapper);
+    public static AnyCallClient client(String redisUri, Duration timeout) {
+        return new AnyCallClientImpl(redisUri, timeout);
+    }
+
+    public static AnyCallClient client(String redisUri, Duration timeout, boolean metricsEnabled) {
+        return new AnyCallClientImpl(redisUri, timeout, metricsEnabled);
+    }
+
+    public static AnyCallServer server(String redisUri) {
+        return new AnyCallServerImpl(redisUri);
+    }
+
+    public static AnyCallServer server(String redisUri, boolean metricsEnabled) {
+        return new AnyCallServerImpl(redisUri, metricsEnabled);
     }
 }

@@ -11,6 +11,12 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 
+/**
+ * Internal implementation of AnyCallPublisher.
+ * <p>
+ * <strong>This class is not intended for direct use.</strong>
+ * </p>
+ */
 public class AnyCallPublisherImpl implements AnyCallPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallPublisherImpl.class);

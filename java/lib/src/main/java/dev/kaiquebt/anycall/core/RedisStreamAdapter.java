@@ -10,7 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class RedisStreamAdapter implements AutoCloseable {
+class RedisStreamAdapter implements AutoCloseable {
 
     private final StatefulRedisConnection<String, String> connection;
     private final RedisStreamCommands<String, String> streamCommands;

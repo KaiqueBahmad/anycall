@@ -1,7 +1,9 @@
 package dev.kaiquebt.anycall.example;
 
-import dev.kaiquebt.anycall.client.AnyCallClientImpl;
+import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallClient;
+import dev.kaiquebt.anycall.client.AnyCallClientImpl;
+
 import java.time.Duration;
 import java.util.Arrays;
 
@@ -13,7 +15,7 @@ public class ConsumerApplication {
             if (redisUri == null) {
                 redisUri = "redis://localhost:6379";
             }
-            AnyCallClient anyCall = new AnyCallClientImpl(redisUri, Duration.ofSeconds(30), true);
+            AnyCallClient anyCall = AnyCall.client(redisUri, Duration.ofSeconds(30), true);
 
             System.out.println("[Consumer] ---- Warmup Call ----");
             CreateProductRequest warmupRequest = new CreateProductRequest("warmup", 0);

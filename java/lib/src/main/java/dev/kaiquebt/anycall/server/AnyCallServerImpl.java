@@ -1,6 +1,7 @@
 package dev.kaiquebt.anycall.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.exception.AnyCallException;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
@@ -14,19 +15,27 @@ import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import dev.kaiquebt.anycall.annotation.Supply;
 
 /**
- * Implementation of the AnyCall server that processes remote procedure calls from Redis.
+ * Internal implementation of AnyCallServer.
+ * <p>
+ * <strong>This class is not intended for direct use. Use {@link dev.kaiquebt.anycall.core.AnyCall#server(String)} instead.</strong>
+ * </p>
  * Manages a pool of worker threads that listen on Redis streams for incoming requests,
  * deserialize them, invoke the appropriate handler methods, and send back responses.
  * This implementation uses Redis Streams with consumer groups for reliable message processing.
@@ -37,35 +46,27 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final String DATA_FIELD = "data";
     private static final String GROUP_PREFIX = "anycall-workers";
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final StatefulRedisConnection<String, String> connection;
     private final RedisCommands<String, String> commands;
-    private final ObjectMapper objectMapper;
     private final Map<String, MethodHandler> methodHandlers;
+    private final Map<String, Future<?>> methodThreads;
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
     private ExecutorService executor;
 
-    public AnyCallServerImpl(
-        String redisUri,
-        ObjectMapper objectMapper,
-        Map<String, MethodHandler> methodHandlers
-    ) {
-        this(redisUri, objectMapper, methodHandlers, false);
+    public AnyCallServerImpl(String redisUri) {
+        this(redisUri, false);
     }
 
-    public AnyCallServerImpl(
-        String redisUri,
-        ObjectMapper objectMapper,
-        Map<String, MethodHandler> methodHandlers,
-        boolean metricsEnabled
-    ) {
+    public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
         String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
         RedisClient client = RedisClient.create(actualUri);
         this.connection = client.connect();
         this.commands = connection.sync();
-        this.objectMapper = objectMapper;
-        this.methodHandlers = new HashMap<>(methodHandlers);
+        this.methodHandlers = new ConcurrentHashMap<>();
+        this.methodThreads = new ConcurrentHashMap<>();
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
     }
@@ -81,11 +82,63 @@ public class AnyCallServerImpl implements AnyCallServer {
     public AnyCallServer start() {
         if (running.compareAndSet(false, true)) {
             log.info("Starting AnyCall server");
-            log.info("Registered methods: {}", methodHandlers.keySet());
-            executor = Executors.newFixedThreadPool(methodHandlers.size());
+            executor = Executors.newCachedThreadPool();
+            startAllListeners();
+        }
+        return this;
+    }
 
-            for (Map.Entry<String, MethodHandler> entry : methodHandlers.entrySet()) {
-                String methodName = entry.getKey();
+    public AnyCallServer register(Object supplier) {
+        scanAndRegisterSupplier(supplier);
+        if (running.get()) {
+            startListenersForNewMethods();
+        }
+        return this;
+    }
+
+    public AnyCallServer register(Object... suppliers) {
+        for (Object supplier : suppliers) {
+            scanAndRegisterSupplier(supplier);
+        }
+        if (running.get()) {
+            startListenersForNewMethods();
+        }
+        return this;
+    }
+
+    public AnyCallServer unregister(String methodName) {
+        MethodHandler removed = methodHandlers.remove(methodName);
+        if (removed != null) {
+            Future<?> thread = methodThreads.remove(methodName);
+            if (thread != null) {
+                thread.cancel(true);
+                log.info("Unregistered method: {}", methodName);
+            }
+        }
+        return this;
+    }
+
+    private void startAllListeners() {
+        log.info("Registered methods: {}", methodHandlers.keySet());
+        for (Map.Entry<String, MethodHandler> entry : methodHandlers.entrySet()) {
+            String methodName = entry.getKey();
+            MethodHandler handler = entry.getValue();
+            String streamKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+            String group = GROUP_PREFIX + ":" + methodName;
+
+            ensureConsumerGroup(streamKey, group);
+            log.info("Listening on stream: {} with group: {}", streamKey, group);
+
+            Future<?> future = executor.submit(() -> pollStream(streamKey, handler, group));
+            methodThreads.put(methodName, future);
+        }
+    }
+
+    private void startListenersForNewMethods() {
+        Set<String> existingThreads = methodThreads.keySet();
+        for (Map.Entry<String, MethodHandler> entry : methodHandlers.entrySet()) {
+            String methodName = entry.getKey();
+            if (!existingThreads.contains(methodName)) {
                 MethodHandler handler = entry.getValue();
                 String streamKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
                 String group = GROUP_PREFIX + ":" + methodName;
@@ -93,10 +146,34 @@ public class AnyCallServerImpl implements AnyCallServer {
                 ensureConsumerGroup(streamKey, group);
                 log.info("Listening on stream: {} with group: {}", streamKey, group);
 
-                executor.submit(() -> pollStream(streamKey, handler, group));
+                Future<?> future = executor.submit(() -> pollStream(streamKey, handler, group));
+                methodThreads.put(methodName, future);
             }
         }
-        return this;
+    }
+
+    private void scanAndRegisterSupplier(Object supplier) {
+        Class<?> supplierClass = supplier.getClass();
+
+        for (Method method : supplierClass.getDeclaredMethods()) {
+            Supply supplyAnnotation = method.getAnnotation(Supply.class);
+
+            if (supplyAnnotation != null) {
+                String methodName = supplyAnnotation.value();
+
+                if (method.getParameterCount() != 1) {
+                    throw new IllegalStateException(
+                        "Method " + method.getName() + " annotated with @Supply must have exactly one parameter"
+                    );
+                }
+
+                Class<?> parameterType = method.getParameterTypes()[0];
+                method.setAccessible(true);
+
+                methodHandlers.put(methodName, new MethodHandler(supplier, method, parameterType));
+                log.debug("Registered supplier method: {}", methodName);
+            }
+        }
     }
 
     /**
@@ -200,7 +277,7 @@ public class AnyCallServerImpl implements AnyCallServer {
 
         try {
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
-            AnyCallRequest request = objectMapper.readValue(requestJson, AnyCallRequest.class);
+            AnyCallRequest request = OBJECT_MAPPER.readValue(requestJson, AnyCallRequest.class);
             requestId = request.requestId();
             methodName = request.methodName();
 
@@ -212,7 +289,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             }
 
             long beforePayloadDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
-            Object parameter = objectMapper.readValue(request.payload(), handler.parameterType());
+            Object parameter = OBJECT_MAPPER.readValue(request.payload(), handler.parameterType());
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [SERVER] [{}] Payload deserialized in {}ms", requestId,
@@ -228,7 +305,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             }
 
             long beforeSerialize = metricsEnabled ? System.currentTimeMillis() : 0;
-            String resultJson = objectMapper.writeValueAsString(result);
+            String resultJson = OBJECT_MAPPER.writeValueAsString(result);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [SERVER] [{}] Result serialized in {}ms", requestId,
@@ -273,7 +350,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private void sendResponse(AnyCallResponse response) {
         try {
             String responseStream = AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
-            String responseJson = objectMapper.writeValueAsString(response);
+            String responseJson = OBJECT_MAPPER.writeValueAsString(response);
             commands.xadd(responseStream, Collections.singletonMap(DATA_FIELD, responseJson));
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
