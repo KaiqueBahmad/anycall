@@ -54,8 +54,10 @@ public class AnyCallServerImpl implements AnyCallServer {
     private ExecutorService executor;
 
     public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
-        String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
-        RedisClient client = RedisClient.create(actualUri);
+        if (redisUri == null || redisUri.isEmpty()) {
+            throw new IllegalArgumentException("AnyCall Server: redisUri must not be null or blank");
+        }
+        RedisClient client = RedisClient.create(redisUri);
         this.connection = client.connect();
         this.commands = connection.sync();
         this.methodHandlers = new ConcurrentHashMap<>();

@@ -37,6 +37,9 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final boolean metricsEnabled;
 
     public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
+        if (redisUri == null || redisUri.isEmpty()) {
+            throw new IllegalArgumentException("AnyCall Client: redisUri must not be null or blank");
+        }
         if (timeout == null) {
             this.timeout = DEFAULT_TIMEOUT;
         } else {
@@ -44,8 +47,7 @@ public class AnyCallClientImpl implements AnyCallClient {
         }
         this.metricsEnabled = metricsEnabled;
 
-        String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
-        RedisClient client = RedisClient.create(actualUri);
+        RedisClient client = RedisClient.create(redisUri);
         this.connection = client.connect();
         this.commands = connection.sync();
     }

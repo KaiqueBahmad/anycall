@@ -14,7 +14,7 @@ public class ConsumerApplication {
             if (redisUri == null) {
                 redisUri = "redis://localhost:6379";
             }
-            AnyCallClient anyCall = AnyCall.client(redisUri, Duration.ofSeconds(30), true);
+            AnyCallClient anyCall = AnyCall.client(redisUri, true);
 
             System.out.println("[Consumer] ---- Warmup Call ----");
             CreateProductRequest warmupRequest = new CreateProductRequest("warmup", 0);
