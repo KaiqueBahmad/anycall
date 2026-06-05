@@ -3,7 +3,6 @@ package dev.kaiquebt.anycall.example;
 import dev.kaiquebt.anycall.client.AnyCallClientImpl;
 import dev.kaiquebt.anycall.core.AnyCallClient;
 import dev.kaiquebt.anycall.core.RedisStreamAdapter;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.Arrays;
 
@@ -12,7 +11,7 @@ public class ConsumerApplication {
     public static void main(String[] args) {
         try {
             RedisStreamAdapter redisAdapter = new RedisStreamAdapter("redis://redis:6379");
-            AnyCallClient anyCall = new AnyCallClientImpl(redisAdapter, new ObjectMapper(), Duration.ofSeconds(30), true);
+            AnyCallClient anyCall = new AnyCallClientImpl(redisAdapter, Duration.ofSeconds(30), true);
 
             System.out.println("[Consumer] ---- Warmup Call ----");
             CreateProductRequest warmupRequest = new CreateProductRequest("warmup", 0);

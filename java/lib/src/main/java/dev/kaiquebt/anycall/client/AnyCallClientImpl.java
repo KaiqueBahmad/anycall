@@ -20,23 +20,22 @@ public class AnyCallClientImpl implements AnyCallClient {
     private static final Logger log = LoggerFactory.getLogger(AnyCallClientImpl.class);
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
     private static final String DATA_FIELD = "data";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RedisStreamAdapter redis;
-    private final ObjectMapper objectMapper;
     private final Duration timeout;
     private final boolean metricsEnabled;
 
-    public AnyCallClientImpl(RedisStreamAdapter redis, ObjectMapper objectMapper) {
-        this(redis, objectMapper, DEFAULT_TIMEOUT, false);
+    public AnyCallClientImpl(RedisStreamAdapter redis) {
+        this(redis, DEFAULT_TIMEOUT, false);
     }
 
-    public AnyCallClientImpl(RedisStreamAdapter redis, ObjectMapper objectMapper, Duration timeout) {
-        this(redis, objectMapper, timeout, false);
+    public AnyCallClientImpl(RedisStreamAdapter redis, Duration timeout) {
+        this(redis, timeout, false);
     }
 
-    public AnyCallClientImpl(RedisStreamAdapter redis, ObjectMapper objectMapper, Duration timeout, boolean metricsEnabled) {
+    public AnyCallClientImpl(RedisStreamAdapter redis, Duration timeout, boolean metricsEnabled) {
         this.redis = redis;
-        this.objectMapper = objectMapper;
         this.timeout = timeout;
         this.metricsEnabled = metricsEnabled;
     }
@@ -65,11 +64,11 @@ public class AnyCallClientImpl implements AnyCallClient {
                 log.debug("[METRICS] [CLIENT] Starting call to method: {}", methodName);
             }
 
-            String payload = objectMapper.writeValueAsString(request);
+            String payload = OBJECT_MAPPER.writeValueAsString(request);
             AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, payload);
             String requestId = anyCallRequest.requestId();
             _requestId = requestId;
-            String requestJson = objectMapper.writeValueAsString(anyCallRequest);
+            String requestJson = OBJECT_MAPPER.writeValueAsString(anyCallRequest);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Request serialized in {}ms", requestId,
@@ -102,13 +101,13 @@ public class AnyCallClientImpl implements AnyCallClient {
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
             Map<String, String> data = (Map<String, String>) records.get(1);
             String responseJson = data.get(DATA_FIELD);
-            AnyCallResponse response = objectMapper.readValue(responseJson, AnyCallResponse.class);
+            AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
             if (response.hasError()) {
                 throw new AnyCallException("Error from remote method: " + response.error());
             }
 
-            T result = objectMapper.readValue(response.payload(), responseType);
+            T result = OBJECT_MAPPER.readValue(response.payload(), responseType);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Response deserialized in {}ms", requestId,
