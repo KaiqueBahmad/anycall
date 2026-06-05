@@ -8,11 +8,11 @@ public class AnyCall {
     private AnyCall() {
     }
 
-    public static AnyCallServerBuilder server(RedisStreamAdapter redis) {
-        return server(redis, new ObjectMapper());
+    public static AnyCallServerBuilder server(String redisUri) {
+        return server(redisUri, new ObjectMapper());
     }
 
-    public static AnyCallServerBuilder server(RedisStreamAdapter redis, ObjectMapper objectMapper) {
-        return new AnyCallServerBuilder(redis, objectMapper);
+    public static AnyCallServerBuilder server(String redisUri, ObjectMapper objectMapper) {
+        return new AnyCallServerBuilder(redisUri, objectMapper);
     }
 }

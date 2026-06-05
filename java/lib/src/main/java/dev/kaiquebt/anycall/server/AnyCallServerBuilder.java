@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.config.AnycallProperties;
 import dev.kaiquebt.anycall.core.AnyCallServer;
-import dev.kaiquebt.anycall.core.RedisStreamAdapter;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -12,13 +11,13 @@ import java.util.Map;
 
 public class AnyCallServerBuilder {
 
-    private final RedisStreamAdapter redis;
+    private final String redisUri;
     private final ObjectMapper objectMapper;
     private final Map<String, MethodHandler> handlers;
     private boolean metricsEnabled = false;
 
-    public AnyCallServerBuilder(RedisStreamAdapter redis, ObjectMapper objectMapper) {
-        this.redis = redis;
+    public AnyCallServerBuilder(String redisUri, ObjectMapper objectMapper) {
+        this.redisUri = redisUri;
         this.objectMapper = objectMapper;
         this.handlers = new HashMap<>();
     }
@@ -61,7 +60,7 @@ public class AnyCallServerBuilder {
         }
 
         AnyCallServer server = new AnyCallServerImpl(
-            redis,
+            redisUri,
             objectMapper,
             handlers,
             metricsEnabled

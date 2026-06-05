@@ -2,7 +2,6 @@ package dev.kaiquebt.anycall.example;
 
 import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallServer;
-import dev.kaiquebt.anycall.core.RedisStreamAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,10 +18,9 @@ public class SupplierApplication {
             redisUri = "redis://localhost:6379";
         }
 
-        RedisStreamAdapter redis = new RedisStreamAdapter(redisUri);
         ProductSupplier supplier = new ProductSupplier();
 
-        AnyCallServer server = AnyCall.server(redis)
+        AnyCallServer server = AnyCall.server(redisUri)
             .register(supplier)
             .metrics(false)
             .start();

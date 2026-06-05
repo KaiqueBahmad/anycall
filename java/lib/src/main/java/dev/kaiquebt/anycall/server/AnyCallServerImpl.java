@@ -2,11 +2,15 @@ package dev.kaiquebt.anycall.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.core.AnyCallServer;
-import dev.kaiquebt.anycall.core.RedisStreamAdapter;
 import dev.kaiquebt.anycall.exception.AnyCallException;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
+import io.lettuce.core.Consumer;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.XReadArgs;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +38,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final String GROUP_PREFIX = "anycall-workers";
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
 
-    private final RedisStreamAdapter redis;
+    private final StatefulRedisConnection<String, String> connection;
+    private final RedisCommands<String, String> commands;
     private final ObjectMapper objectMapper;
     private final Map<String, MethodHandler> methodHandlers;
     private final AtomicBoolean running;
@@ -42,20 +47,23 @@ public class AnyCallServerImpl implements AnyCallServer {
     private ExecutorService executor;
 
     public AnyCallServerImpl(
-        RedisStreamAdapter redis,
+        String redisUri,
         ObjectMapper objectMapper,
         Map<String, MethodHandler> methodHandlers
     ) {
-        this(redis, objectMapper, methodHandlers, false);
+        this(redisUri, objectMapper, methodHandlers, false);
     }
 
     public AnyCallServerImpl(
-        RedisStreamAdapter redis,
+        String redisUri,
         ObjectMapper objectMapper,
         Map<String, MethodHandler> methodHandlers,
         boolean metricsEnabled
     ) {
-        this.redis = redis;
+        String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
+        RedisClient client = RedisClient.create(actualUri);
+        this.connection = client.connect();
+        this.commands = connection.sync();
         this.objectMapper = objectMapper;
         this.methodHandlers = new HashMap<>(methodHandlers);
         this.running = new AtomicBoolean(false);
@@ -133,7 +141,7 @@ public class AnyCallServerImpl implements AnyCallServer {
      */
     private void ensureConsumerGroup(String streamKey, String group) {
         try {
-            redis.createGroup(streamKey, group);
+            commands.xgroupCreate(XReadArgs.StreamOffset.latest(streamKey), group);
             log.info("Created consumer group '{}' for stream: {}", group, streamKey);
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : "";
@@ -157,7 +165,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         String consumerId = group + "-" + UUID.randomUUID();
         while (running.get()) {
             try {
-                List<Object> records = redis.readGroup(streamKey, group, consumerId, POLL_BLOCK_TIMEOUT);
+                List<Object> records = readGroupStream(streamKey, group, consumerId, POLL_BLOCK_TIMEOUT);
 
                 if (records != null && records.size() >= 2) {
                     String messageId = (String) records.get(0);
@@ -166,7 +174,7 @@ public class AnyCallServerImpl implements AnyCallServer {
 
                     if (requestJson != null) {
                         processRequest(requestJson, handler);
-                        redis.acknowledge(streamKey, group, messageId);
+                        commands.xack(streamKey, group, messageId);
                     }
                 }
             } catch (Exception e) {
@@ -266,9 +274,27 @@ public class AnyCallServerImpl implements AnyCallServer {
         try {
             String responseStream = AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
             String responseJson = objectMapper.writeValueAsString(response);
-            redis.add(responseStream, Collections.singletonMap(DATA_FIELD, responseJson));
+            commands.xadd(responseStream, Collections.singletonMap(DATA_FIELD, responseJson));
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
+        }
+    }
+
+    private List<Object> readGroupStream(String streamKey, String group, String consumer, Duration timeout) {
+        try {
+            Consumer<String> consumerRef = Consumer.from(group, consumer);
+            XReadArgs args = new XReadArgs();
+            args.block(timeout);
+            XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.lastConsumed(streamKey);
+            List<io.lettuce.core.StreamMessage<String, String>> result = commands.xreadgroup(consumerRef, args, offset);
+
+            if (result != null && !result.isEmpty()) {
+                io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
+                return List.of(msg.getId(), msg.getBody());
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
         }
     }
 }

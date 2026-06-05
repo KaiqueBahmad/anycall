@@ -2,11 +2,14 @@ package dev.kaiquebt.anycall.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.core.AnyCallClient;
-import dev.kaiquebt.anycall.core.RedisStreamAdapter;
 import dev.kaiquebt.anycall.exception.AnyCallException;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.XReadArgs;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,22 +25,27 @@ public class AnyCallClientImpl implements AnyCallClient {
     private static final String DATA_FIELD = "data";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private final RedisStreamAdapter redis;
+    private final StatefulRedisConnection<String, String> connection;
+    private final RedisCommands<String, String> commands;
     private final Duration timeout;
     private final boolean metricsEnabled;
 
-    public AnyCallClientImpl(RedisStreamAdapter redis) {
-        this(redis, DEFAULT_TIMEOUT, false);
+    public AnyCallClientImpl(String redisUri) {
+        this(redisUri, DEFAULT_TIMEOUT, false);
     }
 
-    public AnyCallClientImpl(RedisStreamAdapter redis, Duration timeout) {
-        this(redis, timeout, false);
+    public AnyCallClientImpl(String redisUri, Duration timeout) {
+        this(redisUri, timeout, false);
     }
 
-    public AnyCallClientImpl(RedisStreamAdapter redis, Duration timeout, boolean metricsEnabled) {
-        this.redis = redis;
+    public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
         this.timeout = timeout;
         this.metricsEnabled = metricsEnabled;
+
+        String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
+        RedisClient client = RedisClient.create(actualUri);
+        this.connection = client.connect();
+        this.commands = connection.sync();
     }
 
     /**
@@ -77,7 +85,7 @@ public class AnyCallClientImpl implements AnyCallClient {
 
             long beforePush = metricsEnabled ? System.currentTimeMillis() : 0;
             String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
-            redis.add(requestStream, Collections.singletonMap(DATA_FIELD, requestJson));
+            commands.xadd(requestStream, Collections.singletonMap(DATA_FIELD, requestJson));
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Request published to stream in {}ms", requestId,
@@ -87,7 +95,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             responseStream = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
             long beforeWait = metricsEnabled ? System.currentTimeMillis() : 0;
 
-            List<Object> records = redis.read(responseStream, timeout);
+            List<Object> records = readStream(responseStream, timeout);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
@@ -128,8 +136,25 @@ public class AnyCallClientImpl implements AnyCallClient {
             throw new AnyCallException("Failed to call method: " + methodName, e);
         } finally {
             if (responseStream != null) {
-                redis.delete(responseStream);
+                commands.del(responseStream);
             }
+        }
+    }
+
+    private List<Object> readStream(String streamKey, Duration timeout) {
+        try {
+            XReadArgs args = new XReadArgs();
+            args.block(timeout);
+            XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.from(streamKey, "0-0");
+            List<io.lettuce.core.StreamMessage<String, String>> result = commands.xread(args, offset);
+
+            if (result != null && !result.isEmpty()) {
+                io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
+                return List.of(msg.getId(), msg.getBody());
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
         }
     }
 }
