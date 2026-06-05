@@ -36,16 +36,12 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final Duration timeout;
     private final boolean metricsEnabled;
 
-    public AnyCallClientImpl(String redisUri) {
-        this(redisUri, DEFAULT_TIMEOUT, false);
-    }
-
-    public AnyCallClientImpl(String redisUri, Duration timeout) {
-        this(redisUri, timeout, false);
-    }
-
     public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
-        this.timeout = timeout;
+        if (timeout == null) {
+            this.timeout = DEFAULT_TIMEOUT;
+        } else {
+            this.timeout = timeout;
+        }
         this.metricsEnabled = metricsEnabled;
 
         String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";

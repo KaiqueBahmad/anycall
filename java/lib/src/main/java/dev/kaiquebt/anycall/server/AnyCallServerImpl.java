@@ -53,10 +53,6 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final boolean metricsEnabled;
     private ExecutorService executor;
 
-    public AnyCallServerImpl(String redisUri) {
-        this(redisUri, false);
-    }
-
     public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
         String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
         RedisClient client = RedisClient.create(actualUri);

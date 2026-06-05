@@ -10,11 +10,15 @@ public class AnyCall {
     }
 
     public static AnyCallClient client(String redisUri) {
-        return new AnyCallClientImpl(redisUri);
+        return new AnyCallClientImpl(redisUri, null, false);
     }
 
     public static AnyCallClient client(String redisUri, Duration timeout) {
-        return new AnyCallClientImpl(redisUri, timeout);
+        return new AnyCallClientImpl(redisUri, timeout, false);
+    }
+
+    public static AnyCallClient client(String redisUri, boolean metricsEnabled) {
+        return new AnyCallClientImpl(redisUri, null, metricsEnabled);
     }
 
     public static AnyCallClient client(String redisUri, Duration timeout, boolean metricsEnabled) {
@@ -22,7 +26,7 @@ public class AnyCall {
     }
 
     public static AnyCallServer server(String redisUri) {
-        return new AnyCallServerImpl(redisUri);
+        return new AnyCallServerImpl(redisUri, false);
     }
 
     public static AnyCallServer server(String redisUri, boolean metricsEnabled) {
