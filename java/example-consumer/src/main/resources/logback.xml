@@ -7,7 +7,7 @@
     </appender>
 
     <!-- AnyCall library logs - set to DEBUG to see metrics and client logs -->
-    <logger name="kaiquebt.dev.anycall" level="INFO" additivity="false">
+    <logger name="dev.kaiquebt.anycall" level="INFO" additivity="false">
         <appender-ref ref="CONSOLE"/>
     </logger>
 

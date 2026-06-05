@@ -4,7 +4,7 @@ Esta é a implementação da biblioteca AnyCall - uma biblioteca Redis-based par
 
 ## Estrutura
 
-- `src/main/java/kaiquebt/dev/anycall/` - Código fonte da biblioteca
+- `src/main/java/dev/kaiquebt/anycall/` - Código fonte da biblioteca
 - `pom.xml` - Configuração Maven da biblioteca
 
 ## Build

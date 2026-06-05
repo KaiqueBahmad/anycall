@@ -16,5 +16,5 @@
     <logger name="io.lettuce.core.protocol" level="WARN" />
 
     <!-- Your application logs -->
-    <logger name="kaiquebt.dev.anycall" level="INFO" />
+    <logger name="dev.kaiquebt.anycall" level="INFO" />
 </configuration>
