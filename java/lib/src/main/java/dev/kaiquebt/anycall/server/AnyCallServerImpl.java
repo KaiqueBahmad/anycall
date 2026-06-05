@@ -3,7 +3,6 @@ package dev.kaiquebt.anycall.server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
-import dev.kaiquebt.anycall.exception.AnyCallException;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
@@ -18,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,7 +27,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import dev.kaiquebt.anycall.annotation.Supply;
 
 /**
  * Internal implementation of AnyCallServer.

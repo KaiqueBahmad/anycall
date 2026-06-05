@@ -1,7 +1,5 @@
 package dev.kaiquebt.anycall.core;
 
-import dev.kaiquebt.anycall.exception.AnyCallException;
-
 /**
  * Client interface for making remote procedure calls via Redis.
  * Provides a simple synchronous interface for invoking remote methods on AnyCall suppliers.

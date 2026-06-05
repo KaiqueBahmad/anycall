@@ -2,7 +2,6 @@ package dev.kaiquebt.anycall.example;
 
 import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallClient;
-import dev.kaiquebt.anycall.client.AnyCallClientImpl;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -41,7 +40,7 @@ public class ConsumerApplication {
 
                 try {
                     long startTime = System.nanoTime();
-                    Product response = anyCall.call("create-new-product", request, Product.class);
+                    anyCall.call("create-new-product", request, Product.class);
                     long elapsed = (System.nanoTime() - startTime) / 1_000_000;
 
                     timings[ok] = elapsed;
