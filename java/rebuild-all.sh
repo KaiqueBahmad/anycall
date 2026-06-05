@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd "$(dirname "$0")/../.."   # -> repo root
+cd "$(dirname "$0")/.."   # -> repo root
 
 prefix() {
   local label=$1; shift
