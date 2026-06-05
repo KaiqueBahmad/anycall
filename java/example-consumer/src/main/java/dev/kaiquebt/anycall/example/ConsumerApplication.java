@@ -10,7 +10,11 @@ public class ConsumerApplication {
 
     public static void main(String[] args) {
         try {
-            RedisStreamAdapter redisAdapter = new RedisStreamAdapter("redis://redis:6379");
+            String redisUri = System.getenv("REDIS_URI");
+            if (redisUri == null) {
+                redisUri = "redis://localhost:6379";
+            }
+            RedisStreamAdapter redisAdapter = new RedisStreamAdapter(redisUri);
             AnyCallClient anyCall = new AnyCallClientImpl(redisAdapter, Duration.ofSeconds(30), true);
 
             System.out.println("[Consumer] ---- Warmup Call ----");
