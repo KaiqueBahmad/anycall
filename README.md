@@ -16,7 +16,6 @@ e consistente entre diferentes linguagens.
 
 **Server**
 ```java
-@AnyCallSupplier
 public class ProductSupplier {
     @Supply("create-new-product")
     public Product createNewProduct(CreateProductRequest req) {
@@ -24,23 +23,27 @@ public class ProductSupplier {
     }
 }
 
-@Bean
-AnyCallServer anyCallServer(RedisClient redis) {
-    return AnyCall.server(redis)
-                  .register(new ProductSupplier())
-                  .start();
+public class Application {
+    public static void main(String[] args) {
+        String redisUri = "redis://localhost:6379";
+        AnyCallServer server = AnyCall.server(redisUri);
+        server.register(new ProductSupplier());
+        server.start();
+    }
 }
 ```
 
 **Client**
 ```java
-@Autowired
-private AnyCallClient anyCall;
+String redisUri = "redis://localhost:6379";
+AnyCallClient anyCall = AnyCall.client(redisUri);
 
 CreateProductRequest req = new CreateProductRequest("Keyboard", 10000);
 Product product = anyCall.call("create-new-product", req, Product.class);
 System.out.println(product);
 ```
+
+[→ Ver mais](java/README.md)
 
 ---
 
