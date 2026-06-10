@@ -5,45 +5,70 @@
 1. **Defina uma classe com métodos decorados com `@supply`:**
 ```python
 from anycall import supply
+from dataclasses import dataclass
 
-class MyService:
-    @supply("my-operation")
-    def handle_request(self, req: MyRequest) -> MyResponse:
-        # Sua lógica aqui
-        return MyResponse(req.value)
+@dataclass
+class CreateProductRequest:
+    name: str
+    price_in_cents: int
+
+@dataclass
+class Product:
+    name: str
+    price_in_cents: int
+
+class ProductSupplier:
+    @supply("create-new-product")
+    def create_new_product(self, req: CreateProductRequest) -> Product:
+        return Product(name=req.name, price_in_cents=req.price_in_cents)
 ```
 
 2. **Registre e inicie o servidor:**
 ```python
 from anycall import AnyCall
 
-redis_uri = "redis://localhost:6379"
-server = AnyCall.server(redis_uri)
-server.register(MyService())
+server = AnyCall.server("redis://localhost:6379")
+server.register(ProductSupplier())
 server.start()
 ```
 
-O servidor escuta automaticamente streams Redis com o nome do método (`my-operation`), processa requisições e envia respostas. Use `server.register(supplier1, supplier2)` para registrar múltiplos suppliers.
-
 ## Como Usar como Consumer (Cliente)
 
-1. **Crie um cliente:**
+### Chamada com tipo explícito:
 ```python
-from anycall import AnyCall
-
-redis_uri = "redis://localhost:6379"
-client = AnyCall.client(redis_uri)
+client = AnyCall.client("redis://localhost:6379")
+product = client.call("create-new-product", request, Product)
 ```
 
-2. **Faça chamadas remotas:**
+### Chamada com registry (registre tipos uma vez):
 ```python
-request = MyRequest("test")
-response = client.call("my-operation", request)  # Returns dict by default
+client = AnyCall.client("redis://localhost:6379")
+client.register_type("create-new-product", Product)
+
+# Depois, chamadas sem tipo:
+product = client.call("create-new-product", request)
 ```
 
-Você pode opcionalmente especificar um tipo de resposta para desserialização:
+### Chamada sem modelo (retorna dict):
 ```python
-response = client.call("my-operation", request, MyResponse)
+response = client.call_raw("create-new-product", request)
 ```
 
-O client serializa a requisição em JSON, publica em Redis e aguarda a resposta (timeout padrão 30s). Para timeout customizado: `AnyCall.client(redis_uri, timeout=timedelta(seconds=60))`. Para habilitar métricas: `AnyCall.client(redis_uri, metrics_enabled=True)`.
+## Configuração
+
+```python
+from datetime import timedelta
+
+# Timeout customizado
+client = AnyCall.client(redis_uri, timeout=timedelta(seconds=60))
+
+# Com métricas
+client = AnyCall.client(redis_uri, metrics_enabled=True)
+
+# Ambos
+client = AnyCall.client(
+    redis_uri,
+    timeout=timedelta(seconds=60),
+    metrics_enabled=True
+)
+```
