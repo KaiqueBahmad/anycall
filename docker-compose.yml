@@ -51,6 +51,42 @@ services:
     networks:
       - anycall
 
+  python-supplier:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+      target: supplier
+    container_name: anycall-python-supplier
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URI: redis://redis:6379
+    networks:
+      - anycall
+    healthcheck:
+      test: ["CMD", "cat", "/tmp/anycall/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  python-consumer:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+      target: consumer
+    container_name: anycall-python-consumer
+    depends_on:
+      redis:
+        condition: service_healthy
+      python-supplier:
+        condition: service_healthy
+    environment:
+      REDIS_URI: redis://redis:6379
+    networks:
+      - anycall
+
 volumes:
   redis_data:
 

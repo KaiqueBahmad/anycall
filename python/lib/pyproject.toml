@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anycall"
+version = "0.0.1"
+description = "Redis Streams-based RPC framework for Python"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "redis>=5.0.0",
+    "dacite>=1.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anycall"]

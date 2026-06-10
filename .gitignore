@@ -98,3 +98,4 @@ Thumbs.db
 *.gcov
 *.gcda
 *.gcno
+__pycache__/

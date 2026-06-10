@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anycall-example-supplier"
+version = "0.0.1"
+description = "AnyCall Supplier Example"
+requires-python = ">=3.9"
+dependencies = [
+    "anycall",
+]
+
+[project.scripts]
+anycall-supplier = "supplier.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/supplier"]
+
+[tool.uv.sources]
+anycall = { workspace = true }

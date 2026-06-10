@@ -51,33 +51,49 @@ System.out.println(product);
 
 **Server**
 ```python
-from anycall import supply, server
+from anycall import AnyCall, supply
+from dataclasses import dataclass
 
-@supply("create-new-product")
-def create_new_product(payload):
-    return {
-        "name": payload["name"],
-        "price": payload["price"]
-    }
+@dataclass
+class CreateProductRequest:
+    name: str
+    price_in_cents: int
 
-server.start(
-    redis_url="redis://localhost:6379",
-    group="product-workers"
-)
+@dataclass
+class Product:
+    name: str
+    price_in_cents: int
+
+class ProductSupplier:
+    @supply("create-new-product")
+    def create_new_product(self, req: CreateProductRequest) -> Product:
+        return Product(name=req.name, price_in_cents=req.price_in_cents)
+
+if __name__ == "__main__":
+    server = AnyCall.server("redis://localhost:6379")
+    server.register(ProductSupplier())
+    server.start()
 ```
 
 **Client**
 ```python
-from anycall import client
+from anycall import AnyCall
+from dataclasses import dataclass
 
-anycall = client(redis_url="redis://localhost:6379")
-product = anycall.call(
+@dataclass
+class CreateProductRequest:
+    name: str
+    price_in_cents: int
+
+client = AnyCall.client("redis://localhost:6379")
+product = client.call(
     "create-new-product",
-    {"name": "Mouse", "price": 5000},
-    timeout=3
+    CreateProductRequest(name="Mouse", price_in_cents=5000)
 )
-print(product)
+print(product)  # Returns dict: {"name": "Mouse", "price_in_cents": 5000}
 ```
+
+[→ Ver mais](python/README.md)
 
 ---
 
