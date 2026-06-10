@@ -13,5 +13,10 @@ dependencies = [
     "dacite>=1.8.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/anycall"]
