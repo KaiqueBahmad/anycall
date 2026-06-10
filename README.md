@@ -1,14 +1,20 @@
 # anycall
 
-Esta biblioteca pretende fornecer um mecanismo simples de chamadas remotas
-entre serviços, utilizando o Redis como uma pool distribuída de mensagens.
-O cliente publica uma requisição no Redis, que pode ser consumida por
-qualquer servidor disponível. A chamada pode ser tratada de forma
-síncrona (bloqueando até a resposta) ou assíncrona, caso a linguagem
-ou o runtime permitam, retornando futures, promises ou callbacks.
-Esse modelo oferece balanceamento de carga automático, escalabilidade
-horizontal e baixo acoplamento entre serviços, mantendo uma API simples
-e consistente entre diferentes linguagens.
+Call functions across services written in different languages, using the
+Redis you already have — no .proto files, no exposed ports, no per-service
+plumbing to maintain.
+
+A client publishes a request to Redis; any available server can pick it up,
+run it, and return the result. Calls can be synchronous (block until the
+response) or asynchronous (futures, promises, or callbacks), depending on
+the language and runtime.
+
+Because the broker sits in the middle — unlike point-to-point RPC such as
+gRPC — you get automatic load balancing, horizontal scaling, and loose
+coupling between services for free, with one consistent API across languages.
+
+**Status:** Java and Python are under active development. The examples below
+reflect the current target API.
 
 ## Exemplos de Uso
 
