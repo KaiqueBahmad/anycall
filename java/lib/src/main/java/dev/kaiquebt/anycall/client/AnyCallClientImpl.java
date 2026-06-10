@@ -6,6 +6,7 @@ import dev.kaiquebt.anycall.exception.AnyCallException;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
+import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.XReadArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -35,6 +36,7 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final RedisCommands<String, String> commands;
     private final Duration timeout;
     private final boolean metricsEnabled;
+    private final TypeRegistry registry;
 
     public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
         if (redisUri == null || redisUri.isEmpty()) {
@@ -46,6 +48,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             this.timeout = timeout;
         }
         this.metricsEnabled = metricsEnabled;
+        this.registry = new TypeRegistry();
 
         RedisClient client = RedisClient.create(redisUri);
         this.connection = client.connect();
@@ -143,6 +146,37 @@ public class AnyCallClientImpl implements AnyCallClient {
                 commands.del(responseStream);
             }
         }
+    }
+
+    @Override
+    public <T> T call(String methodName, Object request) {
+        Class<?> resolvedType = registry.get(methodName);
+        if (resolvedType == null) {
+            throw new AnyCallException(
+                "No response type registered for operation '" + methodName + "'. "
+                    + "Either call with explicit type: call(\"" + methodName + "\", req, YourType), "
+                    + "or register the type first: registerType(\"" + methodName + "\", YourType)."
+            );
+        }
+        @SuppressWarnings("unchecked")
+        T result = (T) callInternal(methodName, request, resolvedType);
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> callRaw(String methodName, Object request) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) callInternal(methodName, request, Map.class);
+        return result;
+    }
+
+    @Override
+    public void registerType(String operation, Class<?> responseType) {
+        registry.register(operation, responseType);
+    }
+
+    private <T> T callInternal(String methodName, Object request, Class<T> responseType) {
+        return call(methodName, request, responseType);
     }
 
     private List<Object> readStream(String streamKey, Duration timeout) {
