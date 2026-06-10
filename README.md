@@ -35,12 +35,16 @@ public class Application {
 
 **Client**
 ```java
-String redisUri = "redis://localhost:6379";
-AnyCallClient anyCall = AnyCall.client(redisUri);
+public class Application {
+    public static void main(String[] args) {
+        String redisUri = "redis://localhost:6379";
+        AnyCallClient anyCall = AnyCall.client(redisUri);
 
-CreateProductRequest req = new CreateProductRequest("Keyboard", 10000);
-Product product = anyCall.call("create-new-product", req, Product.class);
-System.out.println(product);
+        CreateProductRequest req = new CreateProductRequest("Keyboard", 10000);
+        Product product = anyCall.call("create-new-product", req, Product.class);
+        System.out.println(product);
+    }
+}
 ```
 
 [→ Ver mais](java/README.md)
