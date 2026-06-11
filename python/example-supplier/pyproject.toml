@@ -12,10 +12,10 @@ dependencies = [
 ]
 
 [project.scripts]
-anycall-supplier = "supplier.main:main"
+anycall-supplier = "example_supplier.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/supplier"]
+packages = ["src/example_supplier"]
 
 [tool.uv.sources]
 anycall = { workspace = true }

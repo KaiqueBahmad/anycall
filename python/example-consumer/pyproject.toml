@@ -12,10 +12,10 @@ dependencies = [
 ]
 
 [project.scripts]
-anycall-consumer = "consumer.main:main"
+anycall-consumer = "example_consumer.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/consumer"]
+packages = ["src/example_consumer"]
 
 [tool.uv.sources]
 anycall = { workspace = true }
