@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "anycall-py"
-version = "0.1.0"
+version = "0.1.2"
 description = "Polyglot RPC over Redis — call functions across languages"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -38,4 +38,4 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/anycall-py"]
+packages = ["src/anycall"]
