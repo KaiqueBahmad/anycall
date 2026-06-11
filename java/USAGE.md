@@ -16,7 +16,7 @@ public class SentimentAnalyzer {
 ```java
 String redisUri = System.getenv("REDIS_URI");
 AnyCallServer server = AnyCall.server(redisUri);
-server.register(new ProductSupplier());
+server.register(new SentimentAnalyzer());
 server.start();
 ```
 

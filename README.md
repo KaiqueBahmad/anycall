@@ -33,7 +33,7 @@ public class Application {
     public static void main(String[] args) {
         String redisUri = "redis://localhost:6379";
         AnyCallServer server = AnyCall.server(redisUri);
-        server.register(new ProductSupplier());
+        server.register(new SentimentAnalyzer());
         server.start();
     }
 }

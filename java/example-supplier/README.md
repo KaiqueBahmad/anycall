@@ -1,35 +1,35 @@
 # AnyCall Example Supplier
 
-Este é um exemplo de **supplier** (servidor) usando a biblioteca AnyCall.
+This is an example of a **supplier** (server) using the AnyCall library.
 
-## Descrição
+## Description
 
-O supplier processa requisições vindas do Redis e executa operações. Neste exemplo, o `ProductSupplier` processa requisições para criar produtos.
+The supplier processes requests from Redis and executes operations. In this example, the `SentimentAnalyzer` processes requests to analyze sentiment from text.
 
-## Pré-requisitos
+## Prerequisites
 
-1. Compilar e instalar a biblioteca AnyCall localmente:
+1. Build and install the AnyCall library locally:
 ```bash
 cd ../lib
 mvn clean install
 ```
 
-2. Redis rodando localmente na porta 6379:
+2. Redis running locally on port 6379:
 ```bash
 cd ../../..
 docker-compose up -d
 ```
 
-## Executar
+## Running
 
 ```bash
 mvn spring-boot:run
 ```
 
-O supplier ficará escutando requisições na fila Redis do grupo `product-workers`.
+The supplier will listen for requests on the Redis stream for the `analyze-sentiment` operation.
 
-## Estrutura
+## Structure
 
-- `ProductSupplier` - Classe anotada com `@AnyCallSupplier` que contém métodos `@Supply`
-- `AnyCallConfiguration` - Configura e inicia o servidor AnyCall
-- `Product` e `CreateProductRequest` - Models de dados
+- `SentimentAnalyzer` - Class with method decorated with `@Supply` 
+- `AnyCallConfiguration` - Configures and starts the AnyCall server
+- `Sentiment` and `TextRequest` - Data models

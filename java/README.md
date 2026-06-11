@@ -34,7 +34,7 @@ Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall`
 - **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
 
 ### example-consumer
-Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `create-new-product` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
+Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
 
 ### example-supplier
-Server application that registers suppliers via `AnyCall.server()`. The `ProductSupplier` class contains a `createNewProduct` method annotated with `@Supply("create-new-product")`, which handles product creation. Starts listeners for each registered method and writes a health file to `/tmp/anycall/health`.
+Server application that registers suppliers via `AnyCall.server()`. The `SentimentAnalyzer` class contains an `analyzeSentiment` method annotated with `@Supply("analyze-sentiment")`, which handles sentiment analysis. Starts listeners for each registered method and writes a health file to `/tmp/anycall/health`.
