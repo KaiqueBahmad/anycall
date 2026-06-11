@@ -1,6 +1,6 @@
 # anycall
 
-![PyPI](https://img.shields.io/pypi/v/anycall-py)
+[![PyPI](https://img.shields.io/pypi/v/anycall-py)](https://pypi.org/project/anycall-py/) 
 ![Python](https://img.shields.io/pypi/pyversions/anycall-py)
 ![License](https://img.shields.io/github/license/KaiqueBahmad/anycall)
 ![Stars](https://img.shields.io/github/stars/KaiqueBahmad/anycall)
