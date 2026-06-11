@@ -1,6 +1,7 @@
 # Java - AnyCall
 
 This directory contains the Java components of the AnyCall project.
+Call functions across Java services using Redis, with no `.proto` files, exposed ports, or extra service plumbing to maintain.
 
 ## Structure
 
