@@ -8,19 +8,18 @@ from anycall import supply
 from dataclasses import dataclass
 
 @dataclass
-class CreateProductRequest:
-    name: str
-    price_in_cents: int
+class TextRequest:
+    text: str
 
 @dataclass
-class Product:
-    name: str
-    price_in_cents: int
+class Sentiment:
+    text: str
+    label: str
 
-class ProductSupplier:
-    @supply("create-new-product")
-    def create_new_product(self, req: CreateProductRequest) -> Product:
-        return Product(name=req.name, price_in_cents=req.price_in_cents)
+class SentimentAnalyzer:
+    @supply("analyze-sentiment")
+    def analyze_sentiment(self, req: TextRequest) -> Sentiment:
+        return Sentiment(text=req.text, label="positive")
 ```
 
 2. **Register and start the server:**
@@ -28,7 +27,7 @@ class ProductSupplier:
 from anycall import AnyCall
 
 server = AnyCall.server("redis://localhost:6379")
-server.register(ProductSupplier())
+server.register(SentimentAnalyzer())
 server.start()
 ```
 
@@ -37,21 +36,21 @@ server.start()
 ### Call with explicit type:
 ```python
 client = AnyCall.client("redis://localhost:6379")
-product = client.call("create-new-product", request, Product)
+sentiment = client.call("analyze-sentiment", request, Sentiment)
 ```
 
 ### Call with registry (register types once):
 ```python
 client = AnyCall.client("redis://localhost:6379")
-client.register_type("create-new-product", Product)
+client.register_type("analyze-sentiment", Sentiment)
 
 # Then, calls without type:
-product = client.call("create-new-product", request)
+sentiment = client.call("analyze-sentiment", request)
 ```
 
 ### Call without model (returns dict):
 ```python
-response = client.call_raw("create-new-product", request)
+response = client.call_raw("analyze-sentiment", request)
 ```
 
 ## Configuration

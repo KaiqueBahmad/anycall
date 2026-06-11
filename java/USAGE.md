@@ -4,10 +4,10 @@
 
 1. **Define a class with methods annotated with `@Supply`:**
 ```java
-public class ProductSupplier {
-    @Supply("create-new-product")
-    public Product createNewProduct(CreateProductRequest req) {
-        return new Product(req.getName(), req.getPriceInCents());
+public class SentimentAnalyzer {
+    @Supply("analyze-sentiment")
+    public Sentiment analyzeSentiment(TextRequest req) {
+        return new Sentiment(req.getText(), "positive");
     }
 }
 ```
@@ -25,21 +25,21 @@ server.start();
 ### Call with explicit type:
 ```java
 AnyCallClient client = AnyCall.client("redis://localhost:6379");
-Product product = client.call("create-new-product", request, Product.class);
+Sentiment sentiment = client.call("analyze-sentiment", request, Sentiment.class);
 ```
 
 ### Call with registry (register types once):
 ```java
 AnyCallClient client = AnyCall.client("redis://localhost:6379");
-client.registerType("create-new-product", Product.class);
+client.registerType("analyze-sentiment", Sentiment.class);
 
 // Then, calls without type:
-Product product = client.call("create-new-product", request);
+Sentiment sentiment = client.call("analyze-sentiment", request);
 ```
 
 ### Call without model (returns Map):
 ```java
-Map<String, Object> response = client.callRaw("create-new-product", request);
+Map<String, Object> response = client.callRaw("analyze-sentiment", request);
 ```
 
 ## Configuration

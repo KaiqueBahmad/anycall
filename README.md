@@ -22,10 +22,10 @@ reflect the current target API.
 
 **Server**
 ```java
-public class ProductSupplier {
-    @Supply("create-new-product")
-    public Product createNewProduct(CreateProductRequest req) {
-        return new Product(req.name(), req.priceInCents());
+public class SentimentAnalyzer {
+    @Supply("analyze-sentiment")
+    public Sentiment analyzeSentiment(TextRequest req) {
+        return new Sentiment(req.text(), "positive");
     }
 }
 
@@ -46,9 +46,9 @@ public class Application {
         String redisUri = "redis://localhost:6379";
         AnyCallClient anyCall = AnyCall.client(redisUri);
 
-        CreateProductRequest req = new CreateProductRequest("Keyboard", 10000);
-        Product product = anyCall.call("create-new-product", req, Product.class);
-        System.out.println(product);
+        TextRequest req = new TextRequest("This is great!");
+        Sentiment sentiment = anyCall.call("analyze-sentiment", req, Sentiment.class);
+        System.out.println(sentiment);
     }
 }
 ```
@@ -65,19 +65,18 @@ from anycall import AnyCall, supply
 from dataclasses import dataclass
 
 @dataclass
-class CreateProductRequest:
-    name: str
-    price_in_cents: int
+class TextRequest:
+    text: str
 
 @dataclass
-class Product:
-    name: str
-    price_in_cents: int
+class Sentiment:
+    text: str
+    label: str
 
-class ProductSupplier:
-    @supply("create-new-product")
-    def create_new_product(self, req: CreateProductRequest) -> Product:
-        return Product(name=req.name, price_in_cents=req.price_in_cents)
+class SentimentAnalyzer:
+    @supply("analyze-sentiment")
+    def analyze_sentiment(self, req: TextRequest) -> Sentiment:
+        return Sentiment(text=req.text, label="positive")
 
 if __name__ == "__main__":
     server = AnyCall.server("redis://localhost:6379")
@@ -91,16 +90,15 @@ from anycall import AnyCall
 from dataclasses import dataclass
 
 @dataclass
-class CreateProductRequest:
-    name: str
-    price_in_cents: int
+class TextRequest:
+    text: str
 
 client = AnyCall.client("redis://localhost:6379")
-product = client.call(
-    "create-new-product",
-    CreateProductRequest(name="Mouse", price_in_cents=5000)
+sentiment = client.call(
+    "analyze-sentiment",
+    TextRequest(text="This is great!")
 )
-print(product)  # Returns dict: {"name": "Mouse", "price_in_cents": 5000}
+print(sentiment)  # Returns dict: {"text": "This is great!", "label": "positive"}
 ```
 
 [→ Ver mais](python/README.md)

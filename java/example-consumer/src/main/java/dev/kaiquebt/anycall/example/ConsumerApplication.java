@@ -2,6 +2,8 @@ package dev.kaiquebt.anycall.example;
 
 import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallClient;
+import dev.kaiquebt.anycall.example.model.TextRequest;
+import dev.kaiquebt.anycall.example.model.Sentiment;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -17,10 +19,10 @@ public class ConsumerApplication {
             AnyCallClient anyCall = AnyCall.client(redisUri, true);
 
             System.out.println("[Consumer] ---- Warmup Call ----");
-            CreateProductRequest warmupRequest = new CreateProductRequest("warmup", 0);
+            TextRequest warmupRequest = new TextRequest("warmup");
             long warmupStart = System.nanoTime();
             try {
-                Product warmupResponse = anyCall.call("create-new-product", warmupRequest, Product.class);
+                Sentiment warmupResponse = anyCall.call("analyze-sentiment", warmupRequest, Sentiment.class);
                 long warmupElapsed = (System.nanoTime() - warmupStart) / 1_000_000;
                 System.out.println("[Consumer] Warmup call succeeded in " + warmupElapsed + "ms");
                 System.out.println("[Consumer] Response: " + warmupResponse);
@@ -36,11 +38,11 @@ public class ConsumerApplication {
             long suiteStart = System.currentTimeMillis();
 
             for (int i = 1; i <= total; i++) {
-                CreateProductRequest request = new CreateProductRequest("test-" + i, 123 + i);
+                TextRequest request = new TextRequest("test-" + i);
 
                 try {
                     long startTime = System.nanoTime();
-                    anyCall.call("create-new-product", request, Product.class);
+                    anyCall.call("analyze-sentiment", request, Sentiment.class);
                     long elapsed = (System.nanoTime() - startTime) / 1_000_000;
 
                     timings[ok] = elapsed;

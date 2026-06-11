@@ -2,6 +2,7 @@ package dev.kaiquebt.anycall.example;
 
 import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallServer;
+import dev.kaiquebt.anycall.example.supplier.SentimentAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,10 +19,10 @@ public class SupplierApplication {
             redisUri = "redis://localhost:6379";
         }
 
-        ProductSupplier supplier = new ProductSupplier();
+        SentimentAnalyzer analyzer = new SentimentAnalyzer();
 
         AnyCallServer server = AnyCall.server(redisUri);
-        server.register(supplier);
+        server.register(analyzer);
         server.start();
 
         writeHealthFile();

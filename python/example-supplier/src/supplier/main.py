@@ -7,7 +7,7 @@ from pathlib import Path
 
 from anycall import AnyCall
 
-from .product_supplier import ProductSupplier
+from .sentiment_analyzer import SentimentAnalyzer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +31,7 @@ def main() -> None:
     logger.info(f"Starting supplier with Redis URI: {redis_uri}")
 
     server = AnyCall.server(redis_uri)
-    server.register(ProductSupplier())
+    server.register(SentimentAnalyzer())
     server.start()
 
     write_health_file()

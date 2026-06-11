@@ -5,7 +5,7 @@ import time
 
 from anycall import AnyCall
 
-from .model.create_product_request import CreateProductRequest
+from .model.text_request import TextRequest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,8 +23,8 @@ def main() -> None:
 
     logger.info("Running warmup call...")
     warmup_response = client.call(
-        "create-new-product",
-        CreateProductRequest(name="warmup", price_in_cents=0)
+        "analyze-sentiment",
+        TextRequest(text="warmup")
     )
     logger.info(f"Warmup response: {warmup_response}")
 
@@ -35,8 +35,8 @@ def main() -> None:
     for i in range(1, total + 1):
         start_ns = time.time_ns()
         response = client.call(
-            "create-new-product",
-            CreateProductRequest(name=f"test-{i}", price_in_cents=123 + i)
+            "analyze-sentiment",
+            TextRequest(text=f"test-{i}")
         )
         elapsed_ms = (time.time_ns() - start_ns) / 1_000_000
         timings.append(elapsed_ms)
