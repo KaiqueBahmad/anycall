@@ -1,26 +1,26 @@
 # AnyCall Library
 
-Biblioteca Redis-based para RPC em Python. Fornece um framework para comunicação entre aplicações através de Redis Streams.
+Redis-based library for RPC in Python. Provides a framework for communication between applications through Redis Streams.
 
-## Visão Geral
+## Overview
 
-AnyCall é um framework que permite que aplicações Python se comuniquem de forma assíncrona através do Redis, utilizando Redis Streams como mecanismo de transporte de mensagens.
+AnyCall is a framework that allows Python applications to communicate asynchronously through Redis, using Redis Streams as the message transport mechanism.
 
-## Componentes Principais
+## Main Components
 
 ### Core
-- **AnyCall** - Interface principal da biblioteca
-- **AnyCallClient** - Cliente para chamar métodos em suppliers remotos
-- **AnyCallServer** - Servidor para registrar e executar métodos
-- **RedisStreamAdapter** - Adaptador para Redis Streams
+- **AnyCall** - Main library interface
+- **AnyCallClient** - Client for calling methods on remote suppliers
+- **AnyCallServer** - Server for registering and executing methods
+- **RedisStreamAdapter** - Redis Streams adapter
 
-### Configuração
-- **AnycallProperties** - Propriedades de configuração da biblioteca
-- **supply** - Decorador para marcar métodos como supply
+### Configuration
+- **AnycallProperties** - Configuration properties for the library
+- **supply** - Decorator to mark methods as supply
 
-### Modelos
-- **AnyCallRequest** - Modelo de requisição RPC
-- **AnyCallResponse** - Modelo de resposta RPC
+### Models
+- **AnyCallRequest** - RPC request model
+- **AnyCallResponse** - RPC response model
 
 ## Build
 
@@ -28,24 +28,24 @@ AnyCall é um framework que permite que aplicações Python se comuniquem de for
 uv sync
 ```
 
-Isso irá instalar a biblioteca e suas dependências.
+This will install the library and its dependencies in the workspace.
 
-## Uso Básico
+## Basic Usage
 
-1. Implemente um supplier usando o decorador `@supply`
-2. Configure e inicie o `AnyCallServer`
-3. Use `AnyCallClient` para chamar métodos remotamente
+1. Implement a supplier using the `@supply` decorator
+2. Configure and start the `AnyCallServer`
+3. Use `AnyCallClient` to call methods remotely
 
-Ver `example-supplier` e `example-consumer` para exemplos práticos.
+See `example-supplier` and `example-consumer` for practical examples.
 
-## Dependências
+## Dependencies
 
 - Redis
 - Python 3.9+
 
-## Configuração
+## Configuration
 
-Configure as propriedades através de `AnycallProperties`:
+Configure properties through `AnycallProperties`:
 
 ```python
 from datetime import timedelta
@@ -57,7 +57,7 @@ props = AnycallProperties(
 )
 ```
 
-Ou use os valores padrão:
+Or use the defaults:
 
 ```python
 from anycall import AnyCall

@@ -1,40 +1,40 @@
-# Projeto Java - AnyCall
+# Java - AnyCall
 
-Este diretório contém os componentes Java do projeto AnyCall.
+This directory contains the Java components of the AnyCall project.
 
-## Estrutura
+## Structure
 
-- **lib/** - Biblioteca principal do AnyCall
-- **example-consumer/** - Exemplo de consumer
-- **example-supplier/** - Exemplo de supplier
-- **Dockerfile** - Imagem Docker para o projeto
-- **pom.xml** - Configuração do Maven
-- **rebuild-all.sh** - Script para reconstruir todos os módulos
+- **lib/** - AnyCall core library
+- **example-consumer/** - Consumer example
+- **example-supplier/** - Supplier example
+- **Dockerfile** - Docker image for the project
+- **pom.xml** - Maven configuration
+- **rebuild-all.sh** - Script to rebuild all modules
 
-## Como usar
+## How to use
 
-### Compilar
+### Build
 ```bash
 ./rebuild-all.sh
 ```
 
-Para detalhes sobre como usar como supplier ou consumer, veja [USAGE.md](USAGE.md).
+For details on how to use as a supplier or consumer, see [USAGE.md](USAGE.md).
 
-## Módulos
+## Modules
 
 ### lib
-Biblioteca principal implementando um framework de RPC via Redis Streams. Utiliza a classe factory `AnyCall` para criar clients e servers:
+Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall` factory class to create clients and servers:
 
-- **AnyCall Client**: Interface síncrona para invocar métodos remotos. Serializa a requisição em JSON, publica em uma Redis Stream, aguarda a resposta em um stream de callback. Suporta timeout configurável e coleta opcional de métricas.
+- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis Stream, waits for the response on a callback stream. Supports configurable timeout and optional metrics collection.
   
-- **AnyCall Server**: Listener que processa requisições do Redis. Mantém um pool de threads (um por método registrado) consumindo de streams específicas. Os métodos são descobertos via anotação `@Supply` nas classes registradas.
+- **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via `@Supply` annotation on registered classes.
 
-- **Publisher**: Abstração para publicação em Redis Streams (mensagens JSON ou raw).
+- **Publisher**: Abstraction for publishing to Redis Streams (JSON messages).
 
-- **Configuração**: Via `AnycallProperties` — define parâmetros como Redis URI, timeouts, thread pools, etc.
+- **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
 
 ### example-consumer
-Aplicação cliente que demonstra o uso do `AnyCallClient`. Faz 100 chamadas RPC para o método `create-new-product` e exibe estatísticas de latência (min, avg, p50, p95, p99, max). Inclui aquecimento inicial e suporte a métricas.
+Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `create-new-product` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
 
 ### example-supplier
-Aplicação servidor que registra suppliers via `AnyCall.server()`. A classe `ProductSupplier` contém um método `createNewProduct` anotado com `@Supply("create-new-product")`, que processa criação de produtos. Inicia listeners para cada método registrado e escreve um arquivo de saúde em `/tmp/anycall/health`.
+Server application that registers suppliers via `AnyCall.server()`. The `ProductSupplier` class contains a `createNewProduct` method annotated with `@Supply("create-new-product")`, which handles product creation. Starts listeners for each registered method and writes a health file to `/tmp/anycall/health`.

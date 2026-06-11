@@ -1,8 +1,8 @@
-# Guia de Uso - AnyCall Java
+# AnyCall Java Usage Guide
 
-## Como Usar como Supplier (Servidor)
+## How to Use as Supplier (Server)
 
-1. **Defina uma classe com métodos anotados com `@Supply`:**
+1. **Define a class with methods annotated with `@Supply`:**
 ```java
 public class ProductSupplier {
     @Supply("create-new-product")
@@ -12,7 +12,7 @@ public class ProductSupplier {
 }
 ```
 
-2. **Registre e inicie o servidor:**
+2. **Register and start the server:**
 ```java
 String redisUri = System.getenv("REDIS_URI");
 AnyCallServer server = AnyCall.server(redisUri);
@@ -20,37 +20,37 @@ server.register(new ProductSupplier());
 server.start();
 ```
 
-## Como Usar como Consumer (Cliente)
+## How to Use as Consumer (Client)
 
-### Chamada com tipo explícito:
+### Call with explicit type:
 ```java
 AnyCallClient client = AnyCall.client("redis://localhost:6379");
 Product product = client.call("create-new-product", request, Product.class);
 ```
 
-### Chamada com registry (registre tipos uma vez):
+### Call with registry (register types once):
 ```java
 AnyCallClient client = AnyCall.client("redis://localhost:6379");
 client.registerType("create-new-product", Product.class);
 
-// Depois, chamadas sem tipo:
+// Then, calls without type:
 Product product = client.call("create-new-product", request);
 ```
 
-### Chamada sem modelo (retorna Map):
+### Call without model (returns Map):
 ```java
 Map<String, Object> response = client.callRaw("create-new-product", request);
 ```
 
-## Configuração
+## Configuration
 
 ```java
-// Timeout customizado
+// Custom timeout
 AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60));
 
-// Com métricas
+// With metrics
 AnyCallClient client = AnyCall.client(redisUri, true);
 
-// Ambos
+// Both
 AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60), true);
 ```

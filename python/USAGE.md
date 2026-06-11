@@ -1,8 +1,8 @@
-# Guia de Uso - AnyCall Python
+# AnyCall Python Usage Guide
 
-## Como Usar como Supplier (Servidor)
+## How to Use as Supplier (Server)
 
-1. **Defina uma classe com métodos decorados com `@supply`:**
+1. **Define a class with methods decorated with `@supply`:**
 ```python
 from anycall import supply
 from dataclasses import dataclass
@@ -23,7 +23,7 @@ class ProductSupplier:
         return Product(name=req.name, price_in_cents=req.price_in_cents)
 ```
 
-2. **Registre e inicie o servidor:**
+2. **Register and start the server:**
 ```python
 from anycall import AnyCall
 
@@ -32,40 +32,40 @@ server.register(ProductSupplier())
 server.start()
 ```
 
-## Como Usar como Consumer (Cliente)
+## How to Use as Consumer (Client)
 
-### Chamada com tipo explícito:
+### Call with explicit type:
 ```python
 client = AnyCall.client("redis://localhost:6379")
 product = client.call("create-new-product", request, Product)
 ```
 
-### Chamada com registry (registre tipos uma vez):
+### Call with registry (register types once):
 ```python
 client = AnyCall.client("redis://localhost:6379")
 client.register_type("create-new-product", Product)
 
-# Depois, chamadas sem tipo:
+# Then, calls without type:
 product = client.call("create-new-product", request)
 ```
 
-### Chamada sem modelo (retorna dict):
+### Call without model (returns dict):
 ```python
 response = client.call_raw("create-new-product", request)
 ```
 
-## Configuração
+## Configuration
 
 ```python
 from datetime import timedelta
 
-# Timeout customizado
+# Custom timeout
 client = AnyCall.client(redis_uri, timeout=timedelta(seconds=60))
 
-# Com métricas
+# With metrics
 client = AnyCall.client(redis_uri, metrics_enabled=True)
 
-# Ambos
+# Both
 client = AnyCall.client(
     redis_uri,
     timeout=timedelta(seconds=60),
