@@ -38,4 +38,4 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/anycall"]
+packages = ["src/anycall-py"]
