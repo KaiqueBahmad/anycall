@@ -1,5 +1,7 @@
 # anycall
 
+![PyPI](https://img.shields.io/pypi/v/anycall-py)
+
 Call functions across services written in different languages, using the
 Redis you already have — no .proto files, no exposed ports, no per-service
 plumbing to maintain.
