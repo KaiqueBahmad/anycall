@@ -13,12 +13,12 @@ No method ever silently falls back or returns different types. The contract is e
 
 ### Two Overloads
 
-1. **With explicit type**: `call("create-new-product", req, Product)`
+1. **With explicit type**: `call("analyze-sentiment", req, Product)`
    - Deserializes response JSON to `Product` directly
    - Fast path; no registry lookup
    
-2. **Without explicit type**: `call("create-new-product", req)`
-   - Looks up `"create-new-product"` in local registry
+2. **Without explicit type**: `call("analyze-sentiment", req)`
+   - Looks up `"analyze-sentiment"` in local registry
    - If registered: deserializes to registered type
    - If NOT registered: **raises clear error** (see below)
 
@@ -48,7 +48,7 @@ client.call("unknown-op", req)  # No type, not in registry
 - Explicit path for "I want data without a model"
 
 ```python
-raw = client.call_raw("create-new-product", req)
+raw = client.call_raw("analyze-sentiment", req)
 # → {'name': 'Keyboard', 'price_in_cents': 10000}
 
 assert isinstance(raw, dict)
@@ -67,18 +67,18 @@ The registry is **write-once, mostly-read**:
 
 - **First registration**: succeeds
   ```python
-  client.register_type("create-new-product", Product)  # OK
+  client.register_type("analyze-sentiment", Product)  # OK
   ```
 
 - **Re-register with SAME type**: idempotent, no-op
   ```python
-  client.register_type("create-new-product", Product)  # OK (idempotent)
+  client.register_type("analyze-sentiment", Product)  # OK (idempotent)
   ```
 
 - **Re-register with DIFFERENT type**: **error**
   ```python
-  client.register_type("create-new-product", Product)
-  client.register_type("create-new-product", OrderResponse)
+  client.register_type("analyze-sentiment", Product)
+  client.register_type("analyze-sentiment", OrderResponse)
   # → AnyCallException:
   #   "Operation 'create-new-product' already registered with type Product,
   #    cannot register OrderResponse. Either register with same type (idempotent)

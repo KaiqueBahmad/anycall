@@ -10,6 +10,22 @@
 
     <name>AnyCall Aggregator</name>
     <description>Reactor aggregator: lib + example modules. Builds in dependency order so dependents type-check against the freshly compiled lib (not the ~/.m2 copy).</description>
+    <url>https://github.com/KaiqueBahmad/anycall</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Kaique Bahmad</name>
+            <email>kaiquebahmadt@gmail.com</email>
+            <organization>dev.kaiquebt</organization>
+        </developer>
+    </developers>
 
     <!--
       Agregador PURO: apenas lista os modulos. Os filhos NAO precisam declarar <parent>.

@@ -16,14 +16,14 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Call Examples: Typed and Raw Paths")
 class CallExamplesTest {
 
-    static class Product {
-        public String name;
-        public int priceInCents;
+    static class Sentiment {
+        public String text;
+        public String label;
 
-        Product() {}
-        Product(String name, int priceInCents) {
-            this.name = name;
-            this.priceInCents = priceInCents;
+        Sentiment() {}
+        Sentiment(String text, String label) {
+            this.text = text;
+            this.label = label;
         }
     }
 
@@ -45,9 +45,9 @@ class CallExamplesTest {
         TypeRegistry registry = new TypeRegistry();
 
         // No registration needed; type is explicit
-        assertNull(registry.get("create-new-product"));
+        assertNull(registry.get("analyze-sentiment"));
 
-        // With explicit type, would deserialize to Product
+        // With explicit type, would deserialize to Sentiment
         // (actual RPC not tested here, would need server)
         assertTrue(true); // Placeholder for actual RPC call
     }
@@ -58,11 +58,11 @@ class CallExamplesTest {
         TypeRegistry registry = new TypeRegistry();
 
         // Register the type once
-        registry.registerType("create-new-product", Product.class);
+        registry.registerType("analyze-sentiment", Sentiment.class);
 
         // Now lookup succeeds
-        assertTrue(registry.has("create-new-product"));
-        assertSame(Product.class, registry.get("create-new-product"));
+        assertTrue(registry.has("analyze-sentiment"));
+        assertSame(Sentiment.class, registry.get("analyze-sentiment"));
 
         // call(op, req) without explicit type would use registry
         // (actual RPC not tested here)
@@ -76,9 +76,9 @@ class CallExamplesTest {
 
         // Even if registered, callRaw ignores registry
         TypeRegistry registry = new TypeRegistry();
-        registry.registerType("some-op", Product.class);
+        registry.registerType("some-op", Sentiment.class);
 
-        // callRaw(op, req) would return Map, not Product
+        // callRaw(op, req) would return Map, not Sentiment
         // (actual RPC not tested, but semantics are: no type involved)
         assertTrue(true); // Placeholder
     }
@@ -103,19 +103,19 @@ class CallExamplesTest {
     void exampleDuplicateTypeError() {
         TypeRegistry registry = new TypeRegistry();
 
-        registry.registerType("create-new-product", Product.class);
+        registry.registerType("analyze-sentiment", Sentiment.class);
 
         // Try to register same operation with different type
         AnyCallException exception =
             assertThrows(
                 AnyCallException.class,
-                () -> registry.registerType("create-new-product", Order.class)
+                () -> registry.registerType("analyze-sentiment", Order.class)
             );
 
         String msg = exception.getMessage();
-        assertTrue(msg.contains("create-new-product"));
+        assertTrue(msg.contains("analyze-sentiment"));
         assertTrue(msg.contains("already registered"));
-        assertTrue(msg.contains("Product"));
+        assertTrue(msg.contains("Sentiment"));
         assertTrue(msg.contains("Order"));
     }
 
@@ -124,13 +124,13 @@ class CallExamplesTest {
     void exampleDuplicateTypeSame() {
         TypeRegistry registry = new TypeRegistry();
 
-        registry.registerType("create-new-product", Product.class);
+        registry.registerType("analyze-sentiment", Sentiment.class);
 
         // Re-register same operation with same type → no error
-        registry.registerType("create-new-product", Product.class);
+        registry.registerType("analyze-sentiment", Sentiment.class);
 
-        assertTrue(registry.has("create-new-product"));
-        assertSame(Product.class, registry.get("create-new-product"));
+        assertTrue(registry.has("analyze-sentiment"));
+        assertSame(Sentiment.class, registry.get("analyze-sentiment"));
     }
 
     // Convenience method for registry in examples

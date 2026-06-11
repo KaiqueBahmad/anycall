@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from anycall import AnyCall
 
-from .model.create_product_request import CreateProductRequest
-from .model.product import Product
+from .model.text_request import TextRequest
+from .model.sentiment import Sentiment
 
 
 @dataclass
@@ -20,15 +20,15 @@ def example_call_with_explicit_type():
     print("\n=== Example 1: call() with explicit type ===")
     client = AnyCall.client("redis://localhost:6379")
 
-    req = CreateProductRequest(name="Keyboard", price_in_cents=10000)
-    product = client.call(
-        "create-new-product",
+    req = TextRequest(text="This is great!")
+    sentiment = client.call(
+        "analyze-sentiment",
         req,
-        Product  # Explicit type → no registry needed
+        Sentiment  # Explicit type → no registry needed
     )
-    print(f"Product: {product}")
-    assert isinstance(product, Product)
-    assert product.name == "Keyboard"
+    print(f"Sentiment: {sentiment}")
+    assert isinstance(sentiment, Sentiment)
+    assert sentiment.text == "This is great!"
 
 
 def example_call_with_registry():
@@ -37,14 +37,14 @@ def example_call_with_registry():
     client = AnyCall.client("redis://localhost:6379")
 
     # Register the type once
-    client.register_type("create-new-product", Product)
+    client.register_type("analyze-sentiment", Sentiment)
 
     # Now call without explicit type
-    req = CreateProductRequest(name="Mouse", price_in_cents=5000)
-    product = client.call("create-new-product", req)  # No Type arg
-    print(f"Product from registry: {product}")
-    assert isinstance(product, Product)
-    assert product.name == "Mouse"
+    req = TextRequest(text="Absolutely wonderful!")
+    sentiment = client.call("analyze-sentiment", req)  # No Type arg
+    print(f"Sentiment from registry: {sentiment}")
+    assert isinstance(sentiment, Sentiment)
+    assert sentiment.text == "Absolutely wonderful!"
 
 
 def example_call_raw():
@@ -52,12 +52,12 @@ def example_call_raw():
     print("\n=== Example 3: call_raw() ===")
     client = AnyCall.client("redis://localhost:6379")
 
-    req = CreateProductRequest(name="Monitor", price_in_cents=20000)
-    raw_result = client.call_raw("create-new-product", req)
+    req = TextRequest(text="Looking good!")
+    raw_result = client.call_raw("analyze-sentiment", req)
     print(f"Raw result: {raw_result}")
     assert isinstance(raw_result, dict)
-    assert raw_result["name"] == "Monitor"
-    assert raw_result["price_in_cents"] == 20000
+    assert raw_result["text"] == "Looking good!"
+    assert raw_result["label"] == "positive"
 
 
 def example_registry_absent_error():
@@ -65,14 +65,14 @@ def example_registry_absent_error():
     print("\n=== Example 4: Registry absent error ===")
     client = AnyCall.client("redis://localhost:6379")
 
-    req = CreateProductRequest(name="Laptop", price_in_cents=300000)
+    req = TextRequest(text="Unknown operation")
     try:
         # No Type arg, no registry entry → must fail loudly
-        product = client.call("create-new-product", req)
+        sentiment = client.call("unknown-operation", req)
         print("ERROR: Should have raised AnyCallException!")
     except Exception as e:
         print(f"✓ Expected error: {e}")
-        assert "create-new-product" in str(e)
+        assert "unknown-operation" in str(e)
         assert "register_type" in str(e) or "explicit type" in str(e)
 
 
@@ -81,17 +81,17 @@ def example_duplicate_type_error():
     print("\n=== Example 5: Duplicate type error ===")
     client = AnyCall.client("redis://localhost:6379")
 
-    # Register with Product type
-    client.register_type("create-new-product", Product)
-    print("✓ Registered 'create-new-product' with Product")
+    # Register with Sentiment type
+    client.register_type("analyze-sentiment", Sentiment)
+    print("✓ Registered 'analyze-sentiment' with Sentiment")
 
     # Try to register same operation with different type
     try:
-        client.register_type("create-new-product", OrderResponse)
+        client.register_type("analyze-sentiment", OrderResponse)
         print("ERROR: Should have raised AnyCallException!")
     except Exception as e:
         print(f"✓ Expected error: {e}")
-        assert "create-new-product" in str(e)
+        assert "analyze-sentiment" in str(e)
         assert "already registered" in str(e)
 
 
@@ -100,13 +100,13 @@ def example_duplicate_type_idempotent():
     print("\n=== Example 6: Duplicate type (same) = idempotent ===")
     client = AnyCall.client("redis://localhost:6379")
 
-    # Register with Product type
-    client.register_type("create-new-product", Product)
-    print("✓ Registered 'create-new-product' with Product")
+    # Register with Sentiment type
+    client.register_type("analyze-sentiment", Sentiment)
+    print("✓ Registered 'analyze-sentiment' with Sentiment")
 
     # Register same operation with same type → no error
-    client.register_type("create-new-product", Product)
-    print("✓ Re-registered 'create-new-product' with Product (idempotent, no error)")
+    client.register_type("analyze-sentiment", Sentiment)
+    print("✓ Re-registered 'analyze-sentiment' with Sentiment (idempotent, no error)")
 
 
 if __name__ == "__main__":

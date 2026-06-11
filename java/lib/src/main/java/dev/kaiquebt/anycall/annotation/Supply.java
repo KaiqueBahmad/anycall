@@ -23,11 +23,10 @@ import java.lang.annotation.Target;
  * <p>Example:
  * <pre>
  * {@code
- * @AnyCallSupplier
- * public class ProductService {
- *     @Supply("create-new-product")
- *     public Product createNewProduct(CreateProductRequest req) {
- *         return new Product(req.name(), req.priceInCents());
+ * public class SentimentAnalyzer {
+ *     @Supply("analyze-sentiment")
+ *     public Sentiment analyzeSentiment(TextRequest req) {
+ *         return new Sentiment(req.text(), "positive");
  *     }
  * }
  * }

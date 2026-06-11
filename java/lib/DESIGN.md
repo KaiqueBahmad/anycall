@@ -19,7 +19,7 @@ No method ever silently falls back or returns different types. The contract is e
 - Fast path; no registry lookup
 
 ```java
-Product product = client.call("create-new-product", req, Product.class);
+Sentiment sentiment = client.call("analyze-sentiment", req, Sentiment.class);
 ```
 
 ## Typed Raia (Registry): call(String operation, Object request)
@@ -31,8 +31,8 @@ Product product = client.call("create-new-product", req, Product.class);
 3. If NOT registered: **raises clear error** (see below)
 
 ```java
-client.registerType("create-new-product", Product.class);
-Product product = client.call("create-new-product", req);
+client.registerType("analyze-sentiment", Sentiment.class);
+Sentiment sentiment = client.call("analyze-sentiment", req);
 ```
 
 ### Error: Missing Type (Fail-Loud)
@@ -56,8 +56,8 @@ client.call("unknown-op", req);
 - Explicit path for "I want data without a model"
 
 ```java
-Map<String,Object> raw = client.callRaw("create-new-product", req);
-// → {"name": "Keyboard", "priceInCents": 10000}
+Map<String,Object> raw = client.callRaw("analyze-sentiment", req);
+// → {"text": "This is great!", "label": "positive"}
 
 assertTrue(raw instanceof Map);
 ```
@@ -68,20 +68,20 @@ assertTrue(raw instanceof Map);
 
 - **First registration**: succeeds
   ```java
-  client.registerType("create-new-product", Product.class);  // OK
+  client.registerType("analyze-sentiment", Sentiment.class);  // OK
   ```
 
 - **Re-register with SAME type**: idempotent, no-op
   ```java
-  client.registerType("create-new-product", Product.class);  // OK (idempotent)
+  client.registerType("analyze-sentiment", Sentiment.class);  // OK (idempotent)
   ```
 
 - **Re-register with DIFFERENT type**: **error**
   ```java
-  client.registerType("create-new-product", Product.class);
-  client.registerType("create-new-product", Order.class);
+  client.registerType("analyze-sentiment", Sentiment.class);
+  client.registerType("analyze-sentiment", Order.class);
   // → AnyCallException:
-  //   "Operation 'create-new-product' already registered with type Product,
+  //   "Operation 'analyze-sentiment' already registered with type Sentiment,
   //    cannot register Order. Either register with same type (idempotent)
   //    or recreate client."
   ```
