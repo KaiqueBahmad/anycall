@@ -39,7 +39,7 @@ public class Application {
 }
 ```
 
-**Client**
+**Client (explicit type)**
 ```java
 public class Application {
     public static void main(String[] args) {
@@ -53,7 +53,25 @@ public class Application {
 }
 ```
 
-[→ Ver mais](java/README.md)
+**Client (registered type)**
+```java
+public class Application {
+    public static void main(String[] args) {
+        String redisUri = "redis://localhost:6379";
+        AnyCallClient anyCall = AnyCall.client(redisUri);
+
+        // Register type once
+        anyCall.registerType("analyze-sentiment", Sentiment.class);
+
+        // Then call without explicit type
+        TextRequest req = new TextRequest("This is great!");
+        Sentiment sentiment = anyCall.call("analyze-sentiment", req);
+        System.out.println(sentiment);
+    }
+}
+```
+
+[→ See more](java/README.md)
 
 ---
 
