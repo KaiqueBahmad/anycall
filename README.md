@@ -98,7 +98,7 @@ class SentimentAnalyzer:
 
 if __name__ == "__main__":
     server = AnyCall.server("redis://localhost:6379")
-    server.register(ProductSupplier())
+    server.register(SentimentAnalyzer())
     server.start()
 ```
 

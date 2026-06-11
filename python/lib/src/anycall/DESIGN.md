@@ -49,7 +49,7 @@ client.call("unknown-op", req)  # No type, not in registry
 
 ```python
 raw = client.call_raw("analyze-sentiment", req)
-# → {'name': 'Keyboard', 'price_in_cents': 10000}
+# → {'text': 'This is great!', 'label': 'positive'}
 
 assert isinstance(raw, dict)
 ```
@@ -80,7 +80,7 @@ The registry is **write-once, mostly-read**:
   client.register_type("analyze-sentiment", Product)
   client.register_type("analyze-sentiment", OrderResponse)
   # → AnyCallException:
-  #   "Operation 'create-new-product' already registered with type Product,
+  #   "Operation 'analyze-sentiment' already registered with type Sentiment,
   #    cannot register OrderResponse. Either register with same type (idempotent)
   #    or recreate client."
   ```
