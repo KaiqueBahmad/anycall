@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "anycall-example-supplier"
-version = "0.0.1"
+version = "0.1.0"
 description = "AnyCall Supplier Example"
 requires-python = ">=3.9"
 license = { text = "MIT" }
