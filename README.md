@@ -16,7 +16,7 @@ coupling between services for free, with one consistent API across languages.
 **Status:** Java and Python are under active development. The examples below
 reflect the current target API.
 
-## Exemplos de Uso
+## Usage Examples
 
 ### Java
 
@@ -120,3 +120,43 @@ print(sentiment)  # Returns dict: {"text": "This is great!", "label": "positive"
 ```
 
 [→ Ver mais](python/README.md)
+
+## When to use anycall
+
+anycall fits when you have services in **different languages** that need to
+call each other, and you'd rather not stand up a full RPC stack to do it.
+
+- **Polyglot backends.** A Java service needs a function that lives in a
+  Python service (or vice-versa). No shared `.proto`, no codegen step — register
+  the function on one side, call it by name from the other.
+
+- **Heterogeneous AI / inference workloads.** Orchestrate from a typed backend
+  while the heavy work runs elsewhere: a Java or Node service calls a Python
+  inference worker, and the broker spreads requests across however many workers
+  are running. Add GPU workers and they start receiving traffic automatically —
+  no client changes.
+
+- **You already run Redis.** If Redis is already in your stack, anycall needs
+  no new infrastructure. No message broker to provision, no service mesh, no
+  ports to expose between services.
+
+- **Scaling workers should be trivial.** Because the broker sits in the middle,
+  running N copies of a server load-balances for free — Redis hands each request
+  to exactly one available worker. Scale down to zero and back up; clients don't
+  notice.
+
+## How it compares
+
+|                         | anycall            | gRPC              | Raw Redis / broker | Celery            |
+|-------------------------|--------------------|-------------------|--------------------|-------------------|
+| Cross-language          | Yes                | Yes               | Yes (DIY)          | Limited           |
+| Schema / codegen step   | None               | `.proto` required | None               | None              |
+| Topology                | Broker (decoupled) | Point-to-point    | Broker             | Broker            |
+| Built-in load balancing | Yes (via broker)   | Needs LB / mesh   | DIY                | Yes               |
+| Extra infrastructure    | Reuses Redis       | —                 | Redis              | Broker + backend  |
+| Plumbing you write       | None               | Service stubs     | All of it          | Task definitions  |
+
+> anycall trades raw throughput for simplicity: if you need maximum
+> performance and already invest in schemas and infrastructure, gRPC is the
+> right tool. anycall is for getting cross-language calls working *today* with
+> what you already have.
