@@ -7,9 +7,9 @@ RUN mkdir -p /tmp/anycall
 FROM base AS supplier
 COPY . .
 RUN uv sync --frozen --no-dev --package anycall-example-supplier
-ENTRYPOINT ["uv", "run", "--no-sync", "anycall-supplier"]
+ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "example_supplier.main"]
 
 FROM base AS consumer
 COPY . .
 RUN uv sync --frozen --no-dev --package anycall-example-consumer
-ENTRYPOINT ["uv", "run", "--no-sync", "anycall-consumer"]
+ENTRYPOINT ["uv", "run", "--no-sync", "python", "-m", "example_consumer.main"]

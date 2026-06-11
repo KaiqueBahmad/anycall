@@ -15,12 +15,12 @@ services:
     networks:
       - anycall
 
-  supplier:
+  java-supplier:
     build:
       context: ./java
       dockerfile: Dockerfile
       target: supplier
-    container_name: anycall-supplier
+    container_name: anycall-java-supplier
     depends_on:
       redis:
         condition: service_healthy
@@ -35,16 +35,16 @@ services:
       retries: 5
       start_period: 30s
 
-  consumer:
+  java-consumer:
     build:
       context: ./java
       dockerfile: Dockerfile
       target: consumer
-    container_name: anycall-consumer
+    container_name: anycall-java-consumer
     depends_on:
       redis:
         condition: service_healthy
-      supplier:
+      java-supplier:
         condition: service_healthy
     environment:
       REDIS_URI: redis://redis:6379
