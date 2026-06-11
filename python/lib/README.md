@@ -1,66 +1,53 @@
-# AnyCall Library
+# Python - AnyCall
 
-Redis-based library for RPC in Python. Provides a framework for communication between applications through Redis Streams.
+This directory contains the Python components of the AnyCall project.
+Call functions across Python services using Redis, with no `.proto` files, exposed ports, or extra service plumbing to maintain.
 
-## Overview
+## Structure
 
-AnyCall is a framework that allows Python applications to communicate asynchronously through Redis, using Redis Streams as the message transport mechanism.
+- **lib/** - AnyCall core library
+- **example-consumer/** - Consumer example
+- **example-supplier/** - Supplier example
+- **Dockerfile** - Docker image for the project
+- **pyproject.toml** - uv workspace configuration
+- **rebuild-all.sh** - Script to rebuild all modules
 
-## Main Components
+## How to use
 
-### Core
-- **AnyCall** - Main library interface
-- **AnyCallClient** - Client for calling methods on remote suppliers
-- **AnyCallServer** - Server for registering and executing methods
-- **RedisStreamAdapter** - Redis Streams adapter
-
-### Configuration
-- **AnycallProperties** - Configuration properties for the library
-- **supply** - Decorator to mark methods as supply
-
-### Models
-- **AnyCallRequest** - RPC request model
-- **AnyCallResponse** - RPC response model
-
-## Build
-
+### Build
 ```bash
-uv sync
+./rebuild-all.sh
 ```
 
-This will install the library and its dependencies in the workspace.
+### Quick usage
 
-## Basic Usage
-
-1. Implement a supplier using the `@supply` decorator
-2. Configure and start the `AnyCallServer`
-3. Use `AnyCallClient` to call methods remotely
-
-See `example-supplier` and `example-consumer` for practical examples.
-
-## Dependencies
-
-- Redis
-- Python 3.9+
-
-## Configuration
-
-Configure properties through `AnycallProperties`:
+- **Supplier**: decorate methods with `@supply`, register the class, and start the server.
+- **Consumer**: create an `AnyCall` client and call the supplier method by name.
 
 ```python
-from datetime import timedelta
-from anycall import AnyCall
+server = AnyCall.server(redis_uri)
+server.register(SentimentAnalyzer())
+server.start()
 
-props = AnycallProperties(
-    timeout=timedelta(seconds=30),
-    metrics_enabled=True
-)
+client = AnyCall.client(redis_uri)
+sentiment = client.call("analyze-sentiment", request, Sentiment)
 ```
 
-Or use the defaults:
+For details on how to use as a supplier or consumer, see USAGE.md.
 
-```python
-from anycall import AnyCall
+## Modules
 
-client = AnyCall.client("redis://localhost:6379")
-```
+### lib
+Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall` factory class to create clients and servers:
+
+- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis Stream, waits for the response on a callback stream. Supports configurable timeout and optional metrics collection.
+  
+- **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via the `@supply` decorator on registered classes.
+
+- **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
+
+### example-consumer
+Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
+
+### example-supplier
+Server application that registers suppliers via `AnyCall.server()`. The `SentimentAnalyzer` class contains an `analyze_sentiment` method decorated with `@supply("analyze-sentiment")`, which handles sentiment analysis. Starts listeners for each registered method and writes a health file to `/tmp/anycall/health`.

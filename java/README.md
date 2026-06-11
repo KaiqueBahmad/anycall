@@ -18,6 +18,20 @@ This directory contains the Java components of the AnyCall project.
 ./rebuild-all.sh
 ```
 
+### Quick usage
+
+- **Supplier**: annotate methods with `@Supply`, register the class, and start the server.
+- **Consumer**: create an `AnyCallClient` and call the supplier method by name.
+
+```java
+AnyCallServer server = AnyCall.server(redisUri);
+server.register(new SentimentAnalyzer());
+server.start();
+
+AnyCallClient client = AnyCall.client(redisUri);
+Sentiment sentiment = client.call("analyze-sentiment", request, Sentiment.class);
+```
+
 For details on how to use as a supplier or consumer, see [USAGE.md](USAGE.md).
 
 ## Modules

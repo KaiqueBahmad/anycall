@@ -1,6 +1,7 @@
 # Python - AnyCall
 
 This directory contains the Python components of the AnyCall project.
+Call functions across Python services using Redis, with no `.proto` files, exposed ports, or extra service plumbing to maintain.
 
 ## Structure
 
@@ -16,6 +17,20 @@ This directory contains the Python components of the AnyCall project.
 ### Build
 ```bash
 ./rebuild-all.sh
+```
+
+### Quick usage
+
+- **Supplier**: decorate methods with `@supply`, register the class, and start the server.
+- **Consumer**: create an `AnyCall` client and call the supplier method by name.
+
+```python
+server = AnyCall.server(redis_uri)
+server.register(SentimentAnalyzer())
+server.start()
+
+client = AnyCall.client(redis_uri)
+sentiment = client.call("analyze-sentiment", request, Sentiment)
 ```
 
 For details on how to use as a supplier or consumer, see [USAGE.md](USAGE.md).
