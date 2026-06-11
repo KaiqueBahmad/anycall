@@ -8,10 +8,16 @@ version = "0.0.1"
 description = "Redis Streams-based RPC framework for Python"
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com" }]
 dependencies = [
     "redis>=5.0.0",
     "dacite>=1.8.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/KaiqueBahmad/anycall"
+Repository = "https://github.com/KaiqueBahmad/anycall"
 
 [project.optional-dependencies]
 dev = [

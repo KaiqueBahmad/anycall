@@ -7,9 +7,15 @@ name = "anycall-example-consumer"
 version = "0.0.1"
 description = "AnyCall Consumer Example"
 requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com" }]
 dependencies = [
     "anycall",
 ]
+
+[project.urls]
+Homepage = "https://github.com/KaiqueBahmad/anycall"
+Repository = "https://github.com/KaiqueBahmad/anycall"
 
 [project.scripts]
 anycall-consumer = "example_consumer.main:main"
