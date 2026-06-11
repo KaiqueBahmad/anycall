@@ -10,6 +10,22 @@
 
     <name>AnyCall Example Supplier</name>
     <description>Example supplier application using AnyCall library</description>
+    <url>https://github.com/KaiqueBahmad/anycall</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Kaique Bahmad</name>
+            <email>kaiquebahmadt@gmail.com</email>
+            <organization>dev.kaiquebt</organization>
+        </developer>
+    </developers>
 
     <properties>
         <java.version>17</java.version>
