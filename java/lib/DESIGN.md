@@ -1,4 +1,4 @@
-# AnyCall Client — call() vs callRaw() Design (Java)
+# AnyCall Client — call() vs callRaw() Design
 
 ## Overview
 
