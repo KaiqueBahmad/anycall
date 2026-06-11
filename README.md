@@ -16,6 +16,15 @@ coupling between services for free, with one consistent API across languages.
 **Status:** Java and Python are under active development. The examples below
 reflect the current target API.
 
+## Installation
+
+Install AnyCall for your language:
+
+**Python:** `pip install anycall-py` (import as `anycall`)  
+**Java:** Add to `pom.xml` or build from `java/lib`
+
+→ [See detailed installation guide](INSTALLATION.md)
+
 ## Usage Examples
 
 ### Java
