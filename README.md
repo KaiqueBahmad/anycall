@@ -11,7 +11,7 @@ plumbing to maintain.
 
 A client publishes a request to Redis; any available server can pick it up,
 run it, and return the result. Calls can be synchronous (block until the
-response) or asynchronous (futures, promises, or callbacks), depending on
+response) or asynchronous (futures, promises, or callbacks), not implemented yet, depending on
 the language and runtime.
 
 Because the broker sits in the middle — unlike point-to-point RPC such as
