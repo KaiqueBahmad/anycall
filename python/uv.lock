@@ -8,14 +8,36 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "anycall",
     "anycall-example-consumer",
     "anycall-example-supplier",
+    "anycall-py",
 ]
 
 [[package]]
-name = "anycall"
-version = "0.0.1"
+name = "anycall-example-consumer"
+version = "0.1.0"
+source = { editable = "example-consumer" }
+dependencies = [
+    { name = "anycall-py" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "anycall-py", editable = "lib" }]
+
+[[package]]
+name = "anycall-example-supplier"
+version = "0.1.0"
+source = { editable = "example-supplier" }
+dependencies = [
+    { name = "anycall-py" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "anycall-py", editable = "lib" }]
+
+[[package]]
+name = "anycall-py"
+version = "0.1.0"
 source = { editable = "lib" }
 dependencies = [
     { name = "dacite" },
@@ -36,28 +58,6 @@ requires-dist = [
     { name = "redis", specifier = ">=5.0.0" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "anycall-example-consumer"
-version = "0.0.1"
-source = { editable = "example-consumer" }
-dependencies = [
-    { name = "anycall" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "anycall", editable = "lib" }]
-
-[[package]]
-name = "anycall-example-supplier"
-version = "0.0.1"
-source = { editable = "example-supplier" }
-dependencies = [
-    { name = "anycall" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "anycall", editable = "lib" }]
 
 [[package]]
 name = "async-timeout"

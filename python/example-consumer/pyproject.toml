@@ -10,7 +10,7 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com" }]
 dependencies = [
-    "anycall",
+    "anycall-py",
 ]
 
 [project.urls]
@@ -24,4 +24,4 @@ anycall-consumer = "example_consumer.main:main"
 packages = ["src/example_consumer"]
 
 [tool.uv.sources]
-anycall = { workspace = true }
+anycall-py = { workspace = true }

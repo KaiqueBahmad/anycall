@@ -99,3 +99,7 @@ Thumbs.db
 *.gcda
 *.gcno
 __pycache__/
+
+
+# Python build
+python/lib/dist/
