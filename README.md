@@ -116,7 +116,7 @@ if __name__ == "__main__":
     server.start()
 ```
 
-**Client**
+**Client (with explicit type)**
 ```python
 from anycall import AnyCall
 from dataclasses import dataclass
@@ -125,15 +125,27 @@ from dataclasses import dataclass
 class TextRequest:
     text: str
 
+@dataclass
+class Sentiment:
+    text: str
+    label: str
+
 client = AnyCall.client("redis://localhost:6379")
 sentiment = client.call(
     "analyze-sentiment",
-    TextRequest(text="This is great!")
+    TextRequest(text="This is great!"),
+    Sentiment
 )
-print(sentiment)  # Returns dict: {"text": "This is great!", "label": "positive"}
+print(sentiment)  # Returns Sentiment object
 ```
 
-[→ Ver mais](python/README.md)
+**Client (returns dict)**
+```python
+response = client.call_raw("analyze-sentiment", TextRequest(text="This is great!"))
+print(response)  # Returns dict: {"text": "This is great!", "label": "positive"}
+```
+
+[→ See more](python/README.md)
 
 ## When to use anycall
 

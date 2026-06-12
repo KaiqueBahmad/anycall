@@ -10,13 +10,17 @@ Call functions across Python services using Redis, with no `.proto` files, expos
 - **example-supplier/** - Supplier example
 - **Dockerfile** - Docker image for the project
 - **pyproject.toml** - uv workspace configuration
-- **rebuild-all.sh** - Script to rebuild all modules
 
 ## How to use
 
-### Build
+### Install
+
 ```bash
-./rebuild-all.sh
+# Using uv (recommended)
+uv sync
+
+# Or using pip
+pip install -e .
 ```
 
 ### Quick usage

@@ -73,10 +73,12 @@ mvn clean install
 cd python
 
 # Install in development mode with dependencies
+uv sync
+
+# Or using pip
 pip install -e .
 
-# Or use uv (faster, Python package manager):
-uv sync
+# Run example
 uv run python -m example_supplier.main
 ```
 

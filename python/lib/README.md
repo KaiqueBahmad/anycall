@@ -5,18 +5,22 @@ Call functions across Python services using Redis, with no `.proto` files, expos
 
 ## Structure
 
-- **lib/** - AnyCall core library
+- **AnyCall core library** in this directory
 - **example-consumer/** - Consumer example
 - **example-supplier/** - Supplier example
 - **Dockerfile** - Docker image for the project
 - **pyproject.toml** - uv workspace configuration
-- **rebuild-all.sh** - Script to rebuild all modules
 
 ## How to use
 
-### Build
+### Install
+
 ```bash
-./rebuild-all.sh
+# Using uv (recommended)
+uv sync
+
+# Or using pip
+pip install -e .
 ```
 
 ### Quick usage
@@ -33,7 +37,7 @@ client = AnyCall.client(redis_uri)
 sentiment = client.call("analyze-sentiment", request, Sentiment)
 ```
 
-For details on how to use as a supplier or consumer, see USAGE.md.
+For details on how to use as a supplier or consumer, see [USAGE.md](../USAGE.md).
 
 ## Modules
 
