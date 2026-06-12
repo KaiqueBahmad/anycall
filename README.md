@@ -182,7 +182,8 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
 | Extra infrastructure    | Reuses Redis       | —                 | Redis              | Broker + backend  |
 | Plumbing you write       | None               | Service stubs     | All of it          | Task definitions  |
 
-> anycall trades raw throughput for simplicity: if you need maximum
-> performance and already invest in schemas and infrastructure, gRPC is the
-> right tool. anycall is for getting cross-language calls working *today* with
-> what you already have.
+> **Trade-offs:** anycall trades throughput and advanced features for simplicity.
+> It's best for polyglot services that need to call each other over Redis,
+> where setup speed matters more than raw performance. Not for high-throughput
+> systems, strict schema enforcement, or when you need features like request
+> versioning or strict ordering guarantees.
