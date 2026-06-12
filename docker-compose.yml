@@ -64,6 +64,9 @@ services:
       REDIS_URI: redis://redis:6379
     networks:
       - anycall
+    volumes:
+      - ./python:/app
+      - python-supplier-venv:/app/.venv
     healthcheck:
       test: ["CMD", "cat", "/tmp/anycall/health"]
       interval: 10s
@@ -86,9 +89,14 @@ services:
       REDIS_URI: redis://redis:6379
     networks:
       - anycall
+    volumes:
+      - ./python:/app
+      - python-consumer-venv:/app/.venv
 
 volumes:
   redis_data:
+  python-supplier-venv:
+  python-consumer-venv:
 
 networks:
   anycall:
