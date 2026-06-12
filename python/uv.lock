@@ -37,7 +37,7 @@ requires-dist = [{ name = "anycall-py", editable = "lib" }]
 
 [[package]]
 name = "anycall-py"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "lib" }
 dependencies = [
     { name = "dacite" },
