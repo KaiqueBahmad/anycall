@@ -5,9 +5,6 @@ import dev.kaiquebt.anycall.core.AnyCallClient;
 import dev.kaiquebt.anycall.example.model.TextRequest;
 import dev.kaiquebt.anycall.example.model.Sentiment;
 
-import java.time.Duration;
-import java.util.Arrays;
-
 public class ConsumerApplication {
 
     public static void main(String[] args) {
@@ -18,63 +15,11 @@ public class ConsumerApplication {
             }
             AnyCallClient anyCall = AnyCall.client(redisUri, true);
 
-            System.out.println("[Consumer] ---- Warmup Call ----");
-            TextRequest warmupRequest = new TextRequest("warmup");
-            long warmupStart = System.nanoTime();
-            try {
-                Sentiment warmupResponse = anyCall.call("analyze-sentiment", warmupRequest, Sentiment.class);
-                long warmupElapsed = (System.nanoTime() - warmupStart) / 1_000_000;
-                System.out.println("[Consumer] Warmup call succeeded in " + warmupElapsed + "ms");
-                System.out.println("[Consumer] Response: " + warmupResponse);
-            } catch (Exception e) {
-                System.err.println("[Consumer] Warmup call failed: " + e.getMessage());
-            }
+            TextRequest request = new TextRequest("Hello, AnyCall!");
+            System.out.println("[Consumer] Calling analyze-sentiment with: " + request.getText());
 
-            System.out.println("[Consumer]\n---- Load Test Loop ----");
-            int total = 100;
-            long[] timings = new long[total];
-            int ok = 0;
-
-            long suiteStart = System.currentTimeMillis();
-
-            for (int i = 1; i <= total; i++) {
-                TextRequest request = new TextRequest("test-" + i);
-
-                try {
-                    long startTime = System.nanoTime();
-                    anyCall.call("analyze-sentiment", request, Sentiment.class);
-                    long elapsed = (System.nanoTime() - startTime) / 1_000_000;
-
-                    timings[ok] = elapsed;
-                    ok++;
-                    if (i % 10 == 0 || i == 1) {
-                        System.out.println("[Consumer] Call " + i + "/" + total + " -> " + elapsed + "ms");
-                    }
-                } catch (Exception e) {
-                    System.err.println("[Consumer] Error on call " + i + ": " + e.getMessage());
-                }
-            }
-
-            long suiteElapsed = System.currentTimeMillis() - suiteStart;
-
-            System.out.println("[Consumer] ---- Summary ----");
-            System.out.println("[Consumer] Succeeded: " + ok + "/" + total);
-            System.out.println("[Consumer] Total wall time: " + suiteElapsed + "ms");
-
-            if (ok > 0) {
-                long[] sorted = Arrays.copyOf(timings, ok);
-                Arrays.sort(sorted);
-                long sum = 0;
-                for (long t : sorted)
-                    sum += t;
-
-                System.out.println("[Consumer] Min: " + sorted[0] + "ms");
-                System.out.println("[Consumer] Avg: " + (sum / ok) + "ms");
-                System.out.println("[Consumer] p50: " + sorted[(int) (ok * 0.50)] + "ms");
-                System.out.println("[Consumer] p95: " + sorted[(int) Math.min(ok - 1, ok * 0.95)] + "ms");
-                System.out.println("[Consumer] p99: " + sorted[(int) Math.min(ok - 1, ok * 0.99)] + "ms");
-                System.out.println("[Consumer] Max: " + sorted[ok - 1] + "ms");
-            }
+            Sentiment response = anyCall.call("analyze-sentiment", request, Sentiment.class);
+            System.out.println("[Consumer] Response: " + response);
         } finally {
             System.exit(0);
         }
