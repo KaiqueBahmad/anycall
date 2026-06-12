@@ -12,7 +12,7 @@ from .exceptions import AnyCallException
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisStreamAdapter
 from .serialization import deserialize, serialize
-
+from redis.exceptions import TimeoutError
 logger = logging.getLogger(__name__)
 
 POLL_BLOCK_TIMEOUT = 5000  # milliseconds
@@ -147,6 +147,8 @@ class AnyCallServerImpl(AnyCallServer):
                         except Exception as e:
                             logger.exception(f"Error processing request: {e}")
 
+            except TimeoutError:
+                pass
             except Exception as e:
                 logger.exception(f"Error reading from stream: {e}")
 
