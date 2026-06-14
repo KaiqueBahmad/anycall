@@ -5,7 +5,10 @@ import uuid
 
 @dataclass
 class AnyCallRequest:
-    """RPC request envelope."""
+    """RPC request envelope.
+
+    Supports both camelCase (from Java) and snake_case field names during deserialization.
+    """
     request_id: str
     method_name: str
     payload: str
@@ -18,6 +21,21 @@ class AnyCallRequest:
             method_name=method_name,
             payload=payload
         )
+
+    @staticmethod
+    def from_dict(data: dict) -> "AnyCallRequest":
+        """Deserialize from dict, supporting both camelCase and snake_case keys."""
+        # Normalize camelCase keys to snake_case
+        normalized = {}
+        for key, value in data.items():
+            if key == "requestId":
+                normalized["request_id"] = value
+            elif key == "methodName":
+                normalized["method_name"] = value
+            else:
+                normalized[key] = value
+
+        return AnyCallRequest(**normalized)
 
 
 @dataclass

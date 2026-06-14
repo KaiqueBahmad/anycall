@@ -3,6 +3,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Type, TypeVar
 
 import dacite
+from .model import AnyCallRequest
 
 T = TypeVar("T")
 
@@ -34,6 +35,9 @@ def deserialize(json_str: str, target_type: Type[T]) -> T:
     data = json.loads(json_str)
 
     if is_dataclass(target_type):
+        # Special handling for AnyCallRequest to support camelCase from Java
+        if target_type is AnyCallRequest:
+            return AnyCallRequest.from_dict(data)
         return dacite.from_dict(target_type, data)
 
     return data
