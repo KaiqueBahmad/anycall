@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <!--
+    This file shows the structure needed in ~/.m2/settings.xml for manual releases.
+    Not needed if using GitHub Actions (it configures this automatically).
+
+    To use manually:
+    1. Copy this to ~/.m2/settings.xml
+    2. Replace OSSRH_USERNAME and OSSRH_TOKEN with your Sonatype User Token
+    3. Run: mvn deploy -P release -Dgpg.passphrase=YOUR_GPG_PASSPHRASE
+    -->
+
+    <servers>
+        <server>
+            <id>central</id>
+            <username>OSSRH_USERNAME</username>
+            <password>OSSRH_TOKEN</password>
+        </server>
+    </servers>
+
+    <profiles>
+        <profile>
+            <id>sonatype</id>
+            <repositories>
+                <repository>
+                    <id>sonatype-snapshots</id>
+                    <name>Sonatype Snapshots</name>
+                    <url>https://s01.oss.sonatype.org/content/repositories/snapshots/</url>
+                    <releases>
+                        <enabled>false</enabled>
+                    </releases>
+                    <snapshots>
+                        <enabled>true</enabled>
+                    </snapshots>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
+
+    <activeProfiles>
+        <activeProfile>sonatype</activeProfile>
+    </activeProfiles>
+
+</settings>
