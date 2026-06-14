@@ -30,10 +30,10 @@ jobs:
 
       - name: Build Python package
         run: |
-          cd python
+          cd python/lib
           python -m build
 
       - name: Publish to PyPI
         run: |
-          cd python
+          cd python/lib
           python -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
