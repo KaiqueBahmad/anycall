@@ -8,6 +8,6 @@ public class SentimentAnalyzer {
 
     @Supply("analyze-sentiment")
     public Sentiment analyzeSentiment(TextRequest req) {
-        return new Sentiment(req.getText(), "positive");
+        return new Sentiment(req.text(), "positive");
     }
 }

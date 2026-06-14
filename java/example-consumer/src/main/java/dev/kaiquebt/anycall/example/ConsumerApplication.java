@@ -16,7 +16,7 @@ public class ConsumerApplication {
             AnyCallClient anyCall = AnyCall.client(redisUri, true);
 
             TextRequest request = new TextRequest("Hello, AnyCall!");
-            System.out.println("[Consumer] Calling analyze-sentiment with: " + request.getText());
+            System.out.println("[Consumer] Calling analyze-sentiment with: " + request.text());
 
             Sentiment response = anyCall.call("analyze-sentiment", request, Sentiment.class);
             System.out.println("[Consumer] Response: " + response);
