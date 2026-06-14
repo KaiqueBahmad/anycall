@@ -21,8 +21,9 @@ jobs:
       - name: Set up GPG
         run: |
           mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d > ~/.gnupg/private-key.asc
-          gpg --import ~/.gnupg/private-key.asc
+          gpg --batch --import ~/.gnupg/private-key.asc
           rm ~/.gnupg/private-key.asc
           echo "GPG setup complete"
 
