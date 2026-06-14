@@ -54,7 +54,7 @@ public class Application {
 }
 ```
 
-**Server (with dead-letter handler)** &nbsp;🚧 **WIP**
+**Server (with consumer handler)** &nbsp;🚧 **WIP**
 ```java
 public class SentimentAnalyzer {
     @Supply("analyze-sentiment")
@@ -63,7 +63,7 @@ public class SentimentAnalyzer {
     }
 
     // Fires when a detached call's result is never attached/collected by a client
-    @DeadLetter("analyze-sentiment")
+    @Consumer("analyze-sentiment")
     public void onLostSentiment(TextRequest req, Sentiment result) {
         // persist, retry, or alert instead of dropping the work
         System.out.println("Uncollected: " + req.text() + " -> " + result.label());
@@ -154,9 +154,9 @@ if __name__ == "__main__":
     server.start()
 ```
 
-**Server (with dead-letter handler)** &nbsp;🚧 **WIP**
+**Server (with consumer handler)** &nbsp;🚧 **WIP**
 ```python
-from anycall import AnyCall, supply, dead_letter
+from anycall import AnyCall, supply, consumer
 
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
@@ -164,7 +164,7 @@ class SentimentAnalyzer:
         return Sentiment(text=req.text, label="positive")
 
     # Fires when a detached call's result is never attached/collected by a client
-    @dead_letter("analyze-sentiment")
+    @consumer("analyze-sentiment")
     def on_lost_sentiment(self, req: TextRequest, result: Sentiment):
         # nobody attached to collect this — persist, retry, or alert
         print(f"Uncollected: {req.text} -> {result.label}")
@@ -214,7 +214,7 @@ print(sentiment)  # Sentiment(text="This is great!", label="positive")
 
 [→ See more](python/README.md)
 
-## Detached calls and dead letters &nbsp;🚧 **WIP**
+## Detached calls and consumer handlers &nbsp;🚧 **WIP**
 
 `call` is the simple path: publish, block, get the result. **Detached calls**
 split that into two steps, so the code that *starts* a call and the code that
@@ -230,7 +230,7 @@ Because the id is just a string, you can store it, hand it to another service,
 or fan out many calls and attach to them later.
 
 A result that no client ever attaches to would otherwise be lost when it
-expires in Redis. `@DeadLetter("name")` is the safety net: the server invokes
+expires in Redis. `@Consumer("name")` is the safety net: the server invokes
 it for any detached call whose result went uncollected, handing back the
 original request (and the computed result) so you can persist, retry, or alert
 instead of silently dropping the work.
@@ -252,7 +252,7 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
 
 - **Fire now, collect later.** 🚧 _(WIP)_ Kick off slow work with `detached_call`, keep the
   id, and `attach_call` to it when you actually need the answer — possibly from a
-  different service. Anything left uncollected lands in a `@DeadLetter` handler
+  different service. Anything left uncollected lands in a `@Consumer` handler
   instead of vanishing.
 
 - **You already run Redis.** If Redis is already in your stack, anycall needs
@@ -273,7 +273,6 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
 | Topology                | Broker (decoupled) | Point-to-point    | Broker             | Broker            |
 | Built-in load balancing | Yes (via broker)   | Needs LB / mesh   | DIY                | Yes               |
 | Detached / collect-later 🚧| Yes (`detached_call` + `attach_call`) | DIY | DIY | Yes (result backend) |
-| Dead-letter handling 🚧    | Yes (`@DeadLetter`)| DIY               | DIY                | Yes               |
 | Extra infrastructure    | Reuses Redis       | —                 | Redis              | Broker + backend  |
 | Plumbing you write       | None               | Service stubs     | All of it          | Task definitions  |
 
