@@ -29,7 +29,7 @@ jobs:
       - name: Configure Maven settings
         run: |
           mkdir -p ~/.m2
-          cat > ~/.m2/settings.xml << 'EOF'
+          cat > ~/.m2/settings.xml << EOF
           <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
             xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
@@ -37,12 +37,15 @@ jobs:
             <servers>
               <server>
                 <id>central</id>
-                <username>${{ secrets.OSSRH_USERNAME }}</username>
-                <password>${{ secrets.OSSRH_TOKEN }}</password>
+                <username>${OSSRH_USERNAME}</username>
+                <password>${OSSRH_TOKEN}</password>
               </server>
             </servers>
           </settings>
           EOF
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
 
       - name: Deploy to Maven Central
         run: |
@@ -50,6 +53,3 @@ jobs:
           mvn deploy -P release \
             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
             -Dorg.slf4j.simpleLogger.defaultLogLevel=info
-        env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
