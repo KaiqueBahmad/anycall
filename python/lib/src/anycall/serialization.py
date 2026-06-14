@@ -3,7 +3,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Type, TypeVar
 
 import dacite
-from .model import AnyCallRequest
+from .model import AnyCallRequest, AnyCallResponse
 
 T = TypeVar("T")
 
@@ -17,6 +17,10 @@ def serialize(obj: Any) -> str:
     Returns:
         JSON string representation
     """
+    # Special handling for request/response to use camelCase for Java compatibility
+    if isinstance(obj, (AnyCallRequest, AnyCallResponse)):
+        return json.dumps(obj.to_dict())
+
     if is_dataclass(obj):
         return json.dumps(asdict(obj))
     return json.dumps(obj)
@@ -35,9 +39,11 @@ def deserialize(json_str: str, target_type: Type[T]) -> T:
     data = json.loads(json_str)
 
     if is_dataclass(target_type):
-        # Special handling for AnyCallRequest to support camelCase from Java
+        # Special handling for request/response to support camelCase from Java
         if target_type is AnyCallRequest:
             return AnyCallRequest.from_dict(data)
+        if target_type is AnyCallResponse:
+            return AnyCallResponse.from_dict(data)
         return dacite.from_dict(target_type, data)
 
     return data

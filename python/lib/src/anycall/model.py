@@ -37,6 +37,14 @@ class AnyCallRequest:
 
         return AnyCallRequest(**normalized)
 
+    def to_dict(self) -> dict:
+        """Serialize to dict using camelCase for Java compatibility."""
+        return {
+            "requestId": self.request_id,
+            "methodName": self.method_name,
+            "payload": self.payload
+        }
+
 
 @dataclass
 class AnyCallResponse:
@@ -58,3 +66,28 @@ class AnyCallResponse:
     def has_error(self) -> bool:
         """Check if this response contains an error."""
         return self.error_msg is not None
+
+    @staticmethod
+    def from_dict(data: dict) -> "AnyCallResponse":
+        """Deserialize from dict, supporting both camelCase and snake_case keys."""
+        # Normalize camelCase keys to snake_case
+        normalized = {}
+        for key, value in data.items():
+            if key == "requestId":
+                normalized["request_id"] = value
+            elif key == "error":  # Java uses "error", not "error_msg"
+                normalized["error_msg"] = value
+            elif key == "errorMsg":  # Also support errorMsg for flexibility
+                normalized["error_msg"] = value
+            else:
+                normalized[key] = value
+
+        return AnyCallResponse(**normalized)
+
+    def to_dict(self) -> dict:
+        """Serialize to dict using camelCase for Java compatibility."""
+        return {
+            "requestId": self.request_id,
+            "payload": self.payload,
+            "error": self.error_msg  # Java uses "error", not "error_msg"
+        }
