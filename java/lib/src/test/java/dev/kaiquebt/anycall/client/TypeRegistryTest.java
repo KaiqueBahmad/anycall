@@ -1,6 +1,6 @@
 package dev.kaiquebt.anycall.client;
 
-import dev.kaiquebt.anycall.exception.AnyCallException;
+import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,9 +47,9 @@ class TypeRegistryTest {
     void testRegisterDifferentTypeThrows() {
         registry.register("my-op", MockResponse.class);
 
-        AnyCallException exception =
+        AnyCallError exception =
             assertThrows(
-                AnyCallException.class,
+                AnyCallError.class,
                 () -> registry.register("my-op", AlternativeResponse.class)
             );
 

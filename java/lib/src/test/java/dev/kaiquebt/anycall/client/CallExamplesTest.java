@@ -1,6 +1,6 @@
 package dev.kaiquebt.anycall.client;
 
-import dev.kaiquebt.anycall.exception.AnyCallException;
+import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -106,9 +106,9 @@ class CallExamplesTest {
         registry.registerType("analyze-sentiment", Sentiment.class);
 
         // Try to register same operation with different type
-        AnyCallException exception =
+        AnyCallError exception =
             assertThrows(
-                AnyCallException.class,
+                AnyCallError.class,
                 () -> registry.registerType("analyze-sentiment", Order.class)
             );
 

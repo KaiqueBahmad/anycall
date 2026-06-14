@@ -2,7 +2,7 @@ package dev.kaiquebt.anycall.publisher;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.kaiquebt.anycall.exception.AnyCallException;
+import dev.kaiquebt.anycall.exception.AnyCallError;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
@@ -39,7 +39,7 @@ public class AnyCallPublisherImpl implements AnyCallPublisher {
             String jsonMessage = objectMapper.writeValueAsString(message);
             publishString(stream, jsonMessage);
         } catch (JsonProcessingException e) {
-            throw new AnyCallException("Failed to serialize message for stream: " + stream, e);
+            throw new AnyCallError("Failed to serialize message for stream: " + stream, e);
         }
     }
 
@@ -49,7 +49,7 @@ public class AnyCallPublisherImpl implements AnyCallPublisher {
             commands.xadd(stream, Collections.singletonMap(DATA_FIELD, message));
             log.debug("Published message to stream: {}", stream);
         } catch (Exception e) {
-            throw new AnyCallException("Failed to publish message to stream: " + stream, e);
+            throw new AnyCallError("Failed to publish message to stream: " + stream, e);
         }
     }
 }

@@ -1,6 +1,6 @@
 package dev.kaiquebt.anycall.registry;
 
-import dev.kaiquebt.anycall.exception.AnyCallException;
+import dev.kaiquebt.anycall.exception.AnyCallError;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -30,7 +30,7 @@ public class TypeRegistry {
         Class<?> existing = types.putIfAbsent(operation, responseType);
 
         if (existing != null && existing != responseType) {
-            throw new AnyCallException(
+            throw new AnyCallError(
                 String.format(
                     "Operation '%s' already registered with type %s, cannot register %s. "
                         + "Either register with same type (idempotent) or recreate client.",

@@ -2,7 +2,7 @@ package dev.kaiquebt.anycall.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.core.AnyCallClient;
-import dev.kaiquebt.anycall.exception.AnyCallException;
+import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
@@ -110,7 +110,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             if (records == null || records.isEmpty()) {
-                throw new AnyCallException("Timeout waiting for response from method: " + methodName);
+                throw new AnyCallError("Timeout waiting for response from method: " + methodName);
             }
 
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
@@ -119,7 +119,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
             if (response.hasError()) {
-                throw new AnyCallException("Error from remote method: " + response.error());
+                throw new AnyCallError("Error from remote method: " + response.error());
             }
 
             T result = OBJECT_MAPPER.readValue(response.payload(), responseType);
@@ -137,10 +137,10 @@ public class AnyCallClientImpl implements AnyCallClient {
                 log.error("[METRICS] [CLIENT] [{}] Call failed after {}ms: {}", _requestId,
                     System.currentTimeMillis() - startTime, e.getMessage());
             }
-            if (e instanceof AnyCallException) {
-                throw (AnyCallException) e;
+            if (e instanceof AnyCallError) {
+                throw (AnyCallError) e;
             }
-            throw new AnyCallException("Failed to call method: " + methodName, e);
+            throw new AnyCallError("Failed to call method: " + methodName, e);
         } finally {
             if (responseStream != null) {
                 commands.del(responseStream);
@@ -152,7 +152,7 @@ public class AnyCallClientImpl implements AnyCallClient {
     public <T> T call(String methodName, Object request) {
         Class<?> resolvedType = registry.get(methodName);
         if (resolvedType == null) {
-            throw new AnyCallException(
+            throw new AnyCallError(
                 "No response type registered for operation '" + methodName + "'. "
                     + "Either call with explicit type: call(\"" + methodName + "\", req, YourType), "
                     + "or register the type first: registerType(\"" + methodName + "\", YourType)."
