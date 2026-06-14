@@ -13,7 +13,7 @@ A client publishes a request to Redis; any available server can pick it up,
 run it, and return the result. Calls can be **synchronous** (block until the
 response) or **detached** — fire the call, get back an id, and attach to it
 later (even from a different client) to collect the result. _(Detached calls
-and dead-letter handling are 🚧 **WIP** — see the marked sections below.)_
+and consumer handlers are 🚧 **WIP** — see the marked sections below.)_
 
 Because the broker sits in the middle — unlike point-to-point RPC such as
 gRPC — you get automatic load balancing, horizontal scaling, and loose
