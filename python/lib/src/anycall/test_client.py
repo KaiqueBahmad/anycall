@@ -5,8 +5,10 @@ from dataclasses import dataclass
 
 from .client import AnyCallClientImpl
 from .config import AnycallProperties
-from .exceptions import AnyCallException
+from .exceptions import AnyCallError
 from .redis_adapter import RedisStreamAdapter
+
+pytestmark = pytest.mark.unit
 
 
 @dataclass
@@ -64,7 +66,7 @@ class TestRegisterType:
         """Re-registering with different type raises error."""
         client.register_type("my-op", MockResponse)
 
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.register_type("my-op", AlternativeResponse)
 
         error_msg = str(exc_info.value)
@@ -87,7 +89,7 @@ class TestCallWithRegistry:
 
     def test_call_without_type_not_registered_error(self, client):
         """Calling without type and without registry entry raises clear error."""
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.call("unknown-op", {})
 
         error_msg = str(exc_info.value)
@@ -102,7 +104,7 @@ class TestCallWithRegistry:
 
         # Note: This will timeout (mock adapter returns None), but that's OK
         # We're testing the registry lookup, not the full RPC
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.call("my-op", {})
 
         # Should fail with timeout, not "type not found"
@@ -114,7 +116,7 @@ class TestCallWithRegistry:
         client.register_type("my-op", MockResponse)
 
         # Pass different type explicitly
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.call("my-op", {}, AlternativeResponse)
 
         # Should fail with timeout, not type mismatch
@@ -131,7 +133,7 @@ class TestCallRaw:
         client.register_type("my-op", MockResponse)
 
         # call_raw should still work (timeout) without caring about type
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.call_raw("my-op", {})
 
         error_msg = str(exc_info.value)
@@ -140,7 +142,7 @@ class TestCallRaw:
     def test_call_raw_no_registry_needed(self, client):
         """call_raw() works without any registry entry."""
         # Don't register anything
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.call_raw("unregistered-op", {})
 
         # Should fail with timeout, not type lookup error
@@ -153,7 +155,7 @@ class TestErrorMessages:
 
     def test_missing_type_error_suggests_both_paths(self, client):
         """Missing type error suggests both solutions."""
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.call("my-operation", {})
 
         error_msg = str(exc_info.value)
@@ -167,7 +169,7 @@ class TestErrorMessages:
         """Duplicate type error names both the registered and attempted type."""
         client.register_type("operation", MockResponse)
 
-        with pytest.raises(AnyCallException) as exc_info:
+        with pytest.raises(AnyCallError) as exc_info:
             client.register_type("operation", AlternativeResponse)
 
         error_msg = str(exc_info.value)
