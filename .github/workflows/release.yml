@@ -1,8 +1,9 @@
-name: Release
+name: Release Java
 
 on:
   push:
     tags:
+      - 'java-v*'
       - 'v*'
 
 jobs:
