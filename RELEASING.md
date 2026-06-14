@@ -81,25 +81,6 @@ git push origin python-v0.1.1
 
 ---
 
-## Prerequisites
-
-### For First Release (Already Done ✓)
-
-- [ ] GPG key created and published
-- [ ] GitHub secrets configured:
-  - `OSSRH_USERNAME`
-  - `OSSRH_TOKEN`
-  - `GPG_PRIVATE_KEY`
-  - `GPG_PASSPHRASE`
-
-### For Python Releases (Future)
-
-- [ ] PyPI account created
-- [ ] GitHub secrets for PyPI:
-  - `PYPI_API_TOKEN`
-
----
-
 ## Checklist Before Each Release
 
 ### All Releases
