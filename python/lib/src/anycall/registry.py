@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Type
 
-from .exceptions import AnyCallException
+from .exceptions import AnyCallError
 
 
 class TypeRegistry:
@@ -23,12 +23,13 @@ class TypeRegistry:
             response_type: Response type for deserialization
 
         Raises:
-            AnyCallException: If operation already registered with different type
+            AnyCallError: If operation already registered with different type
         """
         if operation in self._types:
             existing = self._types[operation]
             if existing is not response_type:
-                raise AnyCallException(
+                raise AnyCallError(
+                    "unknown",
                     f"Operation '{operation}' already registered with type "
                     f"{existing.__name__}, cannot register {response_type.__name__}. "
                     f"Either register with same type (idempotent) or recreate client."

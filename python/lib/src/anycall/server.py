@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, Optional
 
 from . import queues
 from .config import AnycallProperties
-from .exceptions import AnyCallException
+from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisStreamAdapter
 from .serialization import deserialize, serialize

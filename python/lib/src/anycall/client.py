@@ -4,7 +4,7 @@ from typing import Any, Type, TypeVar
 
 from . import queues
 from .config import AnycallProperties
-from .exceptions import AnyCallException
+from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisStreamAdapter
 from .registry import TypeRegistry
@@ -35,7 +35,7 @@ class AnyCallClient(ABC):
             Deserialized response object matching response_type
 
         Raises:
-            AnyCallException: On timeout, remote error, or missing type in registry
+            AnyCallError: On timeout, remote error, or missing type in registry
         """
         pass
 
@@ -54,7 +54,7 @@ class AnyCallClient(ABC):
             Raw dict (native Python structure)
 
         Raises:
-            AnyCallException: On timeout or remote error
+            AnyCallError: On timeout or remote error
         """
         pass
 
@@ -65,14 +65,14 @@ class AnyCallClient(ABC):
         Write-once semantics:
         - First registration succeeds
         - Re-registering with SAME type is idempotent (no-op)
-        - Re-registering with DIFFERENT type raises AnyCallException
+        - Re-registering with DIFFERENT type raises AnyCallError
 
         Args:
             operation: Operation name
             response_type: Response type for deserialization
 
         Raises:
-            AnyCallException: If operation already registered with different type
+            AnyCallError: If operation already registered with different type
         """
         pass
 
@@ -97,13 +97,14 @@ class AnyCallClientImpl(AnyCallClient):
             Deserialized response object
 
         Raises:
-            AnyCallException: On timeout, remote error, or missing type in registry
+            AnyCallError: On timeout, remote error, or missing type in registry
         """
         resolved_type = response_type
         if resolved_type is None:
             resolved_type = self._registry.get(method_name)
             if resolved_type is None:
-                raise AnyCallException(
+                raise AnyCallError(
+                    "unknown",
                     f"No response type registered for operation '{method_name}'. "
                     f"Either call with explicit type: call('{method_name}', req, YourType), "
                     f"or register the type first: register_type('{method_name}', YourType)."
@@ -124,7 +125,7 @@ class AnyCallClientImpl(AnyCallClient):
             Raw dict (native Python structure)
 
         Raises:
-            AnyCallException: On timeout or remote error
+            AnyCallError: On timeout or remote error
         """
         return self._call_impl(method_name, request, dict)
 
@@ -139,7 +140,7 @@ class AnyCallClientImpl(AnyCallClient):
             response_type: Response type for deserialization
 
         Raises:
-            AnyCallException: If operation already registered with different type
+            AnyCallError: If operation already registered with different type
         """
         self._registry.register(operation, response_type)
 
@@ -155,7 +156,7 @@ class AnyCallClientImpl(AnyCallClient):
             Deserialized response
 
         Raises:
-            AnyCallException: On timeout or remote error
+            AnyCallError: On timeout or remote error
         """
         payload = serialize(request)
         rpc_request = AnyCallRequest.create(method_name, payload)
@@ -171,7 +172,8 @@ class AnyCallClientImpl(AnyCallClient):
             result = self.redis.read(response_stream, timeout_ms)
 
             if result is None:
-                raise AnyCallException(
+                raise AnyCallError(
+                    "unknown",
                     f"Timeout waiting for response from method: {method_name}"
                 )
 
@@ -181,7 +183,7 @@ class AnyCallClientImpl(AnyCallClient):
             response = deserialize(response_json, AnyCallResponse)
 
             if response.has_error():
-                raise AnyCallException(f"Error from remote method: {response.error_msg}")
+                raise AnyCallError("unknown", f"Error from remote method: {response.error_msg}")
 
             return deserialize(response.payload, response_type)
 
