@@ -16,7 +16,7 @@ services:
     networks:
       - anycall
     healthcheck:
-      test: ["CMD", "cat", "/tmp/anycall/health"]
+      test: ["CMD", "cat", "/run/anycall/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,7 +55,7 @@ services:
       - ./python:/app
       - python-supplier-venv:/app/.venv
     healthcheck:
-      test: ["CMD", "cat", "/tmp/anycall/health"]
+      test: ["CMD", "cat", "/run/anycall/health"]
       interval: 10s
       timeout: 5s
       retries: 5

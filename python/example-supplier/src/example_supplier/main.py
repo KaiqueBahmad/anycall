@@ -18,11 +18,13 @@ logger = logging.getLogger(__name__)
 
 def write_health_file() -> None:
     """Write health check file."""
-    health_dir = Path("/tmp/anycall")
-    health_dir.mkdir(parents=True, exist_ok=True)
-    health_file = health_dir / "health"
-    health_file.write_text("OK")
-    logger.info("Health file written to /tmp/anycall/health")
+    try:
+        health_file = Path("/run/anycall/health")
+        health_file.parent.mkdir(parents=True, exist_ok=True)
+        health_file.write_text("OK")
+        logger.info(f"Health file written to {health_file}")
+    except Exception as e:
+        logger.error(f"Failed to write health file: {e}")
 
 
 def main() -> None:
