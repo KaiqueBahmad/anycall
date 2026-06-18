@@ -1,20 +1,7 @@
-services:
-  redis:
-    image: redis:7-alpine
-    container_name: anycall-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    networks:
-      - anycall
+include:
+  - docker-compose.infra.yml
 
+services:
   java-supplier:
     build:
       context: ./java
@@ -94,10 +81,5 @@ services:
       - python-consumer-venv:/app/.venv
 
 volumes:
-  redis_data:
   python-supplier-venv:
   python-consumer-venv:
-
-networks:
-  anycall:
-    driver: bridge
