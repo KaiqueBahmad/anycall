@@ -123,6 +123,23 @@ public class Application {
 }
 ```
 
+**Client (P2P call)**
+```java
+public class Application {
+    public static void main(String[] args) {
+        String redisUri = "redis://localhost:6379";
+        AnyCallClient anyCall = AnyCall.client(redisUri);
+
+        TextRequest req = new TextRequest("This is great!");
+
+        // P2P call: Redis is used only to discover the server's IP
+        // Data transfer happens directly between client and server, bypassing the broker
+        Sentiment sentiment = anyCall.p2p_call("analyze-sentiment", req, Sentiment.class);
+        System.out.println(sentiment);
+    }
+}
+```
+
 [→ See more](java/README.md)
 
 ---
@@ -212,6 +229,16 @@ sentiment = client.attach_call(call_id, Sentiment)
 print(sentiment)  # Sentiment(text="This is great!", label="positive")
 ```
 
+**Client (P2P call)**
+```python
+client = AnyCall.client("redis://localhost:6379")
+
+# P2P call: Redis is used only to discover the server's IP
+# Data transfer happens directly between client and server, bypassing the broker
+sentiment = client.p2p_call("analyze-sentiment", TextRequest(text="This is great!"), Sentiment)
+print(sentiment)  # Sentiment(text="This is great!", label="positive")
+```
+
 [→ See more](python/README.md)
 
 ## Detached calls and consumer handlers &nbsp;🚧 **WIP**
@@ -234,6 +261,78 @@ expires in Redis. `@Consumer("name")` is the safety net: the server invokes
 it for any detached call whose result went uncollected, handing back the
 original request (and the computed result) so you can persist, retry, or alert
 instead of silently dropping the work.
+
+## P2P calls &nbsp;🚧 **WIP**
+
+`p2p_call` is a direct point-to-point alternative to `call`. Instead of passing
+all data through Redis:
+
+- `p2p_call(name, req, Type)` uses Redis **only to discover where the server is reachable**
+- The actual **request and response data transfer happens directly** between client and server
+- Lower latency and reduced Redis load for high-throughput calls
+- Ideal for large payloads or when you want to bypass the broker for performance
+
+### Server: Advertise your address &nbsp;🚧 **WIP**
+
+The server tells Redis where clients can reach it. Address advertising lives on the **server**,
+not the client—the server knows best where it's reachable (critical for NAT, Docker, multi-NIC setups).
+
+**Key concept:** Distinguish between:
+- **Bind address** — where the socket listens (e.g. `0.0.0.0:0` in a container)
+- **Advertised address** — where clients actually dial you (e.g. `10.0.0.5:7000` after binding)
+
+Conflating the two is the classic P2P pitfall. AnyCall separates them.
+
+**Java**
+```java
+AnyCallServer server = AnyCall.server(redisUri)
+    .p2p(p2p -> p2p
+        .advertisedAddress(() -> new InetSocketAddress("10.0.0.5", 7000))
+    );
+server.register(new SentimentAnalyzer());
+server.start();
+```
+
+**Python**
+```python
+server = AnyCall.server("redis://localhost:6379").p2p(
+    advertised_address=lambda: ("10.0.0.5", 7000)
+)
+server.register(SentimentAnalyzer())
+server.start()
+```
+
+The `advertisedAddress` / `advertised_address` is a **lazy supplier** — a function that returns
+`(host, port)` when called. This handles cases where the port is ephemeral (assigned at bind time)
+or the address is unknown until startup. It's called once when the server binds to Redis.
+
+If not set, AnyCall auto-detects a sensible default (first non-loopback NIC). Override it when
+auto-detection picks the wrong network interface (common in multi-NIC or containerized environments).
+
+### Client: Make a P2P call &nbsp;🚧 **WIP**
+
+When you call a service via P2P, the client fetches the advertised address from Redis and dials
+the server directly.
+
+**Java**
+```java
+AnyCallClient anyCall = AnyCall.client(redisUri);
+
+TextRequest req = new TextRequest("This is great!");
+// p2p_call fetches the advertised address from Redis, then connects directly
+Sentiment sentiment = anyCall.p2p_call("analyze-sentiment", req, Sentiment.class);
+System.out.println(sentiment);
+```
+
+**Python**
+```python
+client = AnyCall.client("redis://localhost:6379")
+
+req = TextRequest(text="This is great!")
+# p2p_call fetches the advertised address from Redis, then connects directly
+sentiment = client.p2p_call("analyze-sentiment", req, Sentiment)
+print(sentiment)
+```
 
 ## When to use anycall
 
@@ -264,15 +363,20 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
   to exactly one available worker. Scale down to zero and back up; clients don't
   notice.
 
+- **High-throughput or large-payload calls.** Use `p2p_call` when you need lower
+  latency or want to reduce Redis load — it discovers the server via Redis but
+  transfers data directly between client and server, bypassing the broker entirely.
+
 ## How it compares
 
 |                         | anycall            | gRPC              | Raw Redis / broker | Celery            |
 |-------------------------|--------------------|-------------------|--------------------|-------------------|
 | Cross-language          | Yes                | Yes               | Yes (DIY)          | Limited           |
 | Schema / codegen step   | None               | `.proto` required | None               | None              |
-| Topology                | Broker (decoupled) | Point-to-point    | Broker             | Broker            |
+| Topology                | Broker or P2P      | Point-to-point    | Broker             | Broker            |
 | Built-in load balancing | Yes (via broker)   | Needs LB / mesh   | DIY                | Yes               |
 | Detached / collect-later 🚧| Yes (`detached_call` + `attach_call`) | DIY | DIY | Yes (result backend) |
+| Direct P2P calls        | Yes (`p2p_call`)   | Yes (native)      | DIY                | No                |
 | Extra infrastructure    | Reuses Redis       | —                 | Redis              | Broker + backend  |
 | Plumbing you write       | None               | Service stubs     | All of it          | Task definitions  |
 
@@ -281,4 +385,3 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
 > where setup speed matters more than raw performance. Not for high-throughput
 > systems, strict schema enforcement, or when you need features like request
 > versioning or strict ordering guarantees.
-# Test
