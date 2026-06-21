@@ -27,7 +27,7 @@ reflect the current target API.
 Install AnyCall for your language:
 
 **Python:** `pip install anycall-py` (import as `anycall`)  
-**Java:** Add to `pom.xml` or build from `java/lib`
+**Java:** Add to `pom.xml` or build from `implementations/java/lib`
 
 → [See detailed installation guide](INSTALLATION.md)
 
