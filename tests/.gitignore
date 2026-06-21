@@ -1,0 +1,31 @@
+# Java
+target/
+.classpath
+.project
+.settings/
+*.class
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

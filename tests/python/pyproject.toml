@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anycall-tests"
+version = "0.1.0"
+description = "Integration tests for AnyCall Python implementation"
+requires-python = ">=3.9"
+authors = [
+    {name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com"}
+]
+dependencies = [
+    "anycall-py>=0.1.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21",
+    "redis>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest-mock>=3.10",
+    "black>=23.0",
+    "ruff>=0.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --tb=short"
+markers = [
+    "unit: unit tests",
+    "integration: integration tests requiring Redis",
+    "slow: slow tests",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
