@@ -11,7 +11,7 @@ authors = [
     {name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com"}
 ]
 dependencies = [
-    "anycall-py>=0.1.0",
+    "anycall-py @ file://../../implementations/python/lib",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-asyncio>=0.21",

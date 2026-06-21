@@ -8,7 +8,20 @@ Integration tests for the AnyCall Java implementation.
 - Maven 3.8+
 - Redis 7.0+
 
+## Setup
+
+First, install the local AnyCall library:
+
+```bash
+cd implementations/java/lib
+mvn clean install
+```
+
+This installs the latest version to your local Maven repository.
+
 ## Running Tests
+
+From `tests/java/`:
 
 ```bash
 # Run all tests
