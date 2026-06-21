@@ -1,6 +1,6 @@
 # Comandos úteis
 
-All commands must be run from the `java/` directory (reactor root).
+All commands must be run from the `implementations/java/` directory (reactor root).
 
 ## Compilar o projeto
 ```bash

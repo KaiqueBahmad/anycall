@@ -5,7 +5,7 @@
 Install development dependencies:
 
 ```bash
-cd python/lib
+cd implementations/python/lib
 pip install -e ".[dev]"
 ```
 
