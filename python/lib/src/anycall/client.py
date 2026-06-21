@@ -1,10 +1,17 @@
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Type, TypeVar
 
 from . import queues
 from .config import AnycallProperties
-from .exceptions import AnyCallError
+from .exceptions import (
+    AnyCallError,
+    TimeoutError,
+    RemoteException,
+    SerializationError,
+    JSONDecodeError,
+)
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisStreamAdapter
 from .registry import TypeRegistry
@@ -158,34 +165,52 @@ class AnyCallClientImpl(AnyCallClient):
         Raises:
             AnyCallError: On timeout or remote error
         """
-        payload = serialize(request)
+        try:
+            payload = serialize(request)
+        except (TypeError, ValueError) as e:
+            raise SerializationError(method_name, f"Failed to serialize request: {e}")
         rpc_request = AnyCallRequest.create(method_name, payload)
 
         request_stream = queues.request_queue(method_name)
         response_stream = queues.response_queue(rpc_request.request_id)
 
         try:
-            request_json = serialize(rpc_request)
+            try:
+                request_json = serialize(rpc_request)
+            except (TypeError, ValueError) as e:
+                raise SerializationError(method_name, f"Failed to serialize RPC request: {e}")
             self.redis.add(request_stream, {"data": request_json})
 
             timeout_ms = int(self.props.timeout.total_seconds() * 1000)
             result = self.redis.read(response_stream, timeout_ms)
 
             if result is None:
-                raise AnyCallError(
-                    "unknown",
-                    f"Timeout waiting for response from method: {method_name}"
+                raise TimeoutError(
+                    method_name,
+                    f"Timeout waiting for response from method: {method_name}",
+                    timeout_ms,
+                    rpc_request.request_id,
+                    int((self.props.timeout.total_seconds() + 60) * 1000),
                 )
 
-            stream_name, messages = result[0]
-            message_id, message_data = messages[0]
+            _, messages = result[0]
+            _, message_data = messages[0]
             response_json = message_data[b"data"].decode("utf-8")
-            response = deserialize(response_json, AnyCallResponse)
+            try:
+                response = deserialize(response_json, AnyCallResponse)
+            except json.JSONDecodeError as e:
+                raise JSONDecodeError(method_name, f"Failed to decode response: {e}")
 
             if response.has_error():
-                raise AnyCallError("unknown", f"Error from remote method: {response.error_msg}")
+                raise RemoteException(method_name, response.error_msg or "Unknown error", "RemoteExecutionError")
 
-            return deserialize(response.payload, response_type)
+            payload = response.payload
+            if payload is None:
+                raise SerializationError(method_name, "Response payload is missing")
+            try:
+                return deserialize(payload, response_type)
+            except json.JSONDecodeError as e:
+                raise JSONDecodeError(method_name, f"Failed to decode response payload: {e}")
 
         finally:
             self.redis.delete(response_stream)

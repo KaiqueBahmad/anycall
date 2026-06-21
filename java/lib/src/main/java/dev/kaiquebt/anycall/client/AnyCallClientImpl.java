@@ -2,7 +2,7 @@ package dev.kaiquebt.anycall.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.core.AnyCallClient;
-import dev.kaiquebt.anycall.exception.AnyCallError;
+import dev.kaiquebt.anycall.exception.*;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
@@ -110,7 +110,13 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             if (records == null || records.isEmpty()) {
-                throw new AnyCallError("Timeout waiting for response from method: " + methodName);
+                throw new TimeoutError(
+                    methodName,
+                    "Timeout waiting for response from method: " + methodName,
+                    timeout.toMillis(),
+                    requestId,
+                    System.currentTimeMillis() + timeout.toMillis()
+                );
             }
 
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
@@ -119,7 +125,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
             if (response.hasError()) {
-                throw new AnyCallError("Error from remote method: " + response.error());
+                throw new RemoteException(methodName, response.error(), "RemoteExecutionError");
             }
 
             T result = OBJECT_MAPPER.readValue(response.payload(), responseType);
@@ -140,7 +146,10 @@ public class AnyCallClientImpl implements AnyCallClient {
             if (e instanceof AnyCallError) {
                 throw (AnyCallError) e;
             }
-            throw new AnyCallError("Failed to call method: " + methodName, e);
+            if (e instanceof com.fasterxml.jackson.core.JsonProcessingException) {
+                throw new SerializationError(methodName, "Failed to serialize/deserialize method call: " + methodName, e);
+            }
+            throw new AnyCallError(methodName, "Failed to call method: " + methodName, e);
         } finally {
             if (responseStream != null) {
                 commands.del(responseStream);
