@@ -4,7 +4,7 @@ include:
 services:
   java-supplier:
     build:
-      context: ./java
+      context: ./implementations/java
       dockerfile: Dockerfile
       target: supplier
     container_name: anycall-java-supplier
@@ -24,7 +24,7 @@ services:
 
   java-consumer:
     build:
-      context: ./java
+      context: ./implementations/java
       dockerfile: Dockerfile
       target: consumer
     container_name: anycall-java-consumer
@@ -40,7 +40,7 @@ services:
 
   python-supplier:
     build:
-      context: ./python
+      context: ./implementations/python
       dockerfile: Dockerfile
       target: supplier
     container_name: anycall-python-supplier
@@ -52,7 +52,7 @@ services:
     networks:
       - anycall
     volumes:
-      - ./python:/app
+      - ./implementations/python:/app
       - python-supplier-venv:/app/.venv
     healthcheck:
       test: ["CMD", "cat", "/run/anycall/health"]
@@ -63,7 +63,7 @@ services:
 
   python-consumer:
     build:
-      context: ./python
+      context: ./implementations/python
       dockerfile: Dockerfile
       target: consumer
     container_name: anycall-python-consumer
@@ -77,7 +77,7 @@ services:
     networks:
       - anycall
     volumes:
-      - ./python:/app
+      - ./implementations/python:/app
       - python-consumer-venv:/app/.venv
 
 volumes:

@@ -25,7 +25,7 @@ Use when adding features or making changes that affect all implementations.
 # 2. Update CHANGELOG.md with [0.2] section
 # 3. Update VERSIONS.md
 
-git add java/pom.xml python/setup.py CHANGELOG.md VERSIONS.md
+git add implementations/java/pom.xml implementations/python/setup.py CHANGELOG.md VERSIONS.md
 git commit -m "chore(release): bump contract to 0.2"
 
 # 4. Tag and push
@@ -47,7 +47,7 @@ Use when fixing a bug in just one implementation.
 **Example**: Fixing a Java-only timeout bug
 
 ```bash
-# 1. Update java/lib/pom.xml version from 0.1.0 to 0.1.1
+# 1. Update implementations/java/lib/pom.xml version from 0.1.0 to 0.1.1
 # 2. Update CHANGELOG.md:
 #    ```
 #    ### Java
@@ -55,7 +55,7 @@ Use when fixing a bug in just one implementation.
 #    ```
 # 3. Update VERSIONS.md Java version to 0.1.1
 
-git add java/lib/pom.xml CHANGELOG.md VERSIONS.md
+git add implementations/java/lib/pom.xml CHANGELOG.md VERSIONS.md
 git commit -m "fix(java): timeout issue in Redis connection"
 
 # 4. Tag with language prefix

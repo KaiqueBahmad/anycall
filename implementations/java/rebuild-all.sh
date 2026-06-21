@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd "$(dirname "$0")/.."   # -> repo root
+cd "$(dirname "$0")/../.."   # -> repo root
 
 prefix() {
   local label=$1; shift
@@ -15,9 +15,9 @@ CHANGED="$1"
 
 set +e
 if [ -n "$CHANGED" ]; then
-  prefix mvn mvn -f java/pom.xml clean install -DskipTests -T1C -pl "$CHANGED" -amd
+  prefix mvn mvn -f implementations/java/pom.xml clean install -DskipTests -T1C -pl "$CHANGED" -amd
 else
-  prefix mvn mvn -f java/pom.xml clean install -DskipTests -T1C
+  prefix mvn mvn -f implementations/java/pom.xml clean install -DskipTests -T1C
 fi
 MVN_STATUS=$?
 

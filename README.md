@@ -123,7 +123,7 @@ public class Application {
 }
 ```
 
-[→ See more](java/README.md)
+[→ See more](implementations/java/README.md)
 
 ---
 
@@ -212,7 +212,7 @@ sentiment = client.attach_call(call_id, Sentiment)
 print(sentiment)  # Sentiment(text="This is great!", label="positive")
 ```
 
-[→ See more](python/README.md)
+[→ See more](implementations/python/README.md)
 
 ## Detached calls and consumer handlers &nbsp;🚧 **WIP**
 

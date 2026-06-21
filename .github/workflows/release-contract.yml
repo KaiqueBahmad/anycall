@@ -58,7 +58,7 @@ jobs:
 
       - name: Deploy Java to Maven Central
         run: |
-          cd java/lib
+          cd implementations/java/lib
           mvn deploy -P release \
             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
             -Dorg.slf4j.simpleLogger.defaultLogLevel=info
@@ -87,10 +87,10 @@ jobs:
 
       - name: Build Python package
         run: |
-          cd python/lib
+          cd implementations/python/lib
           python -m build
 
       - name: Publish to PyPI
         run: |
-          cd python/lib
+          cd implementations/python/lib
           python -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}

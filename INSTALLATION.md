@@ -33,7 +33,7 @@ Add the Maven dependency to your `pom.xml`:
 Or build from source:
 
 ```bash
-cd java/lib
+cd implementations/java/lib
 mvn clean install
 ```
 
@@ -70,7 +70,7 @@ mvn clean install
 
 ```bash
 # Clone and navigate to Python directory
-cd python
+cd implementations/python
 
 # Install in development mode with dependencies
 uv sync
@@ -86,7 +86,7 @@ uv run python -m example_supplier.main
 
 ```bash
 # Clone and navigate to Java directory
-cd java
+cd implementations/java
 
 # Build all modules
 ./rebuild-all.sh
@@ -191,6 +191,6 @@ mvn -version
 
 After installation, see:
 
-- **Python**: [python/USAGE.md](python/USAGE.md)
-- **Java**: [java/USAGE.md](java/USAGE.md)
+- **Python**: [implementations/python/USAGE.md](implementations/python/USAGE.md)
+- **Java**: [implementations/java/USAGE.md](implementations/java/USAGE.md)
 - **Root**: [README.md](README.md) for architectural overview
