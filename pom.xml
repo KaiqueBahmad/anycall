@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>dev.kaiquebt.anycall</groupId>
+    <artifactId>anycall-root</artifactId>
+    <version>0.1.1</version>
+    <packaging>pom</packaging>
+
+    <name>AnyCall Root</name>
+    <description>Root aggregator for all AnyCall implementations and tests</description>
+
+    <modules>
+        <module>implementations/java</module>
+        <module>tests/java</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>dev.kaiquebt</groupId>
+                <artifactId>anycall</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

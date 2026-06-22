@@ -3,9 +3,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>dev.kaiquebt</groupId>
+    <parent>
+        <groupId>dev.kaiquebt</groupId>
+        <artifactId>anycall-aggregator</artifactId>
+        <version>0.1.1</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
     <artifactId>anycall</artifactId>
-    <version>0.1.1</version>
     <packaging>jar</packaging>
 
     <name>AnyCall</name>

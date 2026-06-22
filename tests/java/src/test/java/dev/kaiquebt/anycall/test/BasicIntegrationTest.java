@@ -2,6 +2,9 @@ package dev.kaiquebt.anycall.test;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
+import dev.kaiquebt.anycall.core.AnyCall;
+
 import static org.assertj.core.api.Assertions.*;
 
 public class BasicIntegrationTest {
@@ -14,11 +17,12 @@ public class BasicIntegrationTest {
         if (redisUri == null) {
             redisUri = "redis://localhost:6379";
         }
+
     }
 
     @Test
     void testRedisConnectionAvailable() {
-        // Placeholder for Redis connectivity test
+        AnyCall.client(redisUri);
         assertThat(redisUri).isNotEmpty();
     }
 

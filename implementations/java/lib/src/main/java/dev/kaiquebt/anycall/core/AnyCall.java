@@ -2,9 +2,14 @@ package dev.kaiquebt.anycall.core;
 
 import dev.kaiquebt.anycall.client.AnyCallClientImpl;
 import dev.kaiquebt.anycall.server.AnyCallServerImpl;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 
 public class AnyCall {
+    private static final Logger log = LoggerFactory.getLogger(AnyCall.class);
 
     private AnyCall() {
     }
