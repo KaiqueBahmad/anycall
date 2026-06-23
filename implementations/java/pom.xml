@@ -42,6 +42,7 @@
         <module>lib</module>
         <module>example-supplier</module>
         <module>example-consumer</module>
+        <module>tests</module>
     </modules>
 
 </project>

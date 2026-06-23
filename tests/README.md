@@ -4,8 +4,8 @@ Integration and end-to-end tests for the AnyCall RPC framework across multiple l
 
 ## Structure
 
-- `java/` - Java integration tests
 - `python/` - Python integration tests
+- Java integration tests live at `implementations/java/tests/` (part of the Java Maven reactor)
 
 ## Running All Tests
 
@@ -22,7 +22,7 @@ Integration and end-to-end tests for the AnyCall RPC framework across multiple l
 docker-compose up redis -d  # Start Redis
 
 # Java tests
-cd tests/java && mvn clean test
+cd implementations/java/tests && mvn clean test
 
 # Python tests
 cd tests/python && pytest

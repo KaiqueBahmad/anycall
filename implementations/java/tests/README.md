@@ -21,7 +21,7 @@ This installs the latest version to your local Maven repository.
 
 ## Running Tests
 
-From `tests/java/`:
+From `implementations/java/tests/`:
 
 ```bash
 # Run all tests
