@@ -29,7 +29,7 @@
     </developers>
 
     <properties>
-        <revision>0.0.0-SNAPSHOT</revision>
+        <revision>0-SNAPSHOT</revision>
         <maven.compiler.release>17</maven.compiler.release>
         <lettuce.version>6.3.2.RELEASE</lettuce.version>
         <jackson.version>2.18.2</jackson.version>
