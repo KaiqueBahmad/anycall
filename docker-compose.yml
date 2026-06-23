@@ -1,85 +1,23 @@
-include:
-  - docker-compose.infra.yml
-
 services:
-  java-supplier:
-    build:
-      context: ./implementations/java
-      dockerfile: Dockerfile
-      target: supplier
-    container_name: anycall-java-supplier
-    depends_on:
-      redis:
-        condition: service_healthy
-    environment:
-      REDIS_URI: redis://redis:6379
-    networks:
-      - anycall
-    healthcheck:
-      test: ["CMD", "cat", "/run/anycall/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  java-consumer:
-    build:
-      context: ./implementations/java
-      dockerfile: Dockerfile
-      target: consumer
-    container_name: anycall-java-consumer
-    depends_on:
-      redis:
-        condition: service_healthy
-      java-supplier:
-        condition: service_healthy
-    environment:
-      REDIS_URI: redis://redis:6379
-    networks:
-      - anycall
-
-  python-supplier:
-    build:
-      context: ./implementations/python
-      dockerfile: Dockerfile
-      target: supplier
-    container_name: anycall-python-supplier
-    depends_on:
-      redis:
-        condition: service_healthy
-    environment:
-      REDIS_URI: redis://redis:6379
-    networks:
-      - anycall
+  redis:
+    image: redis:7-alpine
+    container_name: anycall-redis
+    ports:
+      - "6379:6379"
     volumes:
-      - ./implementations/python:/app
-      - python-supplier-venv:/app/.venv
+      - redis_data:/data
     healthcheck:
-      test: ["CMD", "cat", "/run/anycall/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  python-consumer:
-    build:
-      context: ./implementations/python
-      dockerfile: Dockerfile
-      target: consumer
-    container_name: anycall-python-consumer
-    depends_on:
-      redis:
-        condition: service_healthy
-      python-supplier:
-        condition: service_healthy
-    environment:
-      REDIS_URI: redis://redis:6379
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - anycall
-    volumes:
-      - ./implementations/python:/app
-      - python-consumer-venv:/app/.venv
 
 volumes:
-  python-supplier-venv:
-  python-consumer-venv:
+  redis_data:
+
+networks:
+  anycall:
+    driver: bridge

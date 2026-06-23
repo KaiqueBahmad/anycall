@@ -21,18 +21,8 @@ else
 fi
 MVN_STATUS=$?
 
-SUPPLIER_STATUS=0
-CONSUMER_STATUS=0
-if [ $MVN_STATUS -eq 0 ]; then
-  # No --no-cache. clean above guarantees one fresh jar in each target/.
-  prefix supplier docker compose build java-supplier; SUPPLIER_STATUS=$?
-  prefix consumer docker compose build java-consumer; CONSUMER_STATUS=$?
-fi
-
 echo ""
 echo "----------------------------------------"
-[ $MVN_STATUS -eq 0 ]      && echo "OK  maven (reactor)" || echo "FAIL maven (reactor)"
-[ $SUPPLIER_STATUS -eq 0 ] && echo "OK  supplier docker" || echo "FAIL supplier docker"
-[ $CONSUMER_STATUS -eq 0 ] && echo "OK  consumer docker" || echo "FAIL consumer docker"
+[ $MVN_STATUS -eq 0 ] && echo "OK  maven (reactor)" || echo "FAIL maven (reactor)"
 echo "----------------------------------------"
-[ $MVN_STATUS -eq 0 ] && [ $SUPPLIER_STATUS -eq 0 ] && [ $CONSUMER_STATUS -eq 0 ] || exit 1
+[ $MVN_STATUS -eq 0 ] || exit 1
