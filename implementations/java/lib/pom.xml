@@ -6,11 +6,12 @@
     <parent>
         <groupId>dev.kaiquebt</groupId>
         <artifactId>anycall-aggregator</artifactId>
-        <version>0.1.1</version>
+        <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>anycall</artifactId>
+    <version>${revision}</version>
     <packaging>jar</packaging>
 
     <name>AnyCall</name>
@@ -39,6 +40,8 @@
     </scm>
 
     <properties>
+        <!-- CI-friendly version: fixo em dev local, sobrescrito via -Drevision no CI -->
+        <revision>0.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <lettuce.version>6.3.2.RELEASE</lettuce.version>
         <jackson.version>2.18.2</jackson.version>
@@ -131,6 +134,34 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+            </plugin>
+
+            <!-- Flatten Plugin - resolve a versao CI-friendly (${revision}) no pom publicado -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <version>1.7.3</version>
+                <configuration>
+                    <!-- resolve apenas revision/sha1/changelist, mantendo o resto do pom intacto -->
+                    <flattenMode>resolveCiFriendliesOnly</flattenMode>
+                    <updatePomFile>true</updatePomFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>flatten</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>flatten</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>flatten.clean</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

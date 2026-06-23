@@ -7,11 +7,16 @@
 
     <groupId>dev.kaiquebt.anycall</groupId>
     <artifactId>anycall-root</artifactId>
-    <version>0.1.1</version>
+    <version>${revision}</version>
     <packaging>pom</packaging>
 
     <name>AnyCall Root</name>
     <description>Root aggregator for all AnyCall implementations and tests</description>
+
+    <properties>
+        <!-- CI-friendly version da lib publicavel: fixo em dev local, sobrescrito via -Drevision no CI -->
+        <revision>0.0.0-SNAPSHOT</revision>
+    </properties>
 
     <modules>
         <module>implementations/java</module>
@@ -22,7 +27,7 @@
             <dependency>
                 <groupId>dev.kaiquebt</groupId>
                 <artifactId>anycall</artifactId>
-                <version>${project.version}</version>
+                <version>${revision}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

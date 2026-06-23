@@ -28,6 +28,8 @@
     </developers>
 
     <properties>
+        <!-- Acompanha a versao CI-friendly da lib no reactor (default local fixo) -->
+        <revision>0.0.0-SNAPSHOT</revision>
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
@@ -40,7 +42,7 @@
         <dependency>
             <groupId>dev.kaiquebt</groupId>
             <artifactId>anycall</artifactId>
-            <version>0.1.1</version>
+            <version>${revision}</version>
         </dependency>
 
         <!-- Logging -->
