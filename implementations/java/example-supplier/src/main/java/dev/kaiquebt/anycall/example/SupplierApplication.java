@@ -39,12 +39,18 @@ public class SupplierApplication {
         Thread.currentThread().join();
     }
 
+    private static final Path HEALTH_FILE = resolveHealthFilePath();
+
+    private static Path resolveHealthFilePath() {
+        String runtimeDir = System.getenv().getOrDefault("XDG_RUNTIME_DIR", "/tmp");
+        return Paths.get(runtimeDir, "anycall", "health");
+    }
+
     private static void writeHealthFile() {
         try {
-            Path healthFile = Paths.get("/run/anycall/health");
-            Files.createDirectories(healthFile.getParent());
-            Files.writeString(healthFile, "OK");
-            logger.info("Health file written to {}", healthFile);
+            Files.createDirectories(HEALTH_FILE.getParent());
+            Files.writeString(HEALTH_FILE, "OK");
+            logger.info("Health file written to {}", HEALTH_FILE);
         } catch (Exception e) {
             logger.error("Failed to write health file", e);
         }
@@ -52,10 +58,9 @@ public class SupplierApplication {
 
     private static void deleteHealthFile() {
         try {
-            Path healthFile = Paths.get("/run/anycall/health");
-            if (Files.exists(healthFile)) {
-                Files.delete(healthFile);
-                logger.info("Health file removed: {}", healthFile);
+            if (Files.exists(HEALTH_FILE)) {
+                Files.delete(HEALTH_FILE);
+                logger.info("Health file removed: {}", HEALTH_FILE);
             }
         } catch (Exception e) {
             logger.error("Failed to remove health file", e);
