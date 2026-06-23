@@ -14,6 +14,7 @@ public class SupplierApplication {
     private static final Logger logger = LoggerFactory.getLogger(SupplierApplication.class);
 
     public static void main(String[] args) throws Exception {
+        logger.info("Supplier is initializing.");
         String redisUri = System.getenv("REDIS_URI");
         if (redisUri == null) {
             redisUri = "redis://localhost:6379";

@@ -6,11 +6,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>dev.kaiquebt.anycall</groupId>
-    <artifactId>example-consumer</artifactId>
+    <artifactId>example-supplier</artifactId>
     <version>0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>AnyCall Example - Consumer</name>
+    <name>AnyCall Example - Supplier</name>
 
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
@@ -50,12 +50,12 @@
                     <arguments>
                         <argument>-classpath</argument>
                         <classpath/>
-                        <argument>dev.kaiquebt.anycall.example.ConsumerApplication</argument>
+                        <argument>dev.kaiquebt.anycall.example.SupplierApplication</argument>
                     </arguments>
                 </configuration>
                 <executions>
                     <execution>
-                        <id>run-consumer</id>
+                        <id>run-supplier</id>
                         <phase>compile</phase>
                         <goals>
                             <goal>exec</goal>
@@ -73,7 +73,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>dev.kaiquebt.anycall.example.ConsumerApplication</mainClass>
+                            <mainClass>dev.kaiquebt.anycall.example.SupplierApplication</mainClass>
                             <addClasspath>true</addClasspath>
                             <classpathPrefix>lib/</classpathPrefix>
                         </manifest>
