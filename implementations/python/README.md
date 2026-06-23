@@ -8,7 +8,6 @@ Call functions across Python services using Redis, with no `.proto` files, expos
 - **lib/** - AnyCall core library
 - **example-consumer/** - Consumer example
 - **example-supplier/** - Supplier example
-- **Dockerfile** - Docker image for the project
 - **pyproject.toml** - uv workspace configuration
 
 ## How to use

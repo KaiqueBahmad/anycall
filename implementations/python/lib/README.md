@@ -1,15 +1,18 @@
-# Python - AnyCall
+# Python - AnyCall (core library)
 
-This directory contains the Python components of the AnyCall project.
-Call functions across Python services using Redis, with no `.proto` files, exposed ports, or extra service plumbing to maintain.
+This directory contains the AnyCall core library for Python (published as
+`anycall-py`). Call functions across Python services using Redis, with no
+`.proto` files, exposed ports, or extra service plumbing to maintain.
+
+The runnable examples live alongside this directory, in
+[`../example-consumer/`](../example-consumer) and
+[`../example-supplier/`](../example-supplier).
 
 ## Structure
 
-- **AnyCall core library** in this directory
-- **example-consumer/** - Consumer example
-- **example-supplier/** - Supplier example
-- **Dockerfile** - Docker image for the project
-- **pyproject.toml** - uv workspace configuration
+- **src/anycall/** - AnyCall core library package
+- **pyproject.toml** - Package metadata and dependencies
+- **TESTING.md** - How to run the test suite
 
 ## How to use
 

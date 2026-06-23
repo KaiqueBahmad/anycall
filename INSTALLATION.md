@@ -24,18 +24,21 @@ Add the Maven dependency to your `pom.xml`:
 
 ```xml
 <dependency>
-    <groupId>dev.kaiquebt</groupId>
+    <groupId>dev.kaiquebt.anycall</groupId>
     <artifactId>anycall</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
-Or build from source:
+Or build from source (multi-module Maven reactor):
 
 ```bash
-cd implementations/java/lib
+cd implementations/java
 mvn clean install
 ```
+
+This installs the `anycall` library to your local Maven repository as
+`dev.kaiquebt.anycall:anycall:0-SNAPSHOT`.
 
 ---
 
@@ -85,41 +88,37 @@ uv run python -m example_supplier.main
 ### Java
 
 ```bash
-# Clone and navigate to Java directory
+# Clone and navigate to the Java reactor root
 cd implementations/java
 
-# Build all modules
-./rebuild-all.sh
+# Build all modules (lib + examples)
+mvn clean install
 
-# Or manually:
-cd lib && mvn clean install
-cd ../example-supplier && mvn clean package
-cd ../example-consumer && mvn clean package
+# Run the examples (compiles and executes via exec-maven-plugin)
+./run-supplier.sh
+./run-consumer.sh
 ```
 
 ---
 
-## Docker
+## Redis via Docker Compose
 
-Both implementations are containerized and can be run via Docker Compose:
+The bundled `docker-compose.yml` provisions just the Redis broker that AnyCall
+needs — the supplier/consumer apps run locally (see the build steps above):
 
 ```bash
-# Start Redis + Java + Python services
+# Start Redis
 docker-compose up -d
 
 # View logs
 docker-compose logs -f
 
-# Stop services
+# Stop
 docker-compose down
 ```
 
 Services available:
-- `redis` — Message broker
-- `java-supplier` — Java sentiment analyzer
-- `java-consumer` — Java RPC client (runs 100 calls)
-- `python-supplier` — Python sentiment analyzer
-- `python-consumer` — Python RPC client (runs 100 calls)
+- `redis` — Message broker, exposed on `localhost:6379`
 
 ---
 

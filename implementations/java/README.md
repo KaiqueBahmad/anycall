@@ -8,15 +8,21 @@ Call functions across Java services using Redis, with no `.proto` files, exposed
 - **lib/** - AnyCall core library
 - **example-consumer/** - Consumer example
 - **example-supplier/** - Supplier example
-- **Dockerfile** - Docker image for the project
-- **pom.xml** - Maven configuration
-- **rebuild-all.sh** - Script to rebuild all modules
+- **pom.xml** - Maven reactor (parent) configuration
+- **run-supplier.sh** / **run-consumer.sh** - Scripts to run the examples
 
 ## How to use
 
 ### Build
 ```bash
-./rebuild-all.sh
+# From this directory (reactor root)
+mvn clean install
+```
+
+### Run the examples
+```bash
+./run-supplier.sh
+./run-consumer.sh
 ```
 
 ### Quick usage
