@@ -120,7 +120,8 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
-            Map<String, String> data = (Map<String, String>) records.get(1);
+            @SuppressWarnings("unchecked")
+			Map<String, String> data = (Map<String, String>) records.get(1);
             String responseJson = data.get(DATA_FIELD);
             AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
@@ -193,8 +194,9 @@ public class AnyCallClientImpl implements AnyCallClient {
             XReadArgs args = new XReadArgs();
             args.block(timeout);
             XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.from(streamKey, "0-0");
-            List<io.lettuce.core.StreamMessage<String, String>> result = commands.xread(args, offset);
 
+            @SuppressWarnings("unchecked")
+			List<io.lettuce.core.StreamMessage<String, String>> result = commands.xread(args, offset);
             if (result != null && !result.isEmpty()) {
                 io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
                 return List.of(msg.getId(), msg.getBody());

@@ -35,8 +35,9 @@ class RedisStreamAdapter implements AutoCloseable {
             XReadArgs args = new XReadArgs();
             args.block(timeout);
             XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.from(streamKey, "0-0");
-            List<io.lettuce.core.StreamMessage<String, String>> result = streamCommands.xread(args, offset);
 
+            @SuppressWarnings("unchecked")
+			List<io.lettuce.core.StreamMessage<String, String>> result = streamCommands.xread(args, offset);
             if (result != null && !result.isEmpty()) {
                 io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
                 return List.of(msg.getId(), msg.getBody());
@@ -53,8 +54,9 @@ class RedisStreamAdapter implements AutoCloseable {
             XReadArgs args = new XReadArgs();
             args.block(timeout);
             XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.lastConsumed(streamKey);
-            List<io.lettuce.core.StreamMessage<String, String>> result = streamCommands.xreadgroup(consumerRef, args, offset);
 
+            @SuppressWarnings("unchecked")
+            List<io.lettuce.core.StreamMessage<String, String>> result = streamCommands.xreadgroup(consumerRef, args, offset);
             if (result != null && !result.isEmpty()) {
                 io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
                 return List.of(msg.getId(), msg.getBody());

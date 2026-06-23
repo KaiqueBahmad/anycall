@@ -1,11 +1,8 @@
 package dev.kaiquebt.anycall.client;
 
 import dev.kaiquebt.anycall.exception.AnyCallError;
-import dev.kaiquebt.anycall.registry.TypeRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 

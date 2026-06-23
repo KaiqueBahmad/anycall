@@ -241,7 +241,8 @@ public class AnyCallServerImpl implements AnyCallServer {
 
                 if (records != null && records.size() >= 2) {
                     String messageId = (String) records.get(0);
-                    Map<String, String> data = (Map<String, String>) records.get(1);
+                    @SuppressWarnings("unchecked")
+					Map<String, String> data = (Map<String, String>) records.get(1);
                     String requestJson = data.get(DATA_FIELD);
 
                     if (requestJson != null) {
@@ -358,8 +359,9 @@ public class AnyCallServerImpl implements AnyCallServer {
             XReadArgs args = new XReadArgs();
             args.block(timeout);
             XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.lastConsumed(streamKey);
-            List<io.lettuce.core.StreamMessage<String, String>> result = commands.xreadgroup(consumerRef, args, offset);
 
+            @SuppressWarnings("unchecked")
+			List<io.lettuce.core.StreamMessage<String, String>> result = commands.xreadgroup(consumerRef, args, offset);
             if (result != null && !result.isEmpty()) {
                 io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
                 return List.of(msg.getId(), msg.getBody());
