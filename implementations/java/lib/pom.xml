@@ -7,7 +7,7 @@
 
     <groupId>dev.kaiquebt.anycall</groupId>
     <artifactId>anycall</artifactId>
-    <version>1.0.0</version>
+    <version>${revision}</version>
 
     <name>AnyCall</name>
     <description>AnyCall - Redis-based RPC</description>
@@ -29,12 +29,11 @@
     </developers>
 
     <properties>
-        <java.version>17</java.version>
+        <revision>0.0.0-SNAPSHOT</revision>
+        <maven.compiler.release>17</maven.compiler.release>
         <lettuce.version>6.3.2.RELEASE</lettuce.version>
         <jackson.version>2.18.2</jackson.version>
         <junit.version>5.11.4</junit.version>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -115,13 +114,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.3.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                        </manifest>
-                    </archive>
-                </configuration>
             </plugin>
 
             <!-- Surefire -->
@@ -129,12 +121,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.1.2</version>
-                <configuration>
-                    <includes>
-                        <include>**/*Test.java</include>
-                        <include>**/*Tests.java</include>
-                    </includes>
-                </configuration>
             </plugin>
         </plugins>
     </build>
