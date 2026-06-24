@@ -19,7 +19,11 @@ logger = logging.getLogger(__name__)
 def write_health_file() -> None:
     """Write health check file."""
     try:
-        health_file = Path("/run/anycall/health")
+        xdg_runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if xdg_runtime_dir:
+            health_file = Path(xdg_runtime_dir) / "anycall" / "health"
+        else:
+            health_file = Path("/tmp/anycall/health")
         health_file.parent.mkdir(parents=True, exist_ok=True)
         health_file.write_text("OK")
         logger.info(f"Health file written to {health_file}")

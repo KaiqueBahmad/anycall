@@ -57,4 +57,4 @@ Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall`
 Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
 
 ### example-supplier
-Server application that registers suppliers via `AnyCall.server()`. The `SentimentAnalyzer` class contains an `analyze_sentiment` method decorated with `@supply("analyze-sentiment")`, which handles sentiment analysis. Starts listeners for each registered method and writes a health file to `/run/anycall/health`.
+Server application that registers suppliers via `AnyCall.server()`. The `SentimentAnalyzer` class contains an `analyze_sentiment` method decorated with `@supply("analyze-sentiment")`, which handles sentiment analysis. Starts listeners for each registered method.
