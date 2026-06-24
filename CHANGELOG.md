@@ -12,9 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial public release of AnyCall RPC framework
 - Full-duplex Redis-based communication protocol
-- Type-safe call and cast APIs (typed and raw variants)
+- Type-safe calls
 - Supplier notation
 - Built-in type registry with Jackson serialization
+
+## [0.2] - 2026-06-24
+
+### Added
+- Raw calls
+- Exceptions 
 
 ### Java
 - **0.1.1** (2026-06-14): Release to validate CI/CD pipeline (no code changes)
