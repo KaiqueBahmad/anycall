@@ -4,7 +4,6 @@ This directory contains the AnyCall core library for Python (published as
 `anycall-py`). Call functions across Python services using Redis, with no
 `.proto` files, exposed ports, or extra service plumbing to maintain.
 
-The runnable examples live alongside this directory, in
 [`../example-consumer/`](../example-consumer) and
 [`../example-supplier/`](../example-supplier).
 
