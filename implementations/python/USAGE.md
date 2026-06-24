@@ -50,7 +50,7 @@ sentiment = client.call("analyze-sentiment", request)
 
 ### Call without model (returns dict):
 ```python
-response = client.call_raw("analyze-sentiment", request)
+response = client.raw_call("analyze-sentiment", request)
 ```
 
 ## Configuration

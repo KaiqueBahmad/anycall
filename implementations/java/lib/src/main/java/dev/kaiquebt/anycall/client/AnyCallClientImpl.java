@@ -174,7 +174,7 @@ public class AnyCallClientImpl implements AnyCallClient {
     }
 
     @Override
-    public Map<String, Object> callRaw(String methodName, Object request) {
+    public Map<String, Object> rawCall(String methodName, Object request) {
         @SuppressWarnings("unchecked")
         Map<String, Object> result = (Map<String, Object>) callInternal(methodName, request, Map.class);
         return result;

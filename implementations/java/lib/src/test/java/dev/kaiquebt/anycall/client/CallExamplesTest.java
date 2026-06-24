@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Examples of call(), callRaw(), and registerType() usage patterns.
+ * Examples of call(), rawCall(), and registerType() usage patterns.
  * These are semantic examples (not full RPC tests, since we don't have a server).
  */
 @DisplayName("Call Examples: Typed and Raw Paths")
@@ -66,16 +66,16 @@ class CallExamplesTest {
     }
 
     @Test
-    @DisplayName("Example 3: callRaw() always returns Map (raw raia)")
-    void exampleCallRaw() {
-        // callRaw never touches registry
+    @DisplayName("Example 3: rawCall() always returns Map (raw raia)")
+    void exampleRawCall() {
+        // rawCall never touches registry
         // Always returns Map<String,Object>
 
-        // Even if registered, callRaw ignores registry
+        // Even if registered, rawCall ignores registry
         TypeRegistry registry = new TypeRegistry();
         registry.registerType("some-op", Sentiment.class);
 
-        // callRaw(op, req) would return Map, not Sentiment
+        // rawCall(op, req) would return Map, not Sentiment
         // (actual RPC not tested, but semantics are: no type involved)
         assertTrue(true); // Placeholder
     }

@@ -39,7 +39,7 @@ Sentiment sentiment = client.call("analyze-sentiment", request);
 
 ### Call without model (returns Map):
 ```java
-Map<String, Object> response = client.callRaw("analyze-sentiment", request);
+Map<String, Object> response = client.rawCall("analyze-sentiment", request);
 ```
 
 ## Configuration

@@ -195,7 +195,7 @@ print(sentiment)  # Returns Sentiment object
 
 **Client (returns dict)**
 ```python
-response = client.call_raw("analyze-sentiment", TextRequest(text="This is great!"))
+response = client.raw_call("analyze-sentiment", TextRequest(text="This is great!"))
 print(response)  # Returns dict: {"text": "This is great!", "label": "positive"}
 ```
 

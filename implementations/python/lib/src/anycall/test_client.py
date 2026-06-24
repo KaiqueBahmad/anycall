@@ -1,4 +1,4 @@
-"""Unit tests for AnyCallClient call/call_raw/register_type semantics."""
+"""Unit tests for AnyCallClient call/raw_call/register_type semantics."""
 
 import pytest
 from dataclasses import dataclass
@@ -124,26 +124,26 @@ class TestCallWithRegistry:
         assert "Timeout" in error_msg or "timeout" in error_msg
 
 
-class TestCallRaw:
-    """Tests for call_raw() semantics."""
+class TestRawCall:
+    """Tests for raw_call() semantics."""
 
-    def test_call_raw_ignores_registry(self, client):
-        """call_raw() never uses registry."""
+    def test_raw_call_ignores_registry(self, client):
+        """raw_call() never uses registry."""
         # Register a type
         client.register_type("my-op", MockResponse)
 
-        # call_raw should still work (timeout) without caring about type
+        # raw_call should still work (timeout) without caring about type
         with pytest.raises(AnyCallError) as exc_info:
-            client.call_raw("my-op", {})
+            client.raw_call("my-op", {})
 
         error_msg = str(exc_info.value)
         assert "Timeout" in error_msg or "timeout" in error_msg
 
-    def test_call_raw_no_registry_needed(self, client):
-        """call_raw() works without any registry entry."""
+    def test_raw_call_no_registry_needed(self, client):
+        """raw_call() works without any registry entry."""
         # Don't register anything
         with pytest.raises(AnyCallError) as exc_info:
-            client.call_raw("unregistered-op", {})
+            client.raw_call("unregistered-op", {})
 
         # Should fail with timeout, not type lookup error
         error_msg = str(exc_info.value)

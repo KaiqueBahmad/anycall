@@ -1,4 +1,4 @@
-"""Examples of call(), call_raw(), and register_type() usage."""
+"""Examples of call(), raw_call(), and register_type() usage."""
 
 from dataclasses import dataclass
 
@@ -47,13 +47,13 @@ def example_call_with_registry():
     assert sentiment.text == "Absolutely wonderful!"
 
 
-def example_call_raw():
-    """Example 3: call_raw() always returns dict (raw raia)."""
-    print("\n=== Example 3: call_raw() ===")
+def example_raw_call():
+    """Example 3: raw_call() always returns dict (raw raia)."""
+    print("\n=== Example 3: raw_call() ===")
     client = AnyCall.client("redis://localhost:6379")
 
     req = TextRequest(text="Looking good!")
-    raw_result = client.call_raw("analyze-sentiment", req)
+    raw_result = client.raw_call("analyze-sentiment", req)
     print(f"Raw result: {raw_result}")
     assert isinstance(raw_result, dict)
     assert raw_result["text"] == "Looking good!"
@@ -111,7 +111,7 @@ def example_duplicate_type_idempotent():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("AnyCall Client Examples: call, call_raw, register_type")
+    print("AnyCall Client Examples: call, raw_call, register_type")
     print("=" * 60)
 
     try:
@@ -125,7 +125,7 @@ if __name__ == "__main__":
         print(f"⚠ Skipped (no supplier): {e}")
 
     try:
-        example_call_raw()
+        example_raw_call()
     except Exception as e:
         print(f"⚠ Skipped (no supplier): {e}")
 

@@ -4,7 +4,7 @@ package dev.kaiquebt.anycall.core;
  * Client interface for making remote procedure calls via Redis.
  * Provides synchronous interface with two distinct call paths:
  * - Typed raia: call() with explicit type or registry lookup
- * - Raw raia: callRaw() always returns Map (untyped)
+ * - Raw raia: rawCall() always returns Map (untyped)
  */
 public interface AnyCallClient {
 
@@ -49,7 +49,7 @@ public interface AnyCallClient {
      * @return raw response as Map<String,Object> (native structure)
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails or times out
      */
-    java.util.Map<String, Object> callRaw(String methodName, Object request);
+    java.util.Map<String, Object> rawCall(String methodName, Object request);
 
     /**
      * Register response type for an operation.

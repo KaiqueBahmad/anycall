@@ -47,7 +47,7 @@ class AnyCallClient(ABC):
         pass
 
     @abstractmethod
-    def call_raw(self, method_name: str, request: Any) -> dict:
+    def raw_call(self, method_name: str, request: Any) -> dict:
         """Call a remote method, returning raw dict (raw raia).
 
         Never resolves from registry; always returns native dict structure.
@@ -119,7 +119,7 @@ class AnyCallClientImpl(AnyCallClient):
 
         return self._call_impl(method_name, request, resolved_type)
 
-    def call_raw(self, method_name: str, request: Any) -> dict:
+    def raw_call(self, method_name: str, request: Any) -> dict:
         """Call a remote method, returning raw dict (raw raia).
 
         Never resolves from registry; always returns native dict structure.
