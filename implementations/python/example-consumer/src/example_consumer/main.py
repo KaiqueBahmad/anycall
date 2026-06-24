@@ -3,6 +3,7 @@ import os
 
 from anycall import AnyCall
 
+from .model.sentiment import Sentiment
 from .model.text_request import TextRequest
 
 logging.basicConfig(
@@ -22,7 +23,7 @@ def main() -> None:
     request = TextRequest(text="Hello, AnyCall!")
     logger.info(f"Calling analyze-sentiment with: {request.text}")
 
-    response = client.call("analyze-sentiment", request)
+    response = client.call("analyze-sentiment", request, Sentiment)
     logger.info(f"Response: {response}")
 
 
