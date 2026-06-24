@@ -26,6 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Python
 - **0.1.3** (2026-06-14): Release to validate CI/CD pipeline (no code changes)
 - **0.1.0** (TBD): Pending initial PyPI release
-  - Python 3.8+ support
+  - Python 3.10+ support
   - redis-py client integration
   - pytest test framework

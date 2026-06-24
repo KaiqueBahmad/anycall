@@ -51,7 +51,7 @@ This installs the `anycall` library to your local Maven repository as
 
 ### Python
 
-- Python 3.9+
+- Python 3.10+
 - Dependencies installed automatically:
   - `redis>=5.0.0` — Redis client with Streams support
   - `dacite>=1.8.0` — Dataclass deserialization

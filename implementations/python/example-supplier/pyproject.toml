@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "anycall-example-supplier"
 version = "0.1.0"
 description = "AnyCall Supplier Example"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com" }]
 dependencies = [

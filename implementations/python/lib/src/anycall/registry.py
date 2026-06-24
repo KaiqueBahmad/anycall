@@ -1,5 +1,7 @@
 """Type registry for call-without-explicit-type resolution."""
 
+from __future__ import annotations
+
 from typing import Any, Dict, Type
 
 from .exceptions import AnyCallError

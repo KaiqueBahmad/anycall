@@ -22,11 +22,17 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.8'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip build twine
+
+      - name: Sync package version with tag
+        run: |
+          cd implementations/python/lib
+          sed -i -E "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
+          grep -E "^version = " pyproject.toml
 
       - name: Build Python package
         run: |
