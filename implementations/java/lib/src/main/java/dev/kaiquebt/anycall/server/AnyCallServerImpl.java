@@ -358,6 +358,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             Consumer<String> consumerRef = Consumer.from(group, consumer);
             XReadArgs args = new XReadArgs();
             args.block(timeout);
+            args.count(1);
             XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.lastConsumed(streamKey);
 
             @SuppressWarnings("unchecked")
