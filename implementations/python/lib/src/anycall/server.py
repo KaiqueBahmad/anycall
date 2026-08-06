@@ -167,7 +167,7 @@ class AnyCallServerImpl(AnyCallServer):
 
             param = deserialize(rpc_request.payload, handler.parameter_type)
 
-            ctx = AnycallContext()
+            ctx = AnycallContext(request_id=rpc_request.request_id, method_name=rpc_request.method_name)
             result = handler.method(ctx, param)
 
             result_json = serialize(result)

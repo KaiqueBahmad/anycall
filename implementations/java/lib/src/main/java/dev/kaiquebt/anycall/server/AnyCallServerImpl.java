@@ -302,7 +302,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             }
 
             long beforeInvoke = metricsEnabled ? System.currentTimeMillis() : 0;
-            AnycallContext ctx = new AnycallContext();
+            AnycallContext ctx = new AnycallContext(requestId, methodName);
             Object result = handler.method().invoke(handler.bean(), ctx, parameter);
 
             if (metricsEnabled) {
