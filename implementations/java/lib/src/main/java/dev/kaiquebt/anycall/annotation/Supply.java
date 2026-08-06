@@ -9,14 +9,15 @@ import java.lang.annotation.Target;
  * Marks a method as a remotely callable operation within an AnyCall supplier.
  * Methods annotated with {@code @Supply} are automatically registered to handle
  * remote procedure calls with the specified operation name via Redis.
- * Methods must have exactly one parameter which will be deserialized from the request payload,
+ * Methods must have exactly two parameters — an {@link dev.kaiquebt.anycall.core.AnycallContext}
+ * followed by the request type, which will be deserialized from the request payload —
  * and must have a return type that can be serialized to JSON.
  *
  * <p>Usage requirements:
  * <ul>
  *   <li>Must be used only on methods within a class annotated with {@code @AnyCallSupplier}</li>
- *   <li>Method must have exactly one parameter</li>
- *   <li>Method should not have parameters that cannot be deserialized from JSON</li>
+ *   <li>Method must have exactly two parameters: {@code (AnycallContext, <request type>)}</li>
+ *   <li>Method should not have a request parameter that cannot be deserialized from JSON</li>
  *   <li>Method return type must be serializable to JSON</li>
  * </ul>
  *
@@ -25,7 +26,7 @@ import java.lang.annotation.Target;
  * {@code
  * public class SentimentAnalyzer {
  *     @Supply("analyze-sentiment")
- *     public Sentiment analyzeSentiment(TextRequest req) {
+ *     public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
  *         return new Sentiment(req.text(), "positive");
  *     }
  * }
@@ -33,6 +34,7 @@ import java.lang.annotation.Target;
  * </pre>
  *
  * @see dev.kaiquebt.anycall.core.AnyCallSupplier
+ * @see dev.kaiquebt.anycall.core.AnycallContext
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

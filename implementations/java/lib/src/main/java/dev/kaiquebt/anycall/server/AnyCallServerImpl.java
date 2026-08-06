@@ -3,6 +3,7 @@ package dev.kaiquebt.anycall.server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
+import dev.kaiquebt.anycall.core.AnycallContext;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
@@ -156,13 +157,21 @@ public class AnyCallServerImpl implements AnyCallServer {
             if (supplyAnnotation != null) {
                 String methodName = supplyAnnotation.value();
 
-                if (method.getParameterCount() != 1) {
+                if (method.getParameterCount() != 2) {
                     throw new IllegalStateException(
-                        "Method " + method.getName() + " annotated with @Supply must have exactly one parameter"
+                        "Method " + method.getName() + " annotated with @Supply must have exactly two parameters: "
+                            + "(AnycallContext, <request type>)"
                     );
                 }
 
-                Class<?> parameterType = method.getParameterTypes()[0];
+                if (method.getParameterTypes()[0] != AnycallContext.class) {
+                    throw new IllegalStateException(
+                        "Method " + method.getName() + " annotated with @Supply must declare AnycallContext "
+                            + "as its first parameter"
+                    );
+                }
+
+                Class<?> parameterType = method.getParameterTypes()[1];
                 method.setAccessible(true);
 
                 methodHandlers.put(methodName, new MethodHandler(supplier, method, parameterType));
@@ -293,7 +302,8 @@ public class AnyCallServerImpl implements AnyCallServer {
             }
 
             long beforeInvoke = metricsEnabled ? System.currentTimeMillis() : 0;
-            Object result = handler.method().invoke(handler.bean(), parameter);
+            AnycallContext ctx = new AnycallContext();
+            Object result = handler.method().invoke(handler.bean(), ctx, parameter);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [SERVER] [{}] Method '{}' executed in {}ms", requestId, methodName,

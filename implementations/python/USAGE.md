@@ -4,7 +4,7 @@
 
 1. **Define a class with methods decorated with `@supply`:**
 ```python
-from anycall import supply
+from anycall import AnycallContext, supply
 from dataclasses import dataclass
 
 @dataclass
@@ -18,7 +18,7 @@ class Sentiment:
 
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
-    def analyze_sentiment(self, req: TextRequest) -> Sentiment:
+    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 ```
 

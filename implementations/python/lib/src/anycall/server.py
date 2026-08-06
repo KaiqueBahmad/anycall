@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Optional
 
 from . import queues
 from .config import AnycallProperties
+from .context import AnycallContext
 from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisStreamAdapter
@@ -82,12 +83,18 @@ class AnyCallServerImpl(AnyCallServer):
             sig = inspect.signature(method)
             params = list(sig.parameters.values())
 
-            if len(params) != 1:
+            if len(params) != 2:
                 raise ValueError(
-                    f"Method {name} must have exactly 1 parameter, got {len(params)}"
+                    f"Method {name} must have exactly 2 parameters (AnycallContext, <request type>), "
+                    f"got {len(params)}"
                 )
 
-            param = params[0]
+            if params[0].annotation is not AnycallContext:
+                raise ValueError(
+                    f"Method {name} must declare AnycallContext as its first parameter"
+                )
+
+            param = params[1]
             parameter_type = param.annotation
             if parameter_type == inspect.Parameter.empty:
                 raise ValueError(f"Method {name} parameter must have a type annotation")
@@ -160,7 +167,8 @@ class AnyCallServerImpl(AnyCallServer):
 
             param = deserialize(rpc_request.payload, handler.parameter_type)
 
-            result = handler.method(param)
+            ctx = AnycallContext()
+            result = handler.method(ctx, param)
 
             result_json = serialize(result)
             response = AnyCallResponse.success(rpc_request.request_id, result_json)

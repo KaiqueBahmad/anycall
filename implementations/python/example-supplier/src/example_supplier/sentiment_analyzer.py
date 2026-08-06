@@ -1,4 +1,4 @@
-from anycall import supply
+from anycall import AnycallContext, supply
 
 from .model.text_request import TextRequest
 from .model.sentiment import Sentiment
@@ -8,10 +8,11 @@ class SentimentAnalyzer:
     """Analyzer for sentiment analysis operations."""
 
     @supply("analyze-sentiment")
-    def analyze_sentiment(self, req: TextRequest) -> Sentiment:
+    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
         """Analyze sentiment of text.
 
         Args:
+            ctx: Invocation context
             req: Text request
 
         Returns:

@@ -39,7 +39,7 @@ Install AnyCall for your language:
 ```java
 public class SentimentAnalyzer {
     @Supply("analyze-sentiment")
-    public Sentiment analyzeSentiment(TextRequest req) {
+    public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
 }
@@ -58,7 +58,7 @@ public class Application {
 ```java
 public class SentimentAnalyzer {
     @Supply("analyze-sentiment")
-    public Sentiment analyzeSentiment(TextRequest req) {
+    public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
 
@@ -131,7 +131,7 @@ public class Application {
 
 **Server**
 ```python
-from anycall import AnyCall, supply
+from anycall import AnyCall, AnycallContext, supply
 from dataclasses import dataclass
 
 @dataclass
@@ -145,7 +145,7 @@ class Sentiment:
 
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
-    def analyze_sentiment(self, req: TextRequest) -> Sentiment:
+    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 
 if __name__ == "__main__":
@@ -156,11 +156,11 @@ if __name__ == "__main__":
 
 **Server (with consumer handler)** &nbsp;🚧 **WIP**
 ```python
-from anycall import AnyCall, supply, consumer
+from anycall import AnyCall, AnycallContext, supply, consumer
 
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
-    def analyze_sentiment(self, req: TextRequest) -> Sentiment:
+    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 
     # Fires when a detached call's result is never attached/collected by a client
