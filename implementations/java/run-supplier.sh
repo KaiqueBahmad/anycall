@@ -1,1 +1,1 @@
-mvn compile -pl example-supplier -am -DskipTests -q
+./example-supplier/mvnw compile -pl example-supplier -am -DskipTests -q
