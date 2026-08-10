@@ -5,8 +5,8 @@
 Install development dependencies:
 
 ```bash
-cd implementations/python/lib
-pip install -e ".[dev]"
+cd implementations/python
+uv sync
 ```
 
 ## Running Tests
