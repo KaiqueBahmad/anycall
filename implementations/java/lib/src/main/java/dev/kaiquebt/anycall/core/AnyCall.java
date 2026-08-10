@@ -41,4 +41,14 @@ public class AnyCall {
     public static AnyCallServer server(String redisUri, boolean metricsEnabled) {
         return new AnyCallServerImpl(redisUri, metricsEnabled);
     }
+
+    /**
+     * @param maxConcurrency server-wide cap on requests processed at the same time,
+     *                       across every registered {@code @Supply} method combined
+     *                       (see {@link dev.kaiquebt.anycall.annotation.Supply#maxConcurrency()});
+     *                       {@code null} means uncapped
+     */
+    public static AnyCallServer server(String redisUri, boolean metricsEnabled, Integer maxConcurrency) {
+        return new AnyCallServerImpl(redisUri, metricsEnabled, maxConcurrency);
+    }
 }

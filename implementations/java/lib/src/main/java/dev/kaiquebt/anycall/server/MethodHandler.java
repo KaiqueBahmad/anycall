@@ -25,6 +25,12 @@ record MethodHandler(
     /**
      * The class type of the method's single parameter for deserialization.
      */
-    Class<?> parameterType
+    Class<?> parameterType,
+
+    /**
+     * How many requests for this method may be processed concurrently, from
+     * {@link dev.kaiquebt.anycall.annotation.Supply#maxConcurrency()}.
+     */
+    int maxConcurrency
 ) {
 }

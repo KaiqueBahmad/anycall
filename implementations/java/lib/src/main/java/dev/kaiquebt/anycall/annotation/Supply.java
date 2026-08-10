@@ -46,4 +46,14 @@ public @interface Supply {
      * @return the operation name
      */
     String value();
+
+    /**
+     * How many requests for this operation a single server instance may process at
+     * the same time. Composes with scaling out via multiple server processes and with
+     * the server-wide cap ({@code AnyCall.server(uri, metricsEnabled, maxConcurrency)}),
+     * if set. Defaults to {@code 1} (one at a time per instance).
+     *
+     * @return the number of requests this method may process concurrently
+     */
+    int maxConcurrency() default 1;
 }
