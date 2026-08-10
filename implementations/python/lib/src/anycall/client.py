@@ -13,6 +13,7 @@ from .exceptions import (
     RemoteException,
     SerializationError,
     JSONDecodeError,
+    QueueFullError,
 )
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisStreamAdapter
@@ -28,7 +29,13 @@ class AnyCallClient(ABC):
     """Interface for RPC client."""
 
     @abstractmethod
-    def call(self, method_name: str, request: Any, response_type: Type[T] | None = None) -> T | dict:
+    def call(
+        self,
+        method_name: str,
+        request: Any,
+        response_type: Type[T] | None = None,
+        max_queue_depth: int | None = None,
+    ) -> T | dict:
         """Call a remote method with explicit type (typed raia).
 
         Overloaded behavior:
@@ -39,17 +46,21 @@ class AnyCallClient(ABC):
             method_name: Operation name
             request: Request object (will be serialized to JSON)
             response_type: Expected response type. If None, resolves from registry.
+            max_queue_depth: Reject with QueueFullError if the method's request
+                stream is already at or above this depth. Overrides the client's
+                default_max_queue_depth for this call only. None means unbounded.
 
         Returns:
             Deserialized response object matching response_type
 
         Raises:
+            QueueFullError: If the request queue is already full
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         pass
 
     @abstractmethod
-    def raw_call(self, method_name: str, request: Any) -> dict:
+    def raw_call(self, method_name: str, request: Any, max_queue_depth: int | None = None) -> dict:
         """Call a remote method, returning raw dict (raw raia).
 
         Never resolves from registry; always returns native dict structure.
@@ -58,11 +69,15 @@ class AnyCallClient(ABC):
         Args:
             method_name: Operation name
             request: Request object (will be serialized to JSON)
+            max_queue_depth: Reject with QueueFullError if the method's request
+                stream is already at or above this depth. Overrides the client's
+                default_max_queue_depth for this call only. None means unbounded.
 
         Returns:
             Raw dict (native Python structure)
 
         Raises:
+            QueueFullError: If the request queue is already full
             AnyCallError: On timeout or remote error
         """
         pass
@@ -85,27 +100,75 @@ class AnyCallClient(ABC):
         """
         pass
 
+    @abstractmethod
+    def get_queue_depth(self, method_name: str) -> int:
+        """Read the current backlog of a method's request stream (XLEN).
+
+        Read-only and non-destructive; safe to poll as a health gauge. Workers
+        XDEL each request once it's been processed, so this reflects the true
+        in-flight backlog, not the method's lifetime call count.
+
+        Args:
+            method_name: Operation name
+
+        Returns:
+            Number of entries currently in the method's request stream
+        """
+        pass
+
+    @abstractmethod
+    def set_default_max_queue_depth(self, max_queue_depth: int | None) -> None:
+        """Change the default max_queue_depth applied to calls that don't pass
+        a per-call override. Takes effect immediately for subsequent calls;
+        in-flight calls are unaffected.
+
+        Args:
+            max_queue_depth: New default backlog limit, or None to make calls
+                unbounded again
+        """
+        pass
+
+    @abstractmethod
+    def get_default_max_queue_depth(self) -> int | None:
+        """Return the client's current default max_queue_depth, or None if
+        calls are unbounded by default."""
+        pass
+
 
 class AnyCallClientImpl(AnyCallClient):
     """RPC client implementation."""
 
-    def __init__(self, redis_adapter: RedisStreamAdapter, props: AnycallProperties):
+    def __init__(
+        self,
+        redis_adapter: RedisStreamAdapter,
+        props: AnycallProperties,
+        default_max_queue_depth: int | None = None,
+    ):
         self.redis = redis_adapter
         self.props = props
         self._registry = TypeRegistry()
+        self._default_max_queue_depth = default_max_queue_depth
 
-    def call(self, method_name: str, request: Any, response_type: Type[T] | None = None) -> T | dict:
+    def call(
+        self,
+        method_name: str,
+        request: Any,
+        response_type: Type[T] | None = None,
+        max_queue_depth: int | None = None,
+    ) -> T | dict:
         """Call a remote method with explicit or registry-resolved type (typed raia).
 
         Args:
             method_name: Operation name
             request: Request object (will be serialized to JSON)
             response_type: Expected response type. If None, resolves from registry.
+            max_queue_depth: Per-call override for the client's default_max_queue_depth.
 
         Returns:
             Deserialized response object
 
         Raises:
+            QueueFullError: If the request queue is already full
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         resolved_type = response_type
@@ -119,9 +182,9 @@ class AnyCallClientImpl(AnyCallClient):
                     f"or register the type first: register_type('{method_name}', YourType)."
                 )
 
-        return self._call_impl(method_name, request, resolved_type)
+        return self._call_impl(method_name, request, resolved_type, max_queue_depth)
 
-    def raw_call(self, method_name: str, request: Any) -> dict:
+    def raw_call(self, method_name: str, request: Any, max_queue_depth: int | None = None) -> dict:
         """Call a remote method, returning raw dict (raw raia).
 
         Never resolves from registry; always returns native dict structure.
@@ -129,14 +192,16 @@ class AnyCallClientImpl(AnyCallClient):
         Args:
             method_name: Operation name
             request: Request object (will be serialized to JSON)
+            max_queue_depth: Per-call override for the client's default_max_queue_depth.
 
         Returns:
             Raw dict (native Python structure)
 
         Raises:
+            QueueFullError: If the request queue is already full
             AnyCallError: On timeout or remote error
         """
-        return self._call_impl(method_name, request, dict)
+        return self._call_impl(method_name, request, dict, max_queue_depth)
 
     def register_type(self, operation: str, response_type: Type) -> None:
         """Register response type for an operation.
@@ -153,20 +218,44 @@ class AnyCallClientImpl(AnyCallClient):
         """
         self._registry.register(operation, response_type)
 
-    def _call_impl(self, method_name: str, request: Any, response_type: Type) -> Any:
+    def get_queue_depth(self, method_name: str) -> int:
+        """Read the current backlog of a method's request stream (XLEN)."""
+        return self.redis.length(queues.request_queue(method_name))
+
+    def set_default_max_queue_depth(self, max_queue_depth: int | None) -> None:
+        """Change the default max_queue_depth applied to future calls."""
+        self._default_max_queue_depth = max_queue_depth
+
+    def get_default_max_queue_depth(self) -> int | None:
+        """Return the client's current default max_queue_depth."""
+        return self._default_max_queue_depth
+
+    def _call_impl(
+        self,
+        method_name: str,
+        request: Any,
+        response_type: Type,
+        max_queue_depth: int | None = None,
+    ) -> Any:
         """Internal implementation of call (both typed and raw).
 
         Args:
             method_name: Operation name
             request: Request object
             response_type: Type to deserialize to (never None)
+            max_queue_depth: Per-call override for the client's default_max_queue_depth.
 
         Returns:
             Deserialized response
 
         Raises:
+            QueueFullError: If the request queue is already full
             AnyCallError: On timeout or remote error
         """
+        effective_max_queue_depth = (
+            max_queue_depth if max_queue_depth is not None else self._default_max_queue_depth
+        )
+
         try:
             payload = serialize(request)
         except (TypeError, ValueError) as e:
@@ -175,6 +264,11 @@ class AnyCallClientImpl(AnyCallClient):
 
         request_stream = queues.request_queue(method_name)
         response_stream = queues.response_queue(rpc_request.request_id)
+
+        if effective_max_queue_depth is not None:
+            queue_depth = self.redis.length(request_stream)
+            if queue_depth >= effective_max_queue_depth:
+                raise QueueFullError(method_name, queue_depth, effective_max_queue_depth)
 
         try:
             try:

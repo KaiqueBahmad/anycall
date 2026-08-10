@@ -1,6 +1,8 @@
 import inspect
 import logging
 import threading
+import time
+import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -17,6 +19,9 @@ from redis.exceptions import TimeoutError
 logger = logging.getLogger(__name__)
 
 POLL_BLOCK_TIMEOUT = 5000  # milliseconds
+HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:"
+HEARTBEAT_INTERVAL_SECONDS = 5
+HEARTBEAT_TTL_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 3
 
 
 @dataclass
@@ -25,6 +30,7 @@ class MethodHandler:
     bean: Any
     method: Callable
     parameter_type: type
+    max_concurrency: int = 1
 
 
 class AnyCallServer(ABC):
@@ -59,13 +65,34 @@ class AnyCallServer(ABC):
 class AnyCallServerImpl(AnyCallServer):
     """RPC server implementation."""
 
-    def __init__(self, redis_adapter: RedisStreamAdapter, props: AnycallProperties):
+    def __init__(
+        self,
+        redis_adapter: RedisStreamAdapter,
+        props: AnycallProperties,
+        max_concurrency: Optional[int] = None,
+    ):
+        """
+        Args:
+            redis_adapter: Redis stream adapter
+            props: Server configuration properties
+            max_concurrency: Server-wide cap on requests processed at the same
+                time, across every registered @supply method combined (see
+                the `max_concurrency` argument of `supply`). None means
+                uncapped -- the sum of each method's own max_concurrency
+                applies instead.
+        """
+        if max_concurrency is not None and max_concurrency < 1:
+            raise ValueError("AnyCall Server: max_concurrency must be at least 1")
+
         self.redis = redis_adapter
         self.props = props
         self.method_handlers: Dict[str, MethodHandler] = {}
         self._running = False
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
+        self._global_limiter = threading.Semaphore(max_concurrency) if max_concurrency else None
+        self._server_id = f"server-{uuid.uuid4()}"
+        self._heartbeat_key = f"{HEARTBEAT_KEY_PREFIX}{queues.CONSUMER_GROUP_PREFIX}:{self._server_id}"
 
     def register(self, *suppliers: Any) -> "AnyCallServer":
         """Register supplier(s) with this server."""
@@ -99,11 +126,18 @@ class AnyCallServerImpl(AnyCallServer):
             if parameter_type == inspect.Parameter.empty:
                 raise ValueError(f"Method {name} parameter must have a type annotation")
 
-            handler = MethodHandler(bean=supplier, method=method, parameter_type=parameter_type)
+            max_concurrency = getattr(method, "_supply_max_concurrency", 1)
+
+            handler = MethodHandler(
+                bean=supplier,
+                method=method,
+                parameter_type=parameter_type,
+                max_concurrency=max_concurrency,
+            )
             self.method_handlers[method_name] = handler
 
             if self._running:
-                self._start_listener(method_name, handler)
+                self._start_listeners(method_name, handler)
 
     def start(self) -> "AnyCallServer":
         """Start the server."""
@@ -112,21 +146,45 @@ class AnyCallServerImpl(AnyCallServer):
                 return self
 
             self._running = True
-            self._executor = ThreadPoolExecutor(max_workers=len(self.method_handlers))
+            worker_count = sum(h.max_concurrency for h in self.method_handlers.values())
+            self._executor = ThreadPoolExecutor(max_workers=worker_count + 1)
 
+            self._executor.submit(self._emit_heartbeats)
             for method_name, handler in self.method_handlers.items():
-                self._start_listener(method_name, handler)
+                self._start_listeners(method_name, handler)
 
         return self
 
-    def _start_listener(self, method_name: str, handler: MethodHandler) -> None:
-        """Start a listener thread for a method."""
+    def _start_listeners(self, method_name: str, handler: MethodHandler) -> None:
+        """Start `handler.max_concurrency` listener threads for a method.
+
+        Every worker shares the same consumer group -- Redis's consumer group
+        distributes pending messages across consumers, so raising
+        max_concurrency simply lets more workers pull from the same stream at
+        once.
+        """
         stream_key = queues.request_queue(method_name)
         group_name = queues.consumer_group(method_name)
-        consumer_id = f"consumer-{threading.current_thread().ident}"
 
         self.redis.create_group(stream_key, group_name)
-        self._executor.submit(self._poll_stream, method_name, stream_key, group_name, consumer_id, handler)
+        for _ in range(handler.max_concurrency):
+            consumer_id = f"consumer-{uuid.uuid4()}"
+            self._executor.submit(self._poll_stream, method_name, stream_key, group_name, consumer_id, handler)
+
+    def _emit_heartbeats(self) -> None:
+        """Periodically writes a TTL'd heartbeat key so external tooling can
+        detect a live server instance. Cleaned up on stop()."""
+        while self._running:
+            try:
+                self.redis.set_with_ttl(self._heartbeat_key, str(int(time.time())), HEARTBEAT_TTL_SECONDS)
+            except Exception as e:
+                logger.warning(f"Failed to write heartbeat: {e}")
+            time.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+        try:
+            self.redis.delete(self._heartbeat_key)
+        except Exception as e:
+            logger.debug(f"Failed to clean up heartbeat key {self._heartbeat_key}: {e}")
 
     def _poll_stream(
         self,
@@ -148,11 +206,27 @@ class AnyCallServerImpl(AnyCallServer):
 
                 for stream, messages in result:
                     for message_id, data in messages:
+                        global_acquired = False
                         try:
-                            self._process_request(handler, data)
+                            if self._global_limiter is not None:
+                                self._global_limiter.acquire()
+                                global_acquired = True
+
+                            if b"data" not in data:
+                                logger.warning(
+                                    f"Discarding malformed message {message_id} on stream {stream_key}: "
+                                    f"missing 'data' field"
+                                )
+                            else:
+                                self._process_request(handler, data)
+
                             self.redis.acknowledge(stream_key, group_name, message_id)
+                            self.redis.delete_entry(stream_key, message_id)
                         except Exception as e:
                             logger.exception(f"Error processing request: {e}")
+                        finally:
+                            if global_acquired:
+                                self._global_limiter.release()
 
             except TimeoutError:
                 pass

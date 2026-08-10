@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from .client import AnyCallClientImpl
 from .config import AnycallProperties
-from .exceptions import AnyCallError
+from .exceptions import AnyCallError, QueueFullError
 from .redis_adapter import RedisStreamAdapter
 
 pytestmark = pytest.mark.unit
@@ -26,6 +26,9 @@ class AlternativeResponse:
 class MockRedisAdapter:
     """Mock Redis adapter for testing (returns None timeout immediately)."""
 
+    def __init__(self, queue_depth: int = 0):
+        self.queue_depth = queue_depth
+
     def add(self, stream_key: str, data: dict) -> str:
         return "fake-id"
 
@@ -34,6 +37,9 @@ class MockRedisAdapter:
 
     def delete(self, key: str) -> int:
         return 0
+
+    def length(self, stream_key: str) -> int:
+        return self.queue_depth
 
     def close(self) -> None:
         pass
@@ -178,6 +184,79 @@ class TestErrorMessages:
         assert "AlternativeResponse" in error_msg
         # Should mention the operation
         assert "operation" in error_msg
+
+
+class TestQueueDepth:
+    """Tests for max_queue_depth / QueueFullError semantics."""
+
+    def test_call_raises_when_queue_at_max_depth(self):
+        """Call is rejected before publishing when depth >= max_queue_depth."""
+        adapter = MockRedisAdapter(queue_depth=5)
+        client = AnyCallClientImpl(adapter, AnycallProperties())
+
+        with pytest.raises(QueueFullError) as exc_info:
+            client.call("my-op", {}, MockResponse, max_queue_depth=5)
+
+        assert exc_info.value.method_name == "my-op"
+        assert exc_info.value.queue_depth == 5
+        assert exc_info.value.max_queue_depth == 5
+
+    def test_call_proceeds_when_queue_below_max_depth(self, client):
+        """Call proceeds (and times out, since mock never responds) when depth is under the limit."""
+        with pytest.raises(AnyCallError) as exc_info:
+            client.call("my-op", {}, MockResponse, max_queue_depth=5)
+
+        assert "Timeout" in str(exc_info.value)
+
+    def test_default_max_queue_depth_applies_without_override(self):
+        """Client-level default is used when no per-call override is given."""
+        adapter = MockRedisAdapter(queue_depth=3)
+        client = AnyCallClientImpl(adapter, AnycallProperties(), default_max_queue_depth=3)
+
+        with pytest.raises(QueueFullError):
+            client.call("my-op", {}, MockResponse)
+
+    def test_per_call_override_wins_over_default(self):
+        """A per-call max_queue_depth overrides the client's default."""
+        adapter = MockRedisAdapter(queue_depth=3)
+        client = AnyCallClientImpl(adapter, AnycallProperties(), default_max_queue_depth=1)
+
+        with pytest.raises(AnyCallError) as exc_info:
+            client.call("my-op", {}, MockResponse, max_queue_depth=10)
+
+        assert "Timeout" in str(exc_info.value)
+
+    def test_raw_call_respects_max_queue_depth(self):
+        """raw_call() also enforces max_queue_depth."""
+        adapter = MockRedisAdapter(queue_depth=2)
+        client = AnyCallClientImpl(adapter, AnycallProperties())
+
+        with pytest.raises(QueueFullError):
+            client.raw_call("my-op", {}, max_queue_depth=2)
+
+    def test_no_max_queue_depth_is_unbounded(self, client):
+        """No max_queue_depth set anywhere means the depth is never checked."""
+        with pytest.raises(AnyCallError) as exc_info:
+            client.call("my-op", {}, MockResponse)
+
+        assert "Timeout" in str(exc_info.value)
+
+    def test_get_queue_depth_reads_through_adapter(self):
+        """get_queue_depth() reflects the adapter's stream length."""
+        adapter = MockRedisAdapter(queue_depth=7)
+        client = AnyCallClientImpl(adapter, AnycallProperties())
+
+        assert client.get_queue_depth("my-op") == 7
+
+    def test_default_max_queue_depth_getter_and_setter(self, client):
+        """set_default_max_queue_depth()/get_default_max_queue_depth() round-trip."""
+        assert client.get_default_max_queue_depth() is None
+
+        client.set_default_max_queue_depth(42)
+        assert client.get_default_max_queue_depth() == 42
+
+        client.set_default_max_queue_depth(None)
+        assert client.get_default_max_queue_depth() is None
 
 
 if __name__ == "__main__":

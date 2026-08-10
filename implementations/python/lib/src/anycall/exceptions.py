@@ -81,6 +81,32 @@ class ChannelClosedError(ChannelError, RecoverableCall):
         return self.ttl_timestamp
 
 
+class QueueFullError(ChannelError):
+    """Raised when a call is rejected at submission because the target method's
+    request stream already has at least max_queue_depth entries.
+
+    Thrown before the request is published (before XADD), so the caller that
+    would have waited for a response is the one that sees the failure --
+    instead of the request silently being dropped later by stream trimming
+    with no way to signal the original caller.
+
+    The depth check (XLEN then XADD) is advisory, not a hard bound: another
+    client can publish between the two calls, so the queue can briefly exceed
+    max_queue_depth. A strict bound would need an atomic check-and-add (e.g. a
+    Lua script).
+    """
+
+    def __init__(self, method_name: str, queue_depth: int, max_queue_depth: int):
+        super().__init__(
+            "AnyCall",
+            f"Queue for method '{method_name}' is full: depth={queue_depth} "
+            f">= max_queue_depth={max_queue_depth}",
+        )
+        self.method_name = method_name
+        self.queue_depth = queue_depth
+        self.max_queue_depth = max_queue_depth
+
+
 class RemoteExecutionError(AnyCallError):
     """Function was executed but failed on worker."""
     pass
