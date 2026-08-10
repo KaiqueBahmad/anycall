@@ -102,10 +102,9 @@ public interface AnyCallClient {
     /**
      * Reads the current backlog of a method's request stream ({@code XLEN}).
      * <p>
-     * Read-only and non-destructive; safe to poll as a health gauge. Note
-     * that until acknowledged requests are trimmed from the stream (GC), this
-     * count includes entries workers have already consumed, so it can read
-     * higher than the true in-flight backlog.
+     * Read-only and non-destructive; safe to poll as a health gauge. Workers
+     * {@code XDEL} each request once it's been processed, so this reflects
+     * the true in-flight backlog, not the method's lifetime call count.
      *
      * @param methodName the name of the remote method
      * @return the number of entries currently in the method's request stream

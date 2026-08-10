@@ -256,8 +256,12 @@ public class AnyCallServerImpl implements AnyCallServer {
 
                     if (requestJson != null) {
                         processRequest(requestJson, handler);
-                        commands.xack(streamKey, group, messageId);
+                    } else {
+                        log.warn("Discarding malformed message {} on stream {}: missing '{}' field",
+                            messageId, streamKey, DATA_FIELD);
                     }
+                    commands.xack(streamKey, group, messageId);
+                    commands.xdel(streamKey, messageId);
                 }
             } catch (Exception e) {
                 if (running.get()) {
