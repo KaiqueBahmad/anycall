@@ -25,7 +25,7 @@ import java.lang.annotation.Target;
  * <pre>
  * {@code
  * public class SentimentAnalyzer {
- *     @Supply("analyze-sentiment")
+ *     @Supply(methodName = "analyze-sentiment")
  *     public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
  *         return new Sentiment(req.text(), "positive");
  *     }
@@ -45,7 +45,7 @@ public @interface Supply {
      *
      * @return the operation name
      */
-    String value();
+    String methodName();
 
     /**
      * How many requests for this operation a single server instance may process at

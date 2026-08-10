@@ -154,7 +154,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             Supply supplyAnnotation = method.getAnnotation(Supply.class);
 
             if (supplyAnnotation != null) {
-                String methodName = supplyAnnotation.value();
+                String methodName = supplyAnnotation.methodName();
 
                 if (method.getParameterCount() != 2) {
                     throw new IllegalStateException(

@@ -7,7 +7,7 @@ import dev.kaiquebt.anycall.example.model.TextRequest;
 
 public class SentimentAnalyzer {
 
-    @Supply("analyze-sentiment")
+    @Supply(methodName = "analyze-sentiment")
     public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
