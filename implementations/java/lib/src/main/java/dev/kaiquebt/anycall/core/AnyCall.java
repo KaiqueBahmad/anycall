@@ -25,6 +25,15 @@ public class AnyCall {
         return new AnyCallClientImpl(redisUri, timeout, metricsEnabled);
     }
 
+    /**
+     * @param defaultMaxQueueDepth default backlog limit applied to every call made by this
+     *                             client (see {@link AnyCallClient#call(String, Object, Class, long)});
+     *                             {@code null} means unbounded
+     */
+    public static AnyCallClient client(String redisUri, Duration timeout, boolean metricsEnabled, Long defaultMaxQueueDepth) {
+        return new AnyCallClientImpl(redisUri, timeout, metricsEnabled, defaultMaxQueueDepth);
+    }
+
     public static AnyCallServer server(String redisUri) {
         return new AnyCallServerImpl(redisUri, false);
     }

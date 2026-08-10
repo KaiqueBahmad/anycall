@@ -37,8 +37,13 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final Duration timeout;
     private final boolean metricsEnabled;
     private final TypeRegistry registry;
+    private volatile Long defaultMaxQueueDepth;
 
     public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
+        this(redisUri, timeout, metricsEnabled, null);
+    }
+
+    public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled, Long defaultMaxQueueDepth) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Client: redisUri must not be null or blank");
         }
@@ -49,6 +54,7 @@ public class AnyCallClientImpl implements AnyCallClient {
         }
         this.metricsEnabled = metricsEnabled;
         this.registry = new TypeRegistry();
+        this.defaultMaxQueueDepth = defaultMaxQueueDepth;
 
         RedisClient client = RedisClient.create(redisUri);
         this.connection = client.connect();
@@ -70,6 +76,15 @@ public class AnyCallClientImpl implements AnyCallClient {
      */
 	@Override
     public <T> T call(String methodName, Object request, Class<T> responseType) {
+        return call(methodName, request, responseType, defaultMaxQueueDepth);
+    }
+
+    @Override
+    public <T> T call(String methodName, Object request, Class<T> responseType, long maxQueueDepth) {
+        return call(methodName, request, responseType, (Long) maxQueueDepth);
+    }
+
+    private <T> T call(String methodName, Object request, Class<T> responseType, Long maxQueueDepth) {
         long startTime = metricsEnabled ? System.currentTimeMillis() : 0;
         String _requestId = null;
         String responseStream = null;
@@ -77,6 +92,15 @@ public class AnyCallClientImpl implements AnyCallClient {
         try {
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] Starting call to method: {}", methodName);
+            }
+
+            String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+
+            if (maxQueueDepth != null) {
+                long queueDepth = commands.xlen(requestStream);
+                if (queueDepth >= maxQueueDepth) {
+                    throw new QueueFullError(methodName, queueDepth, maxQueueDepth);
+                }
             }
 
             String payload = OBJECT_MAPPER.writeValueAsString(request);
@@ -91,7 +115,6 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             long beforePush = metricsEnabled ? System.currentTimeMillis() : 0;
-            String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
             commands.xadd(requestStream, Collections.singletonMap(DATA_FIELD, requestJson));
 
             if (metricsEnabled) {
@@ -160,6 +183,15 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     @Override
     public <T> T call(String methodName, Object request) {
+        return call(methodName, request, defaultMaxQueueDepth);
+    }
+
+    @Override
+    public <T> T call(String methodName, Object request, long maxQueueDepth) {
+        return call(methodName, request, (Long) maxQueueDepth);
+    }
+
+    private <T> T call(String methodName, Object request, Long maxQueueDepth) {
         Class<?> resolvedType = registry.get(methodName);
         if (resolvedType == null) {
             throw new AnyCallError(
@@ -169,24 +201,45 @@ public class AnyCallClientImpl implements AnyCallClient {
             );
         }
         @SuppressWarnings("unchecked")
-        T result = (T) callInternal(methodName, request, resolvedType);
+        T result = (T) call(methodName, request, resolvedType, maxQueueDepth);
         return result;
     }
 
     @Override
     public Map<String, Object> rawCall(String methodName, Object request) {
+        return rawCall(methodName, request, defaultMaxQueueDepth);
+    }
+
+    @Override
+    public Map<String, Object> rawCall(String methodName, Object request, long maxQueueDepth) {
+        return rawCall(methodName, request, (Long) maxQueueDepth);
+    }
+
+    private Map<String, Object> rawCall(String methodName, Object request, Long maxQueueDepth) {
         @SuppressWarnings("unchecked")
-        Map<String, Object> result = (Map<String, Object>) callInternal(methodName, request, Map.class);
+        Map<String, Object> result = (Map<String, Object>) call(methodName, request, Map.class, maxQueueDepth);
         return result;
+    }
+
+    @Override
+    public long getQueueDepth(String methodName) {
+        String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+        return commands.xlen(requestStream);
+    }
+
+    @Override
+    public void setDefaultMaxQueueDepth(Long maxQueueDepth) {
+        this.defaultMaxQueueDepth = maxQueueDepth;
+    }
+
+    @Override
+    public Long getDefaultMaxQueueDepth() {
+        return defaultMaxQueueDepth;
     }
 
     @Override
     public void registerType(String operation, Class<?> responseType) {
         registry.register(operation, responseType);
-    }
-
-    private <T> T callInternal(String methodName, Object request, Class<T> responseType) {
-        return call(methodName, request, responseType);
     }
 
     private List<Object> readStream(String streamKey, Duration timeout) {

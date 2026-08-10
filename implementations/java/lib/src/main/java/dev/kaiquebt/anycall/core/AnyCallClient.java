@@ -24,6 +24,23 @@ public interface AnyCallClient {
     <T> T call(String methodName, Object request, Class<T> responseType);
 
     /**
+     * Typed raia: call with explicit type, rejecting at submission if the
+     * method's request queue is already at or above {@code maxQueueDepth}.
+     * Overrides the client's default {@code maxQueueDepth} for this call only.
+     *
+     * @param <T> the type of the response object
+     * @param methodName the name of the remote method to invoke
+     * @param request the request payload object to be serialized and sent
+     * @param responseType the class type for deserializing the response
+     * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
+     *        if the request stream's length is at or above this value
+     * @return the deserialized response from the remote method
+     * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
+     * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails, times out, or the remote method returns an error
+     */
+    <T> T call(String methodName, Object request, Class<T> responseType, long maxQueueDepth);
+
+    /**
      * Typed raia: call with registry-resolved type.
      *
      * Looks up the response type in the local registry and deserializes to that type.
@@ -39,6 +56,22 @@ public interface AnyCallClient {
     <T> T call(String methodName, Object request);
 
     /**
+     * Typed raia: call with registry-resolved type, rejecting at submission
+     * if the method's request queue is already at or above {@code maxQueueDepth}.
+     * Overrides the client's default {@code maxQueueDepth} for this call only.
+     *
+     * @param <T> the type of the response object
+     * @param methodName the name of the remote method to invoke
+     * @param request the request payload object to be serialized and sent
+     * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
+     *        if the request stream's length is at or above this value
+     * @return the deserialized response from the remote method
+     * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
+     * @throws dev.kaiquebt.anycall.exception.AnyCallException if the operation is not registered or if the call fails
+     */
+    <T> T call(String methodName, Object request, long maxQueueDepth);
+
+    /**
      * Raw raia: call always returning untyped Map.
      *
      * Never resolves from registry; always returns Map<String,Object>.
@@ -50,6 +83,51 @@ public interface AnyCallClient {
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails or times out
      */
     java.util.Map<String, Object> rawCall(String methodName, Object request);
+
+    /**
+     * Raw raia: call always returning untyped Map, rejecting at submission
+     * if the method's request queue is already at or above {@code maxQueueDepth}.
+     * Overrides the client's default {@code maxQueueDepth} for this call only.
+     *
+     * @param methodName the name of the remote method to invoke
+     * @param request the request payload object to be serialized and sent
+     * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
+     *        if the request stream's length is at or above this value
+     * @return raw response as Map<String,Object> (native structure)
+     * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
+     * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails or times out
+     */
+    java.util.Map<String, Object> rawCall(String methodName, Object request, long maxQueueDepth);
+
+    /**
+     * Reads the current backlog of a method's request stream ({@code XLEN}).
+     * <p>
+     * Read-only and non-destructive; safe to poll as a health gauge. Note
+     * that until acknowledged requests are trimmed from the stream (GC), this
+     * count includes entries workers have already consumed, so it can read
+     * higher than the true in-flight backlog.
+     *
+     * @param methodName the name of the remote method
+     * @return the number of entries currently in the method's request stream
+     */
+    long getQueueDepth(String methodName);
+
+    /**
+     * Changes the default {@code maxQueueDepth} applied to calls made through
+     * this client that don't pass a per-call override. Takes effect
+     * immediately for subsequent calls; in-flight calls are unaffected.
+     * Safe to call from any thread.
+     *
+     * @param maxQueueDepth new default backlog limit, or {@code null} to make
+     *                      calls unbounded again
+     */
+    void setDefaultMaxQueueDepth(Long maxQueueDepth);
+
+    /**
+     * @return the client's current default {@code maxQueueDepth}, or
+     *         {@code null} if calls are unbounded by default
+     */
+    Long getDefaultMaxQueueDepth();
 
     /**
      * Register response type for an operation.
