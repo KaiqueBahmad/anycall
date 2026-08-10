@@ -1,9 +1,26 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 import redis
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class RedisStreamPort(Protocol):
+    """Structural interface for the subset of stream operations AnyCallClient
+    depends on. Lets test doubles (e.g. a mock) satisfy the type without
+    inheriting from RedisStreamAdapter."""
+
+    def add(self, stream_key: str, data: Dict[str, str]) -> str: ...
+
+    def read(self, stream_key: str, timeout_ms: int) -> Optional[Any]: ...
+
+    def delete(self, key: str) -> int: ...
+
+    def length(self, stream_key: str) -> int: ...
+
+    def close(self) -> None: ...
 
 
 class RedisStreamAdapter:

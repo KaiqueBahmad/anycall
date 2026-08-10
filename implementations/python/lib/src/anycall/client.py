@@ -16,7 +16,7 @@ from .exceptions import (
     QueueFullError,
 )
 from .model import AnyCallRequest, AnyCallResponse
-from .redis_adapter import RedisStreamAdapter
+from .redis_adapter import RedisStreamPort
 from .registry import TypeRegistry
 from .serialization import deserialize, serialize
 
@@ -140,7 +140,7 @@ class AnyCallClientImpl(AnyCallClient):
 
     def __init__(
         self,
-        redis_adapter: RedisStreamAdapter,
+        redis_adapter: RedisStreamPort,
         props: AnycallProperties,
         default_max_queue_depth: int | None = None,
     ):

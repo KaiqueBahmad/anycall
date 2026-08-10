@@ -1,12 +1,13 @@
 """Unit tests for AnyCallClient call/raw_call/register_type semantics."""
 
-import pytest
 from dataclasses import dataclass
+from typing import Dict
+
+import pytest
 
 from .client import AnyCallClientImpl
 from .config import AnycallProperties
 from .exceptions import AnyCallError, QueueFullError
-from .redis_adapter import RedisStreamAdapter
 
 pytestmark = pytest.mark.unit
 
@@ -29,7 +30,7 @@ class MockRedisAdapter:
     def __init__(self, queue_depth: int = 0):
         self.queue_depth = queue_depth
 
-    def add(self, stream_key: str, data: dict) -> str:
+    def add(self, stream_key: str, data: Dict[str, str]) -> str:
         return "fake-id"
 
     def read(self, stream_key: str, timeout_ms: int):
