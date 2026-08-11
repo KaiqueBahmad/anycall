@@ -85,6 +85,39 @@ class RedisStreamAdapter:
         )
         return result
 
+    def read_group_multi(
+        self,
+        streams: Dict[str, str],
+        group_name: str,
+        consumer_id: str,
+        timeout_ms: int,
+        count: int = 1,
+    ) -> Optional[Any]:
+        """Read new messages from every given stream in a single consumer-group
+        read -- one blocking call covering all of them instead of one call per
+        stream, so a server with many registered methods still holds only one
+        connection open for reading.
+
+        Args:
+            streams: stream_key -> id to read from (">" for "only new
+                messages", matching XREADGROUP's own streams argument)
+            group_name: Consumer group name (must already exist on every stream)
+            consumer_id: Consumer identity within the group
+            timeout_ms: Block timeout in milliseconds
+            count: Max entries to return per stream
+
+        Returns:
+            List of (stream_key, [(message_id, data_dict), ...]) tuples, or
+            None/empty on timeout
+        """
+        return self.redis.xreadgroup(
+            groupname=group_name,
+            consumername=consumer_id,
+            streams=streams,
+            block=timeout_ms,
+            count=count,
+        )
+
     def create_group(self, stream_key: str, group_name: str) -> None:
         """Create consumer group on stream.
 
