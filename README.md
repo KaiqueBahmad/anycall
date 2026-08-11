@@ -38,7 +38,7 @@ Install AnyCall for your language:
 **Server**
 ```java
 public class SentimentAnalyzer {
-    @Supply("analyze-sentiment")
+    @Supply(methodName = "analyze-sentiment", maxConcurrency = 4) // optional, default: 1
     public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
@@ -144,7 +144,7 @@ class Sentiment:
     label: str
 
 class SentimentAnalyzer:
-    @supply("analyze-sentiment")
+    @supply("analyze-sentiment", max_concurrency=4)  # optional, default: 1
     def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 

@@ -45,7 +45,7 @@ Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall`
 
 - **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis Stream, waits for the response on a callback stream. Supports configurable timeout and optional metrics collection.
   
-- **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via the `@supply` decorator on registered classes.
+- **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via the `@supply` decorator on registered classes. Each method's concurrency is optionally capped by `@supply(max_concurrency=...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redis_uri, max_concurrency=...)`.
 
 - **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
 

@@ -12,6 +12,23 @@ public class SentimentAnalyzer {
 }
 ```
 
+`@Supply` accepts an optional `maxConcurrency` (default `1`): how many requests for
+this method a single server instance will process at the same time.
+
+```java
+@Supply(methodName = "analyze-sentiment", maxConcurrency = 4)
+public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
+    return new Sentiment(req.text(), "positive");
+}
+```
+
+Pass `maxConcurrency` to `AnyCall.server(...)` for a server-wide cap across every
+registered method instead:
+
+```java
+AnyCallServer server = AnyCall.server(redisUri, false, 16);
+```
+
 2. **Register and start the server:**
 ```java
 String redisUri = System.getenv("REDIS_URI");
