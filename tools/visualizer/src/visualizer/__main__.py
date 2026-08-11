@@ -25,6 +25,10 @@ def main() -> None:
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
+    # Fusion fully respects our QSS stylesheet; native styles on Linux often
+    # blend in system/GTK theme colors, which is what caused the low-contrast
+    # dark-on-dark look before this was set explicitly.
+    app.setStyle("Fusion")
     window = VisualizerApp(redis_uri=args.redis_uri, interval=args.interval)
     window.show()
     sys.exit(app.exec())

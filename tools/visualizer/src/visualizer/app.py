@@ -34,6 +34,120 @@ DEFAULT_FONT_SIZE = 12
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
 
+# Explicit dark palette so the dashboard doesn't inherit the system/GTK theme
+# (which rendered dark-on-dark text with poor contrast). Values are hand-tuned
+# for contrast rather than pulled from a native theme.
+_BG = "#1e2228"
+_PANEL_BG = "#242932"
+_ALT_ROW_BG = "#262b33"
+_HEADER_BG = "#2d333d"
+_BORDER = "#3a4048"
+_TEXT = "#e8eaed"
+_TEXT_MUTED = "#9aa4b2"
+_ACCENT = "#2f6fed"
+_ACCENT_TEXT = "#ffffff"
+
+DARK_STYLESHEET = f"""
+QMainWindow, QWidget {{
+    background-color: {_BG};
+    color: {_TEXT};
+}}
+
+QLabel {{
+    color: {_TEXT};
+    background-color: transparent;
+}}
+
+QGroupBox {{
+    background-color: {_PANEL_BG};
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+    margin-top: 10px;
+    padding-top: 6px;
+}}
+
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 8px;
+    padding: 0 4px;
+    color: {_TEXT};
+}}
+
+QTreeWidget, QTreeView {{
+    background-color: {_PANEL_BG};
+    alternate-background-color: {_ALT_ROW_BG};
+    color: {_TEXT};
+    border: 1px solid {_BORDER};
+    outline: 0;
+}}
+
+QTreeWidget::item, QTreeView::item {{
+    padding: 2px 0;
+}}
+
+QTreeWidget::item:hover, QTreeView::item:hover {{
+    background-color: {_ALT_ROW_BG};
+}}
+
+QTreeWidget::item:selected, QTreeView::item:selected {{
+    background-color: {_ACCENT};
+    color: {_ACCENT_TEXT};
+}}
+
+QHeaderView::section {{
+    background-color: {_HEADER_BG};
+    color: {_TEXT};
+    border: none;
+    border-right: 1px solid {_BORDER};
+    border-bottom: 1px solid {_BORDER};
+    padding: 4px 6px;
+}}
+
+QPlainTextEdit {{
+    background-color: {_PANEL_BG};
+    color: {_TEXT};
+    border: 1px solid {_BORDER};
+}}
+
+QSpinBox {{
+    background-color: {_PANEL_BG};
+    color: {_TEXT};
+    border: 1px solid {_BORDER};
+    border-radius: 3px;
+    padding: 2px 4px;
+}}
+
+QSpinBox::up-button, QSpinBox::down-button {{
+    background-color: {_HEADER_BG};
+    border-left: 1px solid {_BORDER};
+}}
+
+QSplitter::handle {{
+    background-color: {_BORDER};
+}}
+
+QScrollBar:vertical, QScrollBar:horizontal {{
+    background-color: {_PANEL_BG};
+    border: none;
+}}
+
+QScrollBar::handle {{
+    background-color: {_BORDER};
+    border-radius: 3px;
+}}
+
+QScrollBar::handle:hover {{
+    background-color: {_TEXT_MUTED};
+}}
+
+QToolTip {{
+    background-color: {_HEADER_BG};
+    color: {_TEXT};
+    border: 1px solid {_BORDER};
+}}
+"""
+
 # Item geometry at DEFAULT_FONT_SIZE, scaled proportionally with the chosen
 # size so surrounding columns grow with the text instead of leaving bigger
 # glyphs cramped inside fixed-size columns.
@@ -63,6 +177,7 @@ class VisualizerApp(QMainWindow):
         super().__init__()
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1200, 760)
+        self.setStyleSheet(DARK_STYLESHEET)
 
         self._build_widgets(redis_uri)
         self._apply_font_size(DEFAULT_FONT_SIZE)
@@ -109,6 +224,7 @@ class VisualizerApp(QMainWindow):
         self._methods_tree.setHeaderLabels(["method / group / consumer", "backlog", "processing", "consumers"])
         self._methods_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._methods_tree.setUniformRowHeights(True)
+        self._methods_tree.setAlternatingRowColors(True)
         methods_layout.addWidget(self._methods_tree)
         splitter.addWidget(self._methods_group)
         self._bind_copy_json(self._methods_tree)
@@ -120,6 +236,7 @@ class VisualizerApp(QMainWindow):
         self._servers_tree.setHeaderLabels(["server id", "last heartbeat", "expires in"])
         self._servers_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._servers_tree.setUniformRowHeights(True)
+        self._servers_tree.setAlternatingRowColors(True)
         servers_layout.addWidget(self._servers_tree)
         splitter.addWidget(self._servers_group)
         self._bind_copy_json(self._servers_tree)
