@@ -1,5 +1,8 @@
 import argparse
 import os
+import sys
+
+from PyQt6.QtWidgets import QApplication
 
 from .app import VisualizerApp
 
@@ -21,8 +24,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    app = VisualizerApp(redis_uri=args.redis_uri, interval=args.interval)
-    app.mainloop()
+    app = QApplication(sys.argv)
+    window = VisualizerApp(redis_uri=args.redis_uri, interval=args.interval)
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

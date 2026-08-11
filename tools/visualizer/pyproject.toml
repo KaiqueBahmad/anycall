@@ -1,11 +1,12 @@
 [project]
 name = "anycall-visualizer"
 version = "0.1.0"
-description = "Read-only Tkinter dashboard for observing AnyCall traffic on Redis"
+description = "Read-only PyQt6 dashboard for observing AnyCall traffic on Redis"
 requires-python = ">=3.10"
 dependencies = [
     "redis>=5.0.0",
     "anycall-py",
+    "PyQt6>=6.6",
 ]
 
 [tool.uv.sources]

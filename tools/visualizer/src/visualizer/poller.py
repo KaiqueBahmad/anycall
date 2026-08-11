@@ -7,7 +7,6 @@ be able to steal or alter real RPC traffic; it only observes it.
 from __future__ import annotations
 
 import json
-import queue
 import threading
 import time
 from dataclasses import dataclass, field
@@ -17,6 +16,7 @@ import redis
 import redis.exceptions
 from anycall import queues as anycall_queues
 from anycall.model import AnyCallRequest
+from PyQt6.QtCore import QThread, pyqtSignal
 
 HEARTBEAT_PATTERN = "anycall:heartbeat:*"
 RESPONSE_STREAM_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
@@ -101,7 +101,12 @@ def _method_name(stream_key: str) -> str:
     return stream_key[len(anycall_queues.REQUEST_QUEUE_PREFIX):]
 
 
-def _collect_method(client: redis.Redis, stream_key: str) -> MethodInfo:
+def _collect_method(client: redis.Redis, stream_key: str) -> Optional[MethodInfo]:
+    if not client.exists(stream_key):
+        # Gone between the SCAN that found it and this call -- don't
+        # fabricate a row for a stream that no longer exists in Redis.
+        return None
+
     name = _method_name(stream_key)
     backlog = client.xlen(stream_key)
 
@@ -132,15 +137,20 @@ def _collect_method(client: redis.Redis, stream_key: str) -> MethodInfo:
     return MethodInfo(name=name, backlog=backlog, groups=groups, entries=entries)
 
 
-def _collect_server(client: redis.Redis, key: str) -> ServerInfo:
-    server_id = key.rsplit(":", 1)[-1]
+def _collect_server(client: redis.Redis, key: str) -> Optional[ServerInfo]:
     value = client.get(key)
+    if value is None:
+        # Expired/deleted between the SCAN that found it and this GET --
+        # it's not real Redis state anymore, so don't invent a row for it.
+        return None
     ttl = client.ttl(key)
-    epoch = int(value) if value else 0
+    if ttl == -2:
+        # Same race, just caught on the TTL call instead of the GET.
+        return None
     return ServerInfo(
         key=key,
-        server_id=server_id,
-        last_heartbeat_epoch=epoch,
+        server_id=key.rsplit(":", 1)[-1],
+        last_heartbeat_epoch=int(value),
         ttl_seconds=ttl if ttl and ttl > 0 else 0,
     )
 
@@ -149,12 +159,20 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     info = client.info()
 
     methods = [
-        _collect_method(client, stream_key)
-        for stream_key in sorted(client.scan_iter(match=REQUEST_STREAM_PATTERN, count=200))
+        method
+        for method in (
+            _collect_method(client, stream_key)
+            for stream_key in sorted(client.scan_iter(match=REQUEST_STREAM_PATTERN, count=200))
+        )
+        if method is not None
     ]
     servers = [
-        _collect_server(client, key)
-        for key in sorted(client.scan_iter(match=HEARTBEAT_PATTERN, count=200))
+        server
+        for server in (
+            _collect_server(client, key)
+            for key in sorted(client.scan_iter(match=HEARTBEAT_PATTERN, count=200))
+        )
+        if server is not None
     ]
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_STREAM_PATTERN, count=200))
 
@@ -220,14 +238,16 @@ class ActivityTracker:
         return events
 
 
-class PollerThread(threading.Thread):
-    """Background thread that repeatedly collects a Snapshot and pushes
-    (snapshot, events) tuples onto out_queue for a UI thread to consume."""
+class PollerThread(QThread):
+    """Background thread that repeatedly collects a Snapshot and emits it
+    (together with the events diffed since the previous poll) on the Qt
+    event loop of whatever thread this object was created on."""
 
-    def __init__(self, redis_uri: str, out_queue: "queue.Queue", interval: float = 1.0):
-        super().__init__(daemon=True, name="anycall-visualizer-poller")
+    snapshot_ready = pyqtSignal(object, object)  # Snapshot, list[Event]
+
+    def __init__(self, redis_uri: str, interval: float = 1.0, parent=None):
+        super().__init__(parent)
         self._redis_uri = redis_uri
-        self._queue = out_queue
         self._interval = interval
         self._stop_event = threading.Event()
         self._tracker = ActivityTracker()
@@ -240,7 +260,7 @@ class PollerThread(threading.Thread):
         while not self._stop_event.is_set():
             snapshot = self._poll_once()
             events = self._tracker.diff(snapshot)
-            self._queue.put((snapshot, events))
+            self.snapshot_ready.emit(snapshot, events)
             self._stop_event.wait(self._interval)
 
     def _poll_once(self) -> Snapshot:

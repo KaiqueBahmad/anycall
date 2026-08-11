@@ -1,39 +1,52 @@
-"""Tkinter dashboard: renders Snapshots/Events produced by poller.PollerThread.
+"""PyQt6 dashboard: renders Snapshots/Events produced by poller.PollerThread.
 
 Purely observational -- no widget here ever triggers a Redis write.
 """
 from __future__ import annotations
 
 import json
-import queue
 import time
-import tkinter as tk
-import tkinter.font as tkfont
 from dataclasses import asdict
-from tkinter import ttk
-from typing import Callable
+
+from PyQt6.QtCore import QEvent, Qt, QTimer
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPlainTextEdit,
+    QSpinBox,
+    QSplitter,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .poller import ConsumerInfo, Event, GroupInfo, MethodInfo, PollerThread, ServerInfo, Snapshot
 
+WINDOW_TITLE = "AnyCall Visualizer"
 MAX_LOG_LINES = 1000
-DRAIN_INTERVAL_MS = 150
 DEFAULT_FONT_SIZE = 12
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
 
-# Overriding these (rather than just handing font= to the widgets we build
-# ourselves) also resizes chrome we don't touch directly -- LabelFrame
-# captions, Spinbox/Entry text -- since ttk's default styles point at these
-# named fonts. Tk bakes point size to pixels at font-configure time, not at
-# draw time, so this must be redone on every size change, not just at startup.
-NAMED_FONTS_TO_SCALE = ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont", "TkFixedFont")
-
-# Pixel geometry at DEFAULT_FONT_SIZE, scaled proportionally with the chosen
-# size so surrounding boxes grow with the text instead of leaving bigger
+# Item geometry at DEFAULT_FONT_SIZE, scaled proportionally with the chosen
+# size so surrounding columns grow with the text instead of leaving bigger
 # glyphs cramped inside fixed-size columns.
-METHODS_TREE_BASE_COLUMNS = {"#0": 340, "backlog": 80, "processing": 90, "consumers": 90}
-SERVERS_TREE_BASE_COLUMNS = {"#0": 220, "last_heartbeat": 110, "ttl": 90}
+METHODS_TREE_BASE_COLUMNS = {0: 340, 1: 80, 2: 90, 3: 90}
+SERVERS_TREE_BASE_COLUMNS = {0: 220, 1: 110, 2: 90}
 TREE_BASE_INDENT = 20
+
+# Custom item-data roles: KEY_ROLE holds a stable string identifying the row
+# (survives tree rebuilds, unlike the QTreeWidgetItem instance itself) so
+# selection/expand state can be restored after every poll; DATA_ROLE holds
+# the row's full JSON-serializable dict, backing Ctrl-C copy.
+KEY_ROLE = Qt.ItemDataRole.UserRole
+DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 def _age(epoch_seconds: float, now: float) -> str:
@@ -45,151 +58,100 @@ def _age(epoch_seconds: float, now: float) -> str:
     return f"{delta / 60:.1f}m ago"
 
 
-class VisualizerApp(tk.Tk):
+class VisualizerApp(QMainWindow):
     def __init__(self, redis_uri: str, interval: float = 1.0):
         super().__init__()
-        self.title("AnyCall Visualizer")
-        self.geometry("1200x760")
-
-        self._queue: "queue.Queue" = queue.Queue()
-        self._poller = PollerThread(redis_uri, self._queue, interval=interval)
-        # Fixed start point of the current Shift-Up/Down range-select run, per
-        # tree; ttk.Treeview has no built-in keyboard range selection.
-        self._select_anchor: dict[ttk.Treeview, str] = {}
-        # iid -> JSON-serializable dict for the row's underlying data, rebuilt
-        # on every render; backs Ctrl-C copy since the tree only stores
-        # rendered text/columns, not the source objects.
-        self._methods_row_data: dict[str, object] = {}
-        self._servers_row_data: dict[str, object] = {}
-
-        # In-memory only -- never written to disk, so it resets to
-        # DEFAULT_FONT_SIZE on every launch.
-        self._font_size_var = tk.IntVar(value=DEFAULT_FONT_SIZE)
-        self._named_fonts = {name: tkfont.nametofont(name) for name in NAMED_FONTS_TO_SCALE}
-        self._bold_font = tkfont.Font(family=self._named_fonts["TkDefaultFont"].actual("family"), weight="bold")
-        self._mono_font = tkfont.Font(family="Courier")
-        self._style = ttk.Style(self)
+        self.setWindowTitle(WINDOW_TITLE)
+        self.resize(1200, 760)
 
         self._build_widgets(redis_uri)
         self._apply_font_size(DEFAULT_FONT_SIZE)
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # QLabel/QGroupBox/empty tree area don't accept focus, so clicking
+        # them doesn't naturally move focus away from the spin box the way
+        # clicking another focusable widget would -- catch clicks globally
+        # instead so "click elsewhere" always deselects the font size field.
+        QApplication.instance().installEventFilter(self)
 
+        self._poller = PollerThread(redis_uri, interval=interval, parent=self)
+        self._poller.snapshot_ready.connect(self._on_snapshot)
         self._poller.start()
-        self.after(DRAIN_INTERVAL_MS, self._drain_queue)
 
     # -- widget construction -------------------------------------------------
 
     def _build_widgets(self, redis_uri: str) -> None:
-        self._style.configure("Treeview.Heading", font=self._bold_font)
+        central = QWidget(self)
+        self.setCentralWidget(central)
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(10, 8, 10, 10)
 
-        header = ttk.Frame(self, padding=(10, 8))
-        header.pack(side=tk.TOP, fill=tk.X)
+        header = QHBoxLayout()
+        self._status_label = QLabel(f"connecting to {redis_uri} ...")
+        header.addWidget(self._status_label)
+        header.addStretch(1)
+        self._stats_label = QLabel("")
+        header.addWidget(self._stats_label)
+        header.addSpacing(16)
+        self._font_label = QLabel("Font size:")
+        header.addWidget(self._font_label)
+        self._font_size_spin = QSpinBox()
+        self._font_size_spin.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
+        self._font_size_spin.setValue(DEFAULT_FONT_SIZE)
+        self._font_size_spin.valueChanged.connect(self._apply_font_size)
+        header.addWidget(self._font_size_spin)
+        layout.addLayout(header)
 
-        self._status_var = tk.StringVar(value=f"connecting to {redis_uri} ...")
-        ttk.Label(header, textvariable=self._status_var, font=self._bold_font).pack(side=tk.LEFT)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        font_frame = ttk.Frame(header)
-        font_frame.pack(side=tk.RIGHT)
-        ttk.Label(font_frame, text="Font size:").pack(side=tk.LEFT, padx=(0, 4))
-        font_spinbox = ttk.Spinbox(
-            font_frame,
-            from_=MIN_FONT_SIZE,
-            to=MAX_FONT_SIZE,
-            width=3,
-            textvariable=self._font_size_var,
-            command=self._on_font_size_change,
-        )
-        font_spinbox.pack(side=tk.LEFT)
-        font_spinbox.bind("<Return>", self._on_font_size_change)
-        font_spinbox.bind("<FocusOut>", self._on_font_size_change)
+        self._methods_group = QGroupBox("Methods (request streams)")
+        methods_layout = QVBoxLayout(self._methods_group)
+        self._methods_tree = QTreeWidget()
+        self._methods_tree.setColumnCount(4)
+        self._methods_tree.setHeaderLabels(["method / group / consumer", "backlog", "processing", "consumers"])
+        self._methods_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._methods_tree.setUniformRowHeights(True)
+        methods_layout.addWidget(self._methods_tree)
+        splitter.addWidget(self._methods_group)
+        self._bind_copy_json(self._methods_tree)
 
-        self._stats_var = tk.StringVar(value="")
-        ttk.Label(header, textvariable=self._stats_var).pack(side=tk.RIGHT, padx=(0, 16))
+        self._servers_group = QGroupBox("Servers (heartbeats)")
+        servers_layout = QVBoxLayout(self._servers_group)
+        self._servers_tree = QTreeWidget()
+        self._servers_tree.setColumnCount(3)
+        self._servers_tree.setHeaderLabels(["server id", "last heartbeat", "expires in"])
+        self._servers_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._servers_tree.setUniformRowHeights(True)
+        servers_layout.addWidget(self._servers_tree)
+        splitter.addWidget(self._servers_group)
+        self._bind_copy_json(self._servers_tree)
 
-        body = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        layout.addWidget(splitter, 1)
 
-        methods_frame = ttk.LabelFrame(body, text="Methods (request streams)")
-        self._methods_tree = ttk.Treeview(
-            methods_frame,
-            columns=("backlog", "processing", "consumers"),
-            show="tree headings",
-            selectmode="extended",
-        )
-        self._methods_tree.heading("#0", text="method / group / consumer")
-        self._methods_tree.heading("backlog", text="backlog")
-        self._methods_tree.heading("processing", text="processing")
-        self._methods_tree.heading("consumers", text="consumers")
-        self._methods_tree.column("#0", width=340)
-        self._methods_tree.column("backlog", width=80, anchor=tk.E)
-        self._methods_tree.column("processing", width=90, anchor=tk.E)
-        self._methods_tree.column("consumers", width=90, anchor=tk.E)
-        methods_scroll = ttk.Scrollbar(methods_frame, orient=tk.VERTICAL, command=self._methods_tree.yview)
-        self._methods_tree.configure(yscrollcommand=methods_scroll.set)
-        self._methods_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        methods_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        body.add(methods_frame, weight=3)
-        self._bind_range_selection(self._methods_tree)
-        self._bind_copy_json(self._methods_tree, lambda: self._methods_row_data)
-
-        servers_frame = ttk.LabelFrame(body, text="Servers (heartbeats)")
-        self._servers_tree = ttk.Treeview(
-            servers_frame,
-            columns=("last_heartbeat", "ttl"),
-            show="tree headings",
-            selectmode="extended",
-        )
-        self._servers_tree.heading("#0", text="server id")
-        self._servers_tree.heading("last_heartbeat", text="last heartbeat")
-        self._servers_tree.heading("ttl", text="expires in")
-        self._servers_tree.column("#0", width=220)
-        self._servers_tree.column("last_heartbeat", width=110, anchor=tk.E)
-        self._servers_tree.column("ttl", width=90, anchor=tk.E)
-        servers_scroll = ttk.Scrollbar(servers_frame, orient=tk.VERTICAL, command=self._servers_tree.yview)
-        self._servers_tree.configure(yscrollcommand=servers_scroll.set)
-        self._servers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        servers_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        body.add(servers_frame, weight=2)
-        self._bind_range_selection(self._servers_tree)
-        self._bind_copy_json(self._servers_tree, lambda: self._servers_row_data)
-
-        log_frame = ttk.LabelFrame(self, text="Activity log")
-        log_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=False, padx=10, pady=(0, 10))
-        self._log_text = tk.Text(log_frame, height=12, font=self._mono_font, state=tk.DISABLED, wrap=tk.NONE)
-        log_scroll = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self._log_text.yview)
-        self._log_text.configure(yscrollcommand=log_scroll.set)
-        self._log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._log_group = QGroupBox("Activity log")
+        log_layout = QVBoxLayout(self._log_group)
+        self._log_text = QPlainTextEdit()
+        self._log_text.setReadOnly(True)
+        self._log_text.setMaximumBlockCount(MAX_LOG_LINES)
+        self._log_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        log_layout.addWidget(self._log_text)
+        layout.addWidget(self._log_group)
 
     # -- update loop -----------------------------------------------------------
 
-    def _drain_queue(self) -> None:
-        latest_snapshot: Snapshot | None = None
-        pending_events: list[Event] = []
-
-        try:
-            while True:
-                snapshot, events = self._queue.get_nowait()
-                latest_snapshot = snapshot
-                pending_events.extend(events)
-        except queue.Empty:
-            pass
-
-        if latest_snapshot is not None:
-            self._render_snapshot(latest_snapshot)
-        if pending_events:
-            self._append_events(pending_events)
-
-        self.after(DRAIN_INTERVAL_MS, self._drain_queue)
+    def _on_snapshot(self, snapshot: Snapshot, events: list[Event]) -> None:
+        self._render_snapshot(snapshot)
+        if events:
+            self._append_events(events)
 
     def _render_snapshot(self, snapshot: Snapshot) -> None:
         if not snapshot.connected:
-            self._status_var.set(f"⚠ disconnected from {snapshot.redis_uri}: {snapshot.error}")
-            self._stats_var.set("")
+            self._status_label.setText(f"⚠ disconnected from {snapshot.redis_uri}: {snapshot.error}")
+            self._stats_label.setText("")
             return
 
-        self._status_var.set(f"● connected to {snapshot.redis_uri}")
-        self._stats_var.set(
+        self._status_label.setText(f"● connected to {snapshot.redis_uri}")
+        self._stats_label.setText(
             f"redis {snapshot.redis_version}  |  clients {snapshot.connected_clients}  |  "
             f"memory {snapshot.used_memory_human}  |  awaiting delivery {snapshot.inflight_responses}"
         )
@@ -197,76 +159,38 @@ class VisualizerApp(tk.Tk):
         self._render_methods(snapshot)
         self._render_servers(snapshot)
 
-    # -- Shift-Up/Down range selection ----------------------------------------
-    #
-    # ttk.Treeview only wires up Shift-click for range selection (see
-    # ttk::treeview::select.extend.extended in Tk's own treeview.tcl); there's
-    # no keyboard equivalent, so arrow-key navigation never extends the
-    # selection. This reimplements it using the same Tcl helper procs Tk uses
-    # internally for mouse range-select (Keynav to move focus respecting
-    # open/closed nodes, between() to compute the resulting flat range).
-
-    def _bind_range_selection(self, tree: ttk.Treeview) -> None:
-        tree.bind("<Shift-Down>", lambda e, t=tree: self._extend_selection(t, "down"))
-        tree.bind("<Shift-Up>", lambda e, t=tree: self._extend_selection(t, "up"))
-        # Plain arrow navigation only moves focus in stock ttk.Treeview,
-        # leaving any prior multi-selection dangling -- collapse it to the
-        # newly focused row so a later Shift-arrow starts from a clean anchor.
-        tree.bind("<Down>", lambda e, t=tree: t.after_idle(self._collapse_selection_to_focus, t), add="+")
-        tree.bind("<Up>", lambda e, t=tree: t.after_idle(self._collapse_selection_to_focus, t), add="+")
-
-    @staticmethod
-    def _collapse_selection_to_focus(tree: ttk.Treeview) -> None:
-        focus = tree.focus()
-        if focus:
-            tree.selection_set(focus)
-
-    def _extend_selection(self, tree: ttk.Treeview, direction: str) -> str:
-        if len(tree.selection()) <= 1:
-            self._select_anchor[tree] = tree.focus()
-        anchor = self._select_anchor.get(tree) or tree.focus()
-        if not anchor or not tree.exists(anchor):
-            return "break"
-
-        tree.tk.call("ttk::treeview::Keynav", str(tree), direction)
-        new_focus = tree.focus()
-        if new_focus:
-            tree.selection_set(tree.tk.call("ttk::treeview::between", str(tree), anchor, new_focus))
-            tree.see(new_focus)
-        return "break"
-
     # -- Ctrl-C copy-as-JSON --------------------------------------------------
 
-    def _bind_copy_json(self, tree: ttk.Treeview, get_row_data: Callable[[], dict[str, object]]) -> None:
-        tree.bind("<Control-c>", lambda e, t=tree, g=get_row_data: self._copy_selection_as_json(t, g()))
+    def _bind_copy_json(self, tree: QTreeWidget) -> None:
+        shortcut = QShortcut(QKeySequence.StandardKey.Copy, tree)
+        shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        shortcut.activated.connect(lambda t=tree: self._copy_selection_as_json(t))
 
-    @staticmethod
-    def _has_selected_ancestor(tree: ttk.Treeview, iid: str, selected: set[str]) -> bool:
-        parent = tree.parent(iid)
-        while parent:
-            if parent in selected:
-                return True
-            parent = tree.parent(parent)
-        return False
-
-    def _copy_selection_as_json(self, tree: ttk.Treeview, row_data: dict[str, object]) -> str:
+    def _copy_selection_as_json(self, tree: QTreeWidget) -> None:
         # A selected group already nests its consumers (same for a selected
         # method nesting its groups), so if both are selected together, drop
         # the descendant -- otherwise its data shows up twice in the output.
-        selected = set(tree.selection())
-        top_level = [iid for iid in tree.selection() if not self._has_selected_ancestor(tree, iid, selected)]
-        items = [row_data[iid] for iid in top_level if iid in row_data]
+        selected_items = tree.selectedItems()
+        selected_keys = {item.data(0, KEY_ROLE) for item in selected_items}
+
+        def has_selected_ancestor(item: QTreeWidgetItem) -> bool:
+            parent = item.parent()
+            while parent is not None:
+                if parent.data(0, KEY_ROLE) in selected_keys:
+                    return True
+                parent = parent.parent()
+            return False
+
+        top_level = [item for item in selected_items if not has_selected_ancestor(item)]
+        items = [item.data(0, DATA_ROLE) for item in top_level]
         if not items:
-            return "break"
+            return
 
         payload = items[0] if len(items) == 1 else items
-        tree.clipboard_clear()
-        tree.clipboard_append(json.dumps(payload, indent=2, ensure_ascii=False))
+        QApplication.clipboard().setText(json.dumps(payload, indent=2, ensure_ascii=False))
 
-        original_title = self.title()
-        self.title(f"AnyCall Visualizer — copied {len(items)} row(s) as JSON")
-        self.after(1500, lambda: self.title(original_title))
-        return "break"
+        self.setWindowTitle(f"{WINDOW_TITLE} — copied {len(items)} row(s) as JSON")
+        QTimer.singleShot(1500, lambda: self.setWindowTitle(WINDOW_TITLE))
 
     @staticmethod
     def _method_to_dict(method: MethodInfo) -> dict:
@@ -293,129 +217,172 @@ class VisualizerApp(tk.Tk):
     def _server_to_dict(server: ServerInfo) -> dict:
         return asdict(server)
 
-    @classmethod
-    def _collect_open_iids(cls, tree: ttk.Treeview, parent: str = "") -> set[str]:
-        """Open/closed state at every depth, not just top-level -- a plain
-        rebuild resets every node to closed since ttk.Treeview.insert()
-        defaults to open=False."""
-        open_iids = set()
-        for iid in tree.get_children(parent):
-            if tree.item(iid, "open"):
-                open_iids.add(iid)
-            open_iids |= cls._collect_open_iids(tree, iid)
-        return open_iids
+    # -- tree state preservation across rebuilds ------------------------------
 
     @staticmethod
-    def _capture_tree_state(tree: ttk.Treeview) -> tuple[set[str], str]:
-        return set(tree.selection()), tree.focus()
+    def _capture_tree_state(tree: QTreeWidget) -> tuple[set[str], set[str], str | None]:
+        selected: set[str] = set()
+        expanded: set[str] = set()
+
+        def walk(item: QTreeWidgetItem) -> None:
+            key = item.data(0, KEY_ROLE)
+            if item.isSelected():
+                selected.add(key)
+            if item.isExpanded():
+                expanded.add(key)
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(tree.topLevelItemCount()):
+            walk(tree.topLevelItem(i))
+
+        current_item = tree.currentItem()
+        current = current_item.data(0, KEY_ROLE) if current_item is not None else None
+        return selected, expanded, current
 
     @staticmethod
-    def _restore_tree_state(tree: ttk.Treeview, selected: set[str], focused: str) -> None:
-        still_there = [iid for iid in selected if tree.exists(iid)]
-        if still_there:
-            tree.selection_set(still_there)
-        if focused and tree.exists(focused):
-            tree.focus(focused)
+    def _restore_tree_state(tree: QTreeWidget, selected: set[str], expanded: set[str], current: str | None) -> None:
+        def walk(item: QTreeWidgetItem) -> None:
+            key = item.data(0, KEY_ROLE)
+            if key in expanded:
+                item.setExpanded(True)
+            if key in selected:
+                item.setSelected(True)
+            if key == current:
+                tree.setCurrentItem(item)
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(tree.topLevelItemCount()):
+            walk(tree.topLevelItem(i))
+
+    @staticmethod
+    def _set_numeric_columns(item: QTreeWidgetItem, columns: range) -> None:
+        for column in columns:
+            item.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     def _render_methods(self, snapshot: Snapshot) -> None:
-        open_iids = self._collect_open_iids(self._methods_tree)
-        selected, focused = self._capture_tree_state(self._methods_tree)
-        self._methods_tree.delete(*self._methods_tree.get_children(""))
-        self._methods_row_data.clear()
+        tree = self._methods_tree
+        selected, expanded, current = self._capture_tree_state(tree)
+        tree.clear()
 
+        top_items = []
         for method in snapshot.methods:
-            method_iid = f"method:{method.name}"
-            self._methods_row_data[method_iid] = self._method_to_dict(method)
-            self._methods_tree.insert(
-                "",
-                tk.END,
-                iid=method_iid,
-                text=method.name,
-                values=(method.backlog, method.processing, method.consumer_count),
-                open=method_iid in open_iids,
+            method_key = f"method:{method.name}"
+            method_item = QTreeWidgetItem(
+                [method.name, str(method.backlog), str(method.processing), str(method.consumer_count)]
             )
-            for group in method.groups:
-                group_iid = f"{method_iid}:group:{group.name}"
-                self._methods_row_data[group_iid] = self._group_to_dict(group, method.name)
-                self._methods_tree.insert(
-                    method_iid,
-                    tk.END,
-                    iid=group_iid,
-                    text=f"group: {group.name}",
-                    values=("", group.pending, len(group.consumers)),
-                    open=group_iid in open_iids,
-                )
-                for consumer in group.consumers:
-                    consumer_iid = f"{group_iid}:consumer:{consumer.name}"
-                    self._methods_row_data[consumer_iid] = self._consumer_to_dict(consumer, method.name, group.name)
-                    self._methods_tree.insert(
-                        group_iid,
-                        tk.END,
-                        iid=consumer_iid,
-                        text=f"consumer: {consumer.name}  (idle {consumer.idle_ms} ms)",
-                        values=("", consumer.pending, ""),
-                    )
+            method_item.setData(0, KEY_ROLE, method_key)
+            method_item.setData(0, DATA_ROLE, self._method_to_dict(method))
+            self._set_numeric_columns(method_item, range(1, 4))
 
-        self._restore_tree_state(self._methods_tree, selected, focused)
+            for group in method.groups:
+                group_key = f"{method_key}:group:{group.name}"
+                group_item = QTreeWidgetItem(
+                    [f"group: {group.name}", "", str(group.pending), str(len(group.consumers))]
+                )
+                group_item.setData(0, KEY_ROLE, group_key)
+                group_item.setData(0, DATA_ROLE, self._group_to_dict(group, method.name))
+                self._set_numeric_columns(group_item, range(1, 4))
+
+                for consumer in group.consumers:
+                    consumer_key = f"{group_key}:consumer:{consumer.name}"
+                    consumer_item = QTreeWidgetItem(
+                        [f"consumer: {consumer.name}  (idle {consumer.idle_ms} ms)", "", str(consumer.pending), ""]
+                    )
+                    consumer_item.setData(0, KEY_ROLE, consumer_key)
+                    consumer_item.setData(0, DATA_ROLE, self._consumer_to_dict(consumer, method.name, group.name))
+                    self._set_numeric_columns(consumer_item, range(1, 4))
+                    group_item.addChild(consumer_item)
+
+                method_item.addChild(group_item)
+
+            top_items.append(method_item)
+
+        tree.addTopLevelItems(top_items)
+        self._restore_tree_state(tree, selected, expanded, current)
 
     def _render_servers(self, snapshot: Snapshot) -> None:
         now = time.time()
-        selected, focused = self._capture_tree_state(self._servers_tree)
-        self._servers_tree.delete(*self._servers_tree.get_children(""))
-        self._servers_row_data.clear()
+        tree = self._servers_tree
+        selected, expanded, current = self._capture_tree_state(tree)
+        tree.clear()
+
+        top_items = []
         for server in snapshot.servers:
-            self._servers_row_data[server.key] = self._server_to_dict(server)
-            self._servers_tree.insert(
-                "",
-                tk.END,
-                iid=server.key,
-                text=server.server_id,
-                values=(_age(server.last_heartbeat_epoch, now), f"{server.ttl_seconds}s"),
-            )
-        self._restore_tree_state(self._servers_tree, selected, focused)
+            item = QTreeWidgetItem([server.server_id, _age(server.last_heartbeat_epoch, now), f"{server.ttl_seconds}s"])
+            item.setData(0, KEY_ROLE, server.key)
+            item.setData(0, DATA_ROLE, self._server_to_dict(server))
+            self._set_numeric_columns(item, range(1, 3))
+            top_items.append(item)
+
+        tree.addTopLevelItems(top_items)
+        self._restore_tree_state(tree, selected, expanded, current)
 
     def _append_events(self, events: list[Event]) -> None:
-        self._log_text.configure(state=tk.NORMAL)
         for event in events:
             ts = time.strftime("%H:%M:%S", time.localtime(event.timestamp))
-            self._log_text.insert(tk.END, f"[{ts}] {event.message}\n")
+            self._log_text.appendPlainText(f"[{ts}] {event.message}")
+        scrollbar = self._log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
-        line_count = int(self._log_text.index("end-1c").split(".")[0])
-        if line_count > MAX_LOG_LINES:
-            self._log_text.delete("1.0", f"{line_count - MAX_LOG_LINES}.0")
-
-        self._log_text.see(tk.END)
-        self._log_text.configure(state=tk.DISABLED)
-
-    def _on_font_size_change(self, *_args) -> None:
-        try:
-            size = int(self._font_size_var.get())
-        except (tk.TclError, ValueError):
-            return
-        self._apply_font_size(size)
+    # -- font size -------------------------------------------------------------
 
     def _apply_font_size(self, size: int) -> None:
         size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, size))
-        if size != self._font_size_var.get():
-            self._font_size_var.set(size)
+        if size != self._font_size_spin.value():
+            self._font_size_spin.setValue(size)
 
-        for font in self._named_fonts.values():
-            font.configure(size=size)
-        self._bold_font.configure(size=size)
-        self._mono_font.configure(size=size)
+        base_font = QFont()
+        base_font.setPointSize(size)
+        bold_font = QFont(base_font)
+        bold_font.setBold(True)
+        mono_font = QFont("Monospace")
+        mono_font.setStyleHint(QFont.StyleHint.TypeWriter)
+        mono_font.setPointSize(size)
 
-        default_font = self._named_fonts["TkDefaultFont"]
-        self._style.configure("Treeview", rowheight=default_font.metrics("linespace") + 8)
-        self._style.configure("Treeview", indent=round(TREE_BASE_INDENT * size / DEFAULT_FONT_SIZE))
+        for widget in (
+            self._stats_label,
+            self._font_label,
+            self._font_size_spin,
+            self._methods_group,
+            self._servers_group,
+            self._log_group,
+        ):
+            widget.setFont(base_font)
+        self._status_label.setFont(bold_font)
+
+        for tree in (self._methods_tree, self._servers_tree):
+            tree.setFont(base_font)
+            tree.header().setFont(bold_font)
+
+        self._log_text.setFont(mono_font)
+        if not hasattr(self, "_log_height_set"):
+            self._log_text.setFixedHeight(self._log_text.fontMetrics().lineSpacing() * 12 + 12)
+            self._log_height_set = True
 
         scale = size / DEFAULT_FONT_SIZE
+        self._methods_tree.setIndentation(round(TREE_BASE_INDENT * scale))
+        self._servers_tree.setIndentation(round(TREE_BASE_INDENT * scale))
         for tree, base_columns in (
             (self._methods_tree, METHODS_TREE_BASE_COLUMNS),
             (self._servers_tree, SERVERS_TREE_BASE_COLUMNS),
         ):
             for column, base_width in base_columns.items():
-                tree.column(column, width=round(base_width * scale))
+                tree.setColumnWidth(column, round(base_width * scale))
 
-    def _on_close(self) -> None:
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt override)
+        if event.type() == QEvent.Type.MouseButtonPress:
+            spin = self._font_size_spin
+            if spin.hasFocus() and obj is not spin and obj is not spin.lineEdit():
+                spin.clearFocus()
+                spin.lineEdit().deselect()
+        return super().eventFilter(obj, event)
+
+    # -- shutdown ----------------------------------------------------------------
+
+    def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        QApplication.instance().removeEventFilter(self)
         self._poller.stop()
-        self.destroy()
+        self._poller.wait(2000)
+        super().closeEvent(event)

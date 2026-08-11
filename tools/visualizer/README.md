@@ -1,6 +1,6 @@
 # AnyCall Visualizer
 
-Read-only Tkinter dashboard for observing AnyCall traffic on a Redis
+Read-only PyQt6 dashboard for observing AnyCall traffic on a Redis
 instance: request queue backlogs, consumer groups/consumers, server
 heartbeats, and a best-effort activity log.
 
@@ -37,9 +37,8 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
 ## Selection
 
 Rows support Shift-click, Shift-Up/Down, and Ctrl-click for multi-select
-(standard list-box behavior, reimplemented for keyboard since `ttk.Treeview`
-only supports it via mouse out of the box). Selection and expand/collapse
-state survive each poll refresh.
+(standard Qt tree/list-box behavior). Selection and expand/collapse state
+survive each poll refresh.
 
 Press **Ctrl-C** with row(s) selected to copy them to the clipboard as JSON
 (a single object for one row, an array for multiple) — includes the row's
