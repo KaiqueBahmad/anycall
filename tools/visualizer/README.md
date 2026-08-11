@@ -33,3 +33,14 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   spotted entering a stream. Polling can't see everything that happens
   between two polls, so this is best-effort flavor, not a complete audit
   trail — the gauges above stay exact.
+
+## Selection
+
+Rows support Shift-click, Shift-Up/Down, and Ctrl-click for multi-select
+(standard list-box behavior, reimplemented for keyboard since `ttk.Treeview`
+only supports it via mouse out of the box). Selection and expand/collapse
+state survive each poll refresh.
+
+Press **Ctrl-C** with row(s) selected to copy them to the clipboard as JSON
+(a single object for one row, an array for multiple) — includes the row's
+full underlying data, not just the visible columns.
