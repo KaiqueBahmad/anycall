@@ -1,0 +1,22 @@
+[project]
+name = "anycall-visualizer"
+version = "0.1.0"
+description = "Read-only Tkinter dashboard for observing AnyCall traffic on Redis"
+requires-python = ">=3.10"
+dependencies = [
+    "redis>=5.0.0",
+    "anycall-py",
+]
+
+[tool.uv.sources]
+anycall-py = { path = "../../implementations/python/lib" }
+
+[project.scripts]
+anycall-visualizer = "visualizer.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/visualizer"]
