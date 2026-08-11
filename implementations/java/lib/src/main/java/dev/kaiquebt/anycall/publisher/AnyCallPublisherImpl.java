@@ -26,7 +26,7 @@ public class AnyCallPublisherImpl implements AnyCallPublisher {
     private final ObjectMapper objectMapper;
 
     public AnyCallPublisherImpl(String redisUri, ObjectMapper objectMapper) {
-        String actualUri = redisUri != null ? redisUri : "redis://localhost:6379";
+        String actualUri = redisUri != null ? redisUri : "redis://localhost:16379";
         RedisClient client = RedisClient.create(actualUri);
         StatefulRedisConnection<String, String> connection = client.connect();
         this.commands = connection.sync();

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     """Call a remote method and display the result."""
-    redis_uri = os.getenv("REDIS_URI", "redis://localhost:6379")
+    redis_uri = os.getenv("REDIS_URI", "redis://localhost:16379")
     logger.info(f"Starting consumer with Redis URI: {redis_uri}")
 
     client = AnyCall.client(redis_uri, metrics_enabled=True)

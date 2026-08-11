@@ -21,7 +21,7 @@ class AnyCall:
         """Create an AnyCall client.
 
         Args:
-            redis_uri: Redis connection URI (e.g., redis://localhost:6379)
+            redis_uri: Redis connection URI (e.g., redis://localhost:16379)
             timeout: Request timeout duration
             metrics_enabled: Whether to collect metrics
             default_max_queue_depth: Default backlog limit applied to every
@@ -45,7 +45,7 @@ class AnyCall:
         """Create an AnyCall server.
 
         Args:
-            redis_uri: Redis connection URI (e.g., redis://localhost:6379)
+            redis_uri: Redis connection URI (e.g., redis://localhost:16379)
             metrics_enabled: Whether to collect metrics
             max_concurrency: Server-wide cap on requests processed at the same
                 time, across every registered @supply method combined; None

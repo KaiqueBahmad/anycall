@@ -33,7 +33,7 @@ def write_health_file() -> None:
 
 def main() -> None:
     """Start the supplier server."""
-    redis_uri = os.getenv("REDIS_URI", "redis://localhost:6379")
+    redis_uri = os.getenv("REDIS_URI", "redis://localhost:16379")
     logger.info(f"Starting supplier with Redis URI: {redis_uri}")
 
     server = AnyCall.server(redis_uri)

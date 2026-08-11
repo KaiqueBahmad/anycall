@@ -18,7 +18,7 @@ class OrderResponse:
 def example_call_with_explicit_type():
     """Example 1: call() with explicit type (typed raia)."""
     print("\n=== Example 1: call() with explicit type ===")
-    client = AnyCall.client("redis://localhost:6379")
+    client = AnyCall.client("redis://localhost:16379")
 
     req = TextRequest(text="This is great!")
     sentiment = client.call(
@@ -34,7 +34,7 @@ def example_call_with_explicit_type():
 def example_call_with_registry():
     """Example 2: call() with registry (typed raia, registry-resolved)."""
     print("\n=== Example 2: call() with registry ===")
-    client = AnyCall.client("redis://localhost:6379")
+    client = AnyCall.client("redis://localhost:16379")
 
     # Register the type once
     client.register_type("analyze-sentiment", Sentiment)
@@ -50,7 +50,7 @@ def example_call_with_registry():
 def example_raw_call():
     """Example 3: raw_call() always returns dict (raw raia)."""
     print("\n=== Example 3: raw_call() ===")
-    client = AnyCall.client("redis://localhost:6379")
+    client = AnyCall.client("redis://localhost:16379")
 
     req = TextRequest(text="Looking good!")
     raw_result = client.raw_call("analyze-sentiment", req)
@@ -63,7 +63,7 @@ def example_raw_call():
 def example_registry_absent_error():
     """Example 4: call() without type and without registry → error."""
     print("\n=== Example 4: Registry absent error ===")
-    client = AnyCall.client("redis://localhost:6379")
+    client = AnyCall.client("redis://localhost:16379")
 
     req = TextRequest(text="Unknown operation")
     try:
@@ -79,7 +79,7 @@ def example_registry_absent_error():
 def example_duplicate_type_error():
     """Example 5: Duplicate registration with different type → error."""
     print("\n=== Example 5: Duplicate type error ===")
-    client = AnyCall.client("redis://localhost:6379")
+    client = AnyCall.client("redis://localhost:16379")
 
     # Register with Sentiment type
     client.register_type("analyze-sentiment", Sentiment)
@@ -98,7 +98,7 @@ def example_duplicate_type_error():
 def example_duplicate_type_idempotent():
     """Example 6: Duplicate registration with SAME type → idempotent (no-op)."""
     print("\n=== Example 6: Duplicate type (same) = idempotent ===")
-    client = AnyCall.client("redis://localhost:6379")
+    client = AnyCall.client("redis://localhost:16379")
 
     # Register with Sentiment type
     client.register_type("analyze-sentiment", Sentiment)

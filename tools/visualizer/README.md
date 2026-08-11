@@ -15,8 +15,8 @@ share the same Redis key protocol.
 ## Run
 
 ```bash
-./run.sh                                    # redis://localhost:6379
-./run.sh --redis-uri redis://host:6379      # custom instance
+./run.sh                                    # redis://localhost:16379
+./run.sh --redis-uri redis://host:16379      # custom instance
 ./run.sh --interval 0.5                     # faster polling
 ```
 

@@ -7,7 +7,7 @@ import pytest
 def anyCall_config():
     """Fixture for AnyCall test configuration."""
     class Config:
-        redis_uri = "redis://localhost:6379"
+        redis_uri = "redis://localhost:16379"
         timeout_ms = 5000
         metrics_enabled = False
     return Config

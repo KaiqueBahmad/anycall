@@ -17,7 +17,7 @@ public class ConsumerApplication {
 
             String redisUri = System.getenv("REDIS_URI");
             if (redisUri == null) {
-                redisUri = "redis://localhost:6379";
+                redisUri = "redis://localhost:16379";
             }
             AnyCallClient anyCall = AnyCall.client(redisUri, true);
 

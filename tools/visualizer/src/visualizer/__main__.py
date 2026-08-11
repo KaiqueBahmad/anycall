@@ -10,8 +10,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--redis-uri",
-        default=os.environ.get("ANYCALL_REDIS_URI", "redis://localhost:6379"),
-        help="Redis connection URI (default: redis://localhost:6379, or $ANYCALL_REDIS_URI)",
+        default=os.environ.get("ANYCALL_REDIS_URI", "redis://localhost:16379"),
+        help="Redis connection URI (default: redis://localhost:16379, or $ANYCALL_REDIS_URI)",
     )
     parser.add_argument(
         "--interval",

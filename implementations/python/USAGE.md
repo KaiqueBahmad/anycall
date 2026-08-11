@@ -34,7 +34,7 @@ that operation a single server instance may process at the same time.
 ```python
 from anycall import AnyCall
 
-server = AnyCall.server("redis://localhost:6379")
+server = AnyCall.server("redis://localhost:16379")
 server.register(SentimentAnalyzer())
 server.start()
 ```
@@ -42,20 +42,20 @@ server.start()
 Pass `max_concurrency` to `AnyCall.server(...)` for a server-wide cap across every
 registered method combined:
 ```python
-server = AnyCall.server("redis://localhost:6379", max_concurrency=16)
+server = AnyCall.server("redis://localhost:16379", max_concurrency=16)
 ```
 
 ## How to Use as Consumer (Client)
 
 ### Call with explicit type:
 ```python
-client = AnyCall.client("redis://localhost:6379")
+client = AnyCall.client("redis://localhost:16379")
 sentiment = client.call("analyze-sentiment", request, Sentiment)
 ```
 
 ### Call with registry (register types once):
 ```python
-client = AnyCall.client("redis://localhost:6379")
+client = AnyCall.client("redis://localhost:16379")
 client.register_type("analyze-sentiment", Sentiment)
 
 # Then, calls without type:

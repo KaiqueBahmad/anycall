@@ -118,7 +118,7 @@ docker-compose down
 ```
 
 Services available:
-- `redis` — Message broker, exposed on `localhost:6379`
+- `redis` — Message broker, exposed on `localhost:16379`
 
 ---
 
@@ -133,7 +133,7 @@ from anycall import AnyCall, supply
 print("AnyCall imported successfully!")
 
 # Create a client
-client = AnyCall.client("redis://localhost:6379")
+client = AnyCall.client("redis://localhost:16379")
 print("Client created!")
 ```
 
@@ -143,7 +143,7 @@ print("Client created!")
 import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallClient;
 
-AnyCallClient client = AnyCall.client("redis://localhost:6379");
+AnyCallClient client = AnyCall.client("redis://localhost:16379");
 System.out.println("Client created!");
 ```
 
@@ -162,17 +162,17 @@ pip install anycall-py
 
 ### "Cannot connect to Redis"
 
-Ensure Redis is running on `localhost:6379` (or set `REDIS_URI` environment variable):
+Ensure Redis is running on `localhost:16379` (or set `REDIS_URI` environment variable):
 
 ```bash
 # Start Redis locally
-redis-server
+redis-server --port 16379
 
 # Or use Docker
-docker run -d -p 6379:6379 redis:7-alpine
+docker run -d -p 16379:6379 redis:7-alpine
 
 # Or point to remote Redis
-export REDIS_URI="redis://your-redis-host:6379"
+export REDIS_URI="redis://your-redis-host:16379"
 ```
 
 ### Java compilation fails

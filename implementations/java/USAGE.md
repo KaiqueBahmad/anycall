@@ -24,13 +24,13 @@ server.start();
 
 ### Call with explicit type:
 ```java
-AnyCallClient client = AnyCall.client("redis://localhost:6379");
+AnyCallClient client = AnyCall.client("redis://localhost:16379");
 Sentiment sentiment = client.call("analyze-sentiment", request, Sentiment.class);
 ```
 
 ### Call with registry (register types once):
 ```java
-AnyCallClient client = AnyCall.client("redis://localhost:6379");
+AnyCallClient client = AnyCall.client("redis://localhost:16379");
 client.registerType("analyze-sentiment", Sentiment.class);
 
 // Then, calls without type:

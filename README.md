@@ -46,7 +46,7 @@ public class SentimentAnalyzer {
 
 public class Application {
     public static void main(String[] args) {
-        String redisUri = "redis://localhost:6379";
+        String redisUri = "redis://localhost:16379";
         AnyCallServer server = AnyCall.server(redisUri);
         server.register(new SentimentAnalyzer());
         server.start();
@@ -75,7 +75,7 @@ public class SentimentAnalyzer {
 ```java
 public class Application {
     public static void main(String[] args) {
-        String redisUri = "redis://localhost:6379";
+        String redisUri = "redis://localhost:16379";
         AnyCallClient anyCall = AnyCall.client(redisUri);
 
         TextRequest req = new TextRequest("This is great!");
@@ -89,7 +89,7 @@ public class Application {
 ```java
 public class Application {
     public static void main(String[] args) {
-        String redisUri = "redis://localhost:6379";
+        String redisUri = "redis://localhost:16379";
         AnyCallClient anyCall = AnyCall.client(redisUri);
 
         // Register type once
@@ -107,7 +107,7 @@ public class Application {
 ```java
 public class Application {
     public static void main(String[] args) {
-        String redisUri = "redis://localhost:6379";
+        String redisUri = "redis://localhost:16379";
         AnyCallClient anyCall = AnyCall.client(redisUri);
 
         TextRequest req = new TextRequest("This is great!");
@@ -149,7 +149,7 @@ class SentimentAnalyzer:
         return Sentiment(text=req.text, label="positive")
 
 if __name__ == "__main__":
-    server = AnyCall.server("redis://localhost:6379")
+    server = AnyCall.server("redis://localhost:16379")
     server.register(SentimentAnalyzer())
     server.start()
 ```
@@ -184,7 +184,7 @@ class Sentiment:
     text: str
     label: str
 
-client = AnyCall.client("redis://localhost:6379")
+client = AnyCall.client("redis://localhost:16379")
 sentiment = client.call(
     "analyze-sentiment",
     TextRequest(text="This is great!"),
@@ -201,7 +201,7 @@ print(response)  # Returns dict: {"text": "This is great!", "label": "positive"}
 
 **Client (detached / attach)** &nbsp;🚧 **WIP**
 ```python
-client = AnyCall.client("redis://localhost:6379")
+client = AnyCall.client("redis://localhost:16379")
 
 # Fire the call — returns immediately with a handle, doesn't block
 call_id = client.detached_call("analyze-sentiment", TextRequest(text="This is great!"))

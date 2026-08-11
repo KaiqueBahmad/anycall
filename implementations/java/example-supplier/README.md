@@ -14,7 +14,7 @@ cd ../lib
 mvn clean install
 ```
 
-2. Redis running locally on port 6379:
+2. Redis running locally on port 16379:
 ```bash
 cd ../../..
 docker-compose up -d

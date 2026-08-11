@@ -16,7 +16,7 @@ class RedisStreamAdapter implements AutoCloseable {
     private final RedisStreamCommands<String, String> streamCommands;
 
     public RedisStreamAdapter(String redisUri) {
-        RedisClient client = RedisClient.create(redisUri != null ? redisUri : "redis://localhost:6379");
+        RedisClient client = RedisClient.create(redisUri != null ? redisUri : "redis://localhost:16379");
         this.connection = client.connect();
         this.streamCommands = connection.sync();
     }
