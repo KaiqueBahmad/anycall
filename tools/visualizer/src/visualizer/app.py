@@ -17,7 +17,7 @@ from .poller import ConsumerInfo, Event, GroupInfo, MethodInfo, PollerThread, Se
 
 MAX_LOG_LINES = 1000
 DRAIN_INTERVAL_MS = 150
-DEFAULT_FONT_SIZE = 16
+DEFAULT_FONT_SIZE = 12
 MIN_FONT_SIZE = 8
 MAX_FONT_SIZE = 32
 
