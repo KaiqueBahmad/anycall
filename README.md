@@ -54,23 +54,6 @@ public class Application {
 }
 ```
 
-**Server (with consumer handler)** &nbsp;🚧 **WIP**
-```java
-public class SentimentAnalyzer {
-    @Supply("analyze-sentiment")
-    public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
-        return new Sentiment(req.text(), "positive");
-    }
-
-    // Fires when a detached call's result is never attached/collected by a client
-    @Consumer("analyze-sentiment")
-    public void onLostSentiment(TextRequest req, Sentiment result) {
-        // persist, retry, or alert instead of dropping the work
-        System.out.println("Uncollected: " + req.text() + " -> " + result.label());
-    }
-}
-```
-
 **Client (explicit type)**
 ```java
 public class Application {
@@ -123,6 +106,23 @@ public class Application {
 }
 ```
 
+**Server (with consumer handler)** &nbsp;🚧 **WIP**
+```java
+public class SentimentAnalyzer {
+    @Supply("analyze-sentiment")
+    public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
+        return new Sentiment(req.text(), "positive");
+    }
+
+    // Fires when a detached call's result is never attached/collected by a client
+    @Consumer("analyze-sentiment")
+    public void onLostSentiment(TextRequest req, Sentiment result) {
+        // persist, retry, or alert instead of dropping the work
+        System.out.println("Uncollected: " + req.text() + " -> " + result.label());
+    }
+}
+```
+
 [→ See more](implementations/java/README.md)
 
 ---
@@ -152,22 +152,6 @@ if __name__ == "__main__":
     server = AnyCall.server("redis://localhost:16379")
     server.register(SentimentAnalyzer())
     server.start()
-```
-
-**Server (with consumer handler)** &nbsp;🚧 **WIP**
-```python
-from anycall import AnyCall, AnycallContext, supply, consumer
-
-class SentimentAnalyzer:
-    @supply("analyze-sentiment")
-    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
-        return Sentiment(text=req.text, label="positive")
-
-    # Fires when a detached call's result is never attached/collected by a client
-    @consumer("analyze-sentiment")
-    def on_lost_sentiment(self, req: TextRequest, result: Sentiment):
-        # nobody attached to collect this — persist, retry, or alert
-        print(f"Uncollected: {req.text} -> {result.label}")
 ```
 
 **Client (with explicit type)**
@@ -210,6 +194,22 @@ print(call_id)  # "9f2c1e7a-..."  — store it, pass it around, attach later
 # Later — same process or another service — claim it and wait for the result
 sentiment = client.attach_call(call_id, Sentiment)
 print(sentiment)  # Sentiment(text="This is great!", label="positive")
+```
+
+**Server (with consumer handler)** &nbsp;🚧 **WIP**
+```python
+from anycall import AnyCall, AnycallContext, supply, consumer
+
+class SentimentAnalyzer:
+    @supply("analyze-sentiment")
+    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
+        return Sentiment(text=req.text, label="positive")
+
+    # Fires when a detached call's result is never attached/collected by a client
+    @consumer("analyze-sentiment")
+    def on_lost_sentiment(self, req: TextRequest, result: Sentiment):
+        # nobody attached to collect this — persist, retry, or alert
+        print(f"Uncollected: {req.text} -> {result.label}")
 ```
 
 [→ See more](implementations/python/README.md)
