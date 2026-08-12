@@ -5,9 +5,8 @@
 ![License](https://img.shields.io/github/license/KaiqueBahmad/anycall)
 ![Stars](https://img.shields.io/github/stars/KaiqueBahmad/anycall)
 
-Call functions across services written in different languages, using the
-Redis you already have — no .proto files, no exposed ports, no per-service
-plumbing to maintain.
+Call functions across services written in different languages, using only the
+Redis you already have.
 
 A client publishes a request to Redis; any available server can pick it up,
 run it, and return the result. Calls can be **synchronous** (block until the
@@ -17,7 +16,7 @@ and consumer handlers are 🚧 **WIP** — see the marked sections below.)_
 
 Because the broker sits in the middle — unlike point-to-point RPC such as
 gRPC — you get automatic load balancing, horizontal scaling, and loose
-coupling between services for free, with one consistent API across languages.
+coupling between services, with one consistent API across languages.
 
 **Status:** Java and Python are under active development. The examples below
 reflect the current target API.
