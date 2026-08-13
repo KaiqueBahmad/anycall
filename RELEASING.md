@@ -8,9 +8,11 @@ This guide explains how to release AnyCall following the polyglot versioning mod
 - **Patch Version (Z)**: Independent bug fixes per language
 
 Example:
-- Java: 0.1.0, 0.1.1, 0.1.2
-- Python: 0.1.0, 0.1.1
-- All are **contract 0.1**, fully compatible
+- Java: 1.2.0, 1.2.1, 1.2.2
+- Python: 1.2.0, 1.2.1
+- All are **contract 1.2**, fully compatible
+
+> **Note:** per SemVer, `0.Y.Z` is unstable — a `Y` bump (e.g. 0.1 → 0.2) may break compatibility. The guarantee above applies to patches within the same `0.Y`, not across `0.Y` versions.
 
 ## Release Types
 
@@ -18,25 +20,24 @@ Example:
 
 Use when adding features or making changes that affect all implementations.
 
-**Example**: Releasing contract 0.2 with new RPC features
+**Example**: Releasing contract 1.3 with new RPC features
 
 ```bash
-# 1. Update pom.xml, setup.py, Cargo.toml to 0.2.0
-# 2. Update CHANGELOG.md with [0.2] section
+# 1. Update pom.xml, setup.py, Cargo.toml to 1.3.0
+# 2. Update CHANGELOG.md with [1.3] section
 # 3. Update VERSIONS.md
 
 git add implementations/java/pom.xml implementations/python/setup.py CHANGELOG.md VERSIONS.md
-git commit -m "chore(release): bump contract to 0.2"
+git commit -m "chore(release): bump contract to 1.3"
 
 # 4. Tag and push
-git tag v0.2
-git push origin v0.2
+git tag v1.3
+git push origin v1.3
 ```
 
 **What happens:**
-- GitHub Actions publishes Java 0.2.0 to Maven Central
-- GitHub Actions publishes Python 0.2.0 to PyPI (when configured)
-- Contract version updates to 0.2 across all docs
+- GitHub Actions publishes Java 1.3.0 to Maven Central
+- GitHub Actions publishes Python 1.3.0 to PyPI (when configured)
 
 ---
 
@@ -47,26 +48,26 @@ Use when fixing a bug in just one implementation.
 **Example**: Fixing a Java-only timeout bug
 
 ```bash
-# 1. Update implementations/java/lib/pom.xml version from 0.1.0 to 0.1.1
+# 1. Update implementations/java/lib/pom.xml version from 1.2.0 to 1.2.1
 # 2. Update CHANGELOG.md:
 #    ```
 #    ### Java
-#    - **0.1.1** (2026-06-15): Fixed connection timeout issue
+#    - **1.2.1** (2026-06-15): Fixed connection timeout issue
 #    ```
-# 3. Update VERSIONS.md Java version to 0.1.1
+# 3. Update VERSIONS.md Java version to 1.2.1
 
 git add implementations/java/lib/pom.xml CHANGELOG.md VERSIONS.md
 git commit -m "fix(java): timeout issue in Redis connection"
 
 # 4. Tag with language prefix
-git tag java-v0.1.1
-git push origin java-v0.1.1
+git tag java-v1.2.1
+git push origin java-v1.2.1
 ```
 
 **What happens:**
-- GitHub Actions publishes ONLY Java 0.1.1 to Maven Central
-- Python remains at 0.1.0
-- Contract version stays 0.1
+- GitHub Actions publishes ONLY Java 1.2.1 to Maven Central
+- Python remains at 1.2.0
+- Contract version stays 1.2
 
 ---
 
@@ -75,8 +76,8 @@ git push origin java-v0.1.1
 Same as Java, but with `python-v*` tag.
 
 ```bash
-git tag python-v0.1.1
-git push origin python-v0.1.1
+git tag python-v1.2.1
+git push origin python-v1.2.1
 ```
 
 ---
@@ -91,12 +92,12 @@ git push origin python-v0.1.1
 - [ ] Commit changes
 - [ ] Create git tag
 
-### Contract Releases Only (v0.2)
+### Contract Releases Only (v1.3)
 - [ ] Ensure ALL implementations are ready
 - [ ] Update all build files to X.Y.0
 - [ ] Announce breaking changes (if any) in CHANGELOG
 
-### Patch Releases Only (java-v0.1.1)
+### Patch Releases Only (java-v1.2.1)
 - [ ] Only update ONE language version
 - [ ] Do NOT update contract version
 
@@ -108,7 +109,7 @@ git push origin python-v0.1.1
 
 After ~5 minutes:
 ```bash
-mvn dependency:get -Dartifact=dev.kaiquebt:anycall:0.1.0:jar
+mvn dependency:get -Dartifact=dev.kaiquebt:anycall:1.2.0:jar
 ```
 
 Online:
@@ -119,7 +120,7 @@ Online:
 
 After ~5 minutes:
 ```bash
-pip install anycall==0.1.0
+pip install anycall==1.2.0
 ```
 
 Online:
