@@ -3,7 +3,7 @@ name: Release Contract
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+$'  # Matches v0.1, v0.2, etc. (not v0.1.0)
+      - 'v[0-9]+.[0-9]+'  # Matches v0.1, v0.2, etc. (not v0.1.0)
 
 jobs:
   release-java:
@@ -60,6 +60,7 @@ jobs:
         run: |
           cd implementations/java/lib
           mvn deploy -P release \
+            -Drevision="${{ steps.version.outputs.version }}" \
             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
             -Dorg.slf4j.simpleLogger.defaultLogLevel=info
 
@@ -84,6 +85,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip build twine
+
+      - name: Sync package version with tag
+        run: |
+          cd implementations/python/lib
+          sed -i -E "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
+          grep -E "^version = " pyproject.toml
 
       - name: Build Python package
         run: |
