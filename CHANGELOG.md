@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2] - 2026-08-13
+
+### Added
+- Raw calls (`rawCall` / `raw_call`)
+- Typed exception hierarchy (`AnyCallError` in Python, matching exceptions in Java)
+- `AnycallContext` parameter exposing request id and channel name to handlers
+- Queue depth introspection
+- Configurable concurrency for suppliers
+- Supplier heartbeats
+- Automatic stream entry cleanup after message processing
+- camelCase field serialization for cross-language interop
+
+### Changed
+- Renamed `@Supply`'s `value` element to `methodName`
+- Standardized health file location to `/run/anycall`
+
 ## [0.1] - 2026-06-14
 
 ### Added
@@ -15,12 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type-safe calls
 - Supplier notation
 - Built-in type registry with Jackson serialization
-
-## [0.2] - 2026-06-24
-
-### Added
-- Raw calls
-- Exceptions 
 
 ### Java
 - **0.1.1** (2026-06-14): Release to validate CI/CD pipeline (no code changes)
