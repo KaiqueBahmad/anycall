@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `@Supply`'s `value` element to `methodName`
 - Standardized health file location to `/run/anycall`
 
+### Java
+- **0.2.1** (2026-08-13): Bumped `central-publishing-maven-plugin` from 0.6.0 to 0.11.0 to fix a deployment failure (`UnrecognizedPropertyException` on the API's new `warnings` field)
+
 ## [0.1] - 2026-06-14
 
 ### Added
