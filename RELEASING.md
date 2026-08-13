@@ -128,30 +128,6 @@ Online:
 
 ---
 
-## Troubleshooting
-
-### Release workflow fails
-
-1. Check GitHub Actions logs: https://github.com/KaiqueBahmad/anycall/actions
-2. Common issues:
-   - Missing/wrong secrets → add in Settings → Secrets
-   - GPG key expired → regenerate and update secrets
-   - Maven Central credentials invalid → regenerate User Token in Sonatype
-
-### Artifact not appearing in Maven Central
-
-- Wait ~5-10 minutes (Sonatype takes time to sync)
-- Check Sonatype Central Portal for "Pending" status
-- If stuck, click "Publish" button (if not automated)
-
-### Version mismatch in CHANGELOG/VERSIONS
-
-- Always commit version changes BEFORE tagging
-- Tag should point to commit that updated versions
-- If mistake: delete tag, fix commit, retag
-
----
-
 ## CI/CD Workflow Files
 
 - `.github/workflows/test.yml` - Runs on every push to main (unit tests)
