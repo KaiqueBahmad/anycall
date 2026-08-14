@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standardized health file location to `/run/anycall`
 
 ### Java
+- **0.2.2** (2026-08-14): Fixed the supplier erroring out on startup when no consumer had ever called its method yet — `XGROUP CREATE` now uses `MKSTREAM`, and a failed group-creation attempt is retried instead of being marked as done forever
 - **0.2.1** (2026-08-13): Bumped `central-publishing-maven-plugin` from 0.6.0 to 0.11.0 to fix a deployment failure (`UnrecognizedPropertyException` on the API's new `warnings` field)
 
 ## [0.1] - 2026-06-14

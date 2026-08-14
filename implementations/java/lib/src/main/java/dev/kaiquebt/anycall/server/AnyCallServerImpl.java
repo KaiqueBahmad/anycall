@@ -11,6 +11,7 @@ import io.lettuce.core.Consumer;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.SetArgs;
 import io.lettuce.core.StreamMessage;
+import io.lettuce.core.XGroupCreateArgs;
 import io.lettuce.core.XReadArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
@@ -223,22 +224,27 @@ public class AnyCallServerImpl implements AnyCallServer {
 
     /**
      * Ensures that a Redis consumer group exists for the given stream.
-     * Creates the group if it doesn't exist, handling cases where the stream hasn't been created yet.
+     * Creates the group (and the stream itself via {@code MKSTREAM}, since the
+     * stream won't exist yet if no client has ever called this method).
      *
      * @param streamKey the Redis stream key to ensure a consumer group for
      * @param group the consumer group name
+     * @return {@code true} if the group exists (created now or already present),
+     *         {@code false} if creation failed and should be retried later
      */
-    private void ensureConsumerGroup(String streamKey, String group) {
+    private boolean ensureConsumerGroup(String streamKey, String group) {
         try {
-            writeCommands.xgroupCreate(XReadArgs.StreamOffset.latest(streamKey), group);
+            writeCommands.xgroupCreate(XReadArgs.StreamOffset.latest(streamKey), group, XGroupCreateArgs.Builder.mkstream());
             log.info("Created consumer group '{}' for stream: {}", group, streamKey);
+            return true;
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : "";
             if (msg.contains("BUSYGROUP")) {
                 log.debug("Consumer group '{}' already exists for stream: {}", group, streamKey);
-            } else {
-                log.warn("Could not create consumer group for stream {}: {}", streamKey, msg);
+                return true;
             }
+            log.warn("Could not create consumer group for stream {}: {}", streamKey, msg);
+            return false;
         }
     }
 
@@ -301,8 +307,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private void ensureGroupsForNewStreams(Set<String> methodNames) {
         for (String methodName : methodNames) {
             String streamKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
-            if (groupEnsuredStreams.add(streamKey)) {
-                ensureConsumerGroup(streamKey, GROUP_NAME);
+            if (!groupEnsuredStreams.contains(streamKey) && ensureConsumerGroup(streamKey, GROUP_NAME)) {
+                groupEnsuredStreams.add(streamKey);
             }
         }
     }
