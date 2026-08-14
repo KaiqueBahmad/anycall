@@ -12,6 +12,7 @@ from PyQt6.QtCore import QEvent, Qt, QTimer
 from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QAbstractSpinBox,
     QApplication,
     QGroupBox,
     QHBoxLayout,
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QSpinBox,
     QSplitter,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -119,8 +121,26 @@ QSpinBox {{
 }}
 
 QSpinBox::up-button, QSpinBox::down-button {{
+    width: 0px;
+    border: none;
+}}
+
+QToolButton#fontStepButton {{
     background-color: {_HEADER_BG};
-    border-left: 1px solid {_BORDER};
+    color: {_TEXT};
+    border: 1px solid {_BORDER};
+    border-radius: 3px;
+    font-weight: bold;
+    padding: 0px;
+}}
+
+QToolButton#fontStepButton:hover {{
+    background-color: {_ACCENT};
+    color: {_ACCENT_TEXT};
+}}
+
+QToolButton#fontStepButton:pressed {{
+    background-color: {_ACCENT};
 }}
 
 QSplitter::handle {{
@@ -211,8 +231,16 @@ class VisualizerApp(QMainWindow):
         self._font_size_spin = QSpinBox()
         self._font_size_spin.setRange(MIN_FONT_SIZE, MAX_FONT_SIZE)
         self._font_size_spin.setValue(DEFAULT_FONT_SIZE)
+        # Native up/down arrows render as blank boxes under this theme's
+        # stylesheet on some Qt styles, so the spin buttons are hidden and
+        # replaced with explicit -/+ buttons below.
+        self._font_size_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self._font_size_spin.valueChanged.connect(self._apply_font_size)
         header.addWidget(self._font_size_spin)
+        self._font_dec_button = self._make_font_step_button("−", -1)
+        header.addWidget(self._font_dec_button)
+        self._font_inc_button = self._make_font_step_button("+", 1)
+        header.addWidget(self._font_inc_button)
         layout.addLayout(header)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -445,6 +473,15 @@ class VisualizerApp(QMainWindow):
 
     # -- font size -------------------------------------------------------------
 
+    def _make_font_step_button(self, label: str, step: int) -> QToolButton:
+        button = QToolButton()
+        button.setObjectName("fontStepButton")
+        button.setText(label)
+        button.setAutoRepeat(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.clicked.connect(lambda: self._apply_font_size(self._font_size_spin.value() + step))
+        return button
+
     def _apply_font_size(self, size: int) -> None:
         size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, size))
         if size != self._font_size_spin.value():
@@ -468,6 +505,11 @@ class VisualizerApp(QMainWindow):
         ):
             widget.setFont(base_font)
         self._status_label.setFont(bold_font)
+
+        spin_height = self._font_size_spin.sizeHint().height()
+        for button in (self._font_dec_button, self._font_inc_button):
+            button.setFont(bold_font)
+            button.setFixedSize(spin_height, spin_height)
 
         for tree in (self._methods_tree, self._servers_tree):
             tree.setFont(base_font)
