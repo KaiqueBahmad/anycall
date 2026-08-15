@@ -50,7 +50,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final String GROUP_NAME = "anycall-workers";
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration IDLE_POLL_INTERVAL = Duration.ofSeconds(1);
-    private static final String HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:";
+    private static final String SERVER_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:servers:";
+    private static final String REQUEST_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:requests:";
     private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(5);
     private static final Duration HEARTBEAT_TTL = HEARTBEAT_INTERVAL.multipliedBy(3);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -69,7 +70,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final boolean metricsEnabled;
     private final Semaphore globalConcurrencyLimiter;
     private final String serverId;
-    private final String heartbeatKey;
+    private final String serverHeartbeatKey;
     private ExecutorService executor;
 
     public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
@@ -103,7 +104,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
         this.serverId = "server-" + UUID.randomUUID();
-        this.heartbeatKey = HEARTBEAT_KEY_PREFIX + serverId;
+        this.serverHeartbeatKey = SERVER_HEARTBEAT_KEY_PREFIX + serverId;
     }
 
     /**
@@ -274,7 +275,11 @@ public class AnyCallServerImpl implements AnyCallServer {
                 try {
                     long now = System.currentTimeMillis();
                     if (now - lastHeartbeat >= HEARTBEAT_INTERVAL.toMillis()) {
-                        writeCommands.set(heartbeatKey, "", SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
+                        writeCommands.set(serverHeartbeatKey, "", SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
+                        for (String requestId : inFlightRequestIds) {
+                            writeCommands.set(REQUEST_HEARTBEAT_KEY_PREFIX + requestId, "",
+                                SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
+                        }
                         lastHeartbeat = now;
                     }
 
@@ -307,9 +312,9 @@ public class AnyCallServerImpl implements AnyCallServer {
             }
         } finally {
             try {
-                writeCommands.del(heartbeatKey);
+                writeCommands.del(serverHeartbeatKey);
             } catch (Exception e) {
-                log.debug("Failed to clean up heartbeat key {}: {}", heartbeatKey, e.getMessage());
+                log.debug("Failed to clean up heartbeat key {}: {}", serverHeartbeatKey, e.getMessage());
             }
         }
     }
@@ -482,6 +487,8 @@ public class AnyCallServerImpl implements AnyCallServer {
         } finally {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
+                // TODO: decide whether to delete the heartbeat here or let the TTL expire it.
+                // If deleting, ordering vs xack matters — think it through before choosing.
             }
         }
     }

@@ -19,6 +19,7 @@ from anycall.model import AnyCallRequest
 from PyQt6.QtCore import QThread, pyqtSignal
 
 HEARTBEAT_PATTERN = "anycall:heartbeat:*"
+REQUEST_HEARTBEAT_PREFIX = "anycall:heartbeat:requests:"
 RESPONSE_STREAM_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
 REQUEST_STREAM_PATTERN = f"{anycall_queues.REQUEST_QUEUE_PREFIX}*"
 ENTRY_PEEK_COUNT = 20
@@ -64,12 +65,20 @@ class ServerInfo:
 
 
 @dataclass
+class RequestHeartbeatInfo:
+    key: str
+    request_id: str
+    ttl_seconds: int
+
+
+@dataclass
 class Snapshot:
     connected: bool
     taken_at: float
     redis_uri: str
     methods: list[MethodInfo] = field(default_factory=list)
     servers: list[ServerInfo] = field(default_factory=list)
+    requests: list[RequestHeartbeatInfo] = field(default_factory=list)
     inflight_responses: int = 0
     redis_version: str = ""
     connected_clients: int = 0
@@ -155,6 +164,19 @@ def _collect_server(client: redis.Redis, key: str) -> Optional[ServerInfo]:
     )
 
 
+def _collect_request(client: redis.Redis, key: str) -> Optional[RequestHeartbeatInfo]:
+    ttl = client.ttl(key)
+    if ttl == -2:
+        # Expired/deleted between the SCAN that found it and this call --
+        # it's not real Redis state anymore, so don't invent a row for it.
+        return None
+    return RequestHeartbeatInfo(
+        key=key,
+        request_id=key[len(REQUEST_HEARTBEAT_PREFIX):],
+        ttl_seconds=ttl if ttl and ttl > 0 else 0,
+    )
+
+
 def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     info = client.info()
 
@@ -166,14 +188,12 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
         )
         if method is not None
     ]
-    servers = [
-        server
-        for server in (
-            _collect_server(client, key)
-            for key in sorted(client.scan_iter(match=HEARTBEAT_PATTERN, count=200))
-        )
-        if server is not None
-    ]
+    heartbeat_keys = sorted(client.scan_iter(match=HEARTBEAT_PATTERN, count=200))
+    server_keys = [k for k in heartbeat_keys if not k.startswith(REQUEST_HEARTBEAT_PREFIX)]
+    request_keys = [k for k in heartbeat_keys if k.startswith(REQUEST_HEARTBEAT_PREFIX)]
+
+    servers = [s for s in (_collect_server(client, key) for key in server_keys) if s is not None]
+    requests = [r for r in (_collect_request(client, key) for key in request_keys) if r is not None]
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_STREAM_PATTERN, count=200))
 
     return Snapshot(
@@ -182,6 +202,7 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
         redis_uri=redis_uri,
         methods=methods,
         servers=servers,
+        requests=requests,
         inflight_responses=inflight_responses,
         redis_version=info.get("redis_version", "?"),
         connected_clients=info.get("connected_clients", 0),

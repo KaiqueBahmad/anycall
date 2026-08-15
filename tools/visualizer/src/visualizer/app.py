@@ -28,7 +28,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .poller import ConsumerInfo, Event, GroupInfo, MethodInfo, PollerThread, ServerInfo, Snapshot
+from .poller import (
+    ConsumerInfo,
+    Event,
+    GroupInfo,
+    MethodInfo,
+    PollerThread,
+    RequestHeartbeatInfo,
+    ServerInfo,
+    Snapshot,
+)
 
 WINDOW_TITLE = "AnyCall Visualizer"
 MAX_LOG_LINES = 1000
@@ -172,7 +181,8 @@ QToolTip {{
 # size so surrounding columns grow with the text instead of leaving bigger
 # glyphs cramped inside fixed-size columns.
 METHODS_TREE_BASE_COLUMNS = {0: 340, 1: 80, 2: 90, 3: 90}
-SERVERS_TREE_BASE_COLUMNS = {0: 220, 1: 110, 2: 90}
+SERVERS_TREE_BASE_COLUMNS = {0: 220, 1: 90}
+REQUESTS_TREE_BASE_COLUMNS = {0: 260, 1: 90}
 TREE_BASE_INDENT = 20
 
 # Custom item-data roles: KEY_ROLE holds a stable string identifying the row
@@ -260,8 +270,21 @@ class VisualizerApp(QMainWindow):
         splitter.addWidget(self._servers_group)
         self._bind_copy_json(self._servers_tree)
 
+        self._requests_group = QGroupBox("Requests (in flight)")
+        requests_layout = QVBoxLayout(self._requests_group)
+        self._requests_tree = QTreeWidget()
+        self._requests_tree.setColumnCount(2)
+        self._requests_tree.setHeaderLabels(["request id", "expires in"])
+        self._requests_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._requests_tree.setUniformRowHeights(True)
+        self._requests_tree.setAlternatingRowColors(True)
+        requests_layout.addWidget(self._requests_tree)
+        splitter.addWidget(self._requests_group)
+        self._bind_copy_json(self._requests_tree)
+
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(2, 2)
         layout.addWidget(splitter, 1)
 
         self._log_group = QGroupBox("Activity log")
@@ -294,6 +317,7 @@ class VisualizerApp(QMainWindow):
 
         self._render_methods(snapshot)
         self._render_servers(snapshot)
+        self._render_requests(snapshot)
 
     # -- Ctrl-C copy-as-JSON --------------------------------------------------
 
@@ -352,6 +376,10 @@ class VisualizerApp(QMainWindow):
     @staticmethod
     def _server_to_dict(server: ServerInfo) -> dict:
         return asdict(server)
+
+    @staticmethod
+    def _request_to_dict(request: RequestHeartbeatInfo) -> dict:
+        return asdict(request)
 
     # -- tree state preservation across rebuilds ------------------------------
 
@@ -454,6 +482,22 @@ class VisualizerApp(QMainWindow):
         tree.addTopLevelItems(top_items)
         self._restore_tree_state(tree, selected, expanded, current)
 
+    def _render_requests(self, snapshot: Snapshot) -> None:
+        tree = self._requests_tree
+        selected, expanded, current = self._capture_tree_state(tree)
+        tree.clear()
+
+        top_items = []
+        for request in snapshot.requests:
+            item = QTreeWidgetItem([request.request_id, f"{request.ttl_seconds}s"])
+            item.setData(0, KEY_ROLE, request.key)
+            item.setData(0, DATA_ROLE, self._request_to_dict(request))
+            self._set_numeric_columns(item, range(1, 2))
+            top_items.append(item)
+
+        tree.addTopLevelItems(top_items)
+        self._restore_tree_state(tree, selected, expanded, current)
+
     def _append_events(self, events: list[Event]) -> None:
         for event in events:
             ts = time.strftime("%H:%M:%S", time.localtime(event.timestamp))
@@ -491,6 +535,7 @@ class VisualizerApp(QMainWindow):
             self._font_size_spin,
             self._methods_group,
             self._servers_group,
+            self._requests_group,
             self._log_group,
         ):
             widget.setFont(base_font)
@@ -501,7 +546,7 @@ class VisualizerApp(QMainWindow):
             button.setFont(bold_font)
             button.setFixedSize(spin_height, spin_height)
 
-        for tree in (self._methods_tree, self._servers_tree):
+        for tree in (self._methods_tree, self._servers_tree, self._requests_tree):
             tree.setFont(base_font)
             tree.header().setFont(bold_font)
 
@@ -513,9 +558,11 @@ class VisualizerApp(QMainWindow):
         scale = size / DEFAULT_FONT_SIZE
         self._methods_tree.setIndentation(round(TREE_BASE_INDENT * scale))
         self._servers_tree.setIndentation(round(TREE_BASE_INDENT * scale))
+        self._requests_tree.setIndentation(round(TREE_BASE_INDENT * scale))
         for tree, base_columns in (
             (self._methods_tree, METHODS_TREE_BASE_COLUMNS),
             (self._servers_tree, SERVERS_TREE_BASE_COLUMNS),
+            (self._requests_tree, REQUESTS_TREE_BASE_COLUMNS),
         ):
             for column, base_width in base_columns.items():
                 tree.setColumnWidth(column, round(base_width * scale))
