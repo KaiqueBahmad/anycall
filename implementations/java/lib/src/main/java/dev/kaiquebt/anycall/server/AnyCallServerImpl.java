@@ -337,8 +337,11 @@ public class AnyCallServerImpl implements AnyCallServer {
         String methodName = streamKey.substring(AnycallQueues.REQUEST_QUEUE_PREFIX.length());
         MethodHandler handler = snapshot.get(methodName);
 
+        // TODO verify if this is really the expected behaviour
         if (handler == null) {
             // Unregistered between being read and being routed; nothing left to hand it to.
+            log.warn("No handler registered for method '{}'; dropping message {} from stream {}",
+                    methodName, messageId, streamKey);
             writeCommands.xack(streamKey, GROUP_NAME, messageId);
             writeCommands.xdel(streamKey, messageId);
             return;
