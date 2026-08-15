@@ -67,7 +67,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
     private final Semaphore globalConcurrencyLimiter;
-    private final String consumerId;
+    private final String serverId;
     private final String heartbeatKey;
     private ExecutorService executor;
 
@@ -100,8 +100,8 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
-        this.consumerId = "server-" + UUID.randomUUID();
-        this.heartbeatKey = HEARTBEAT_KEY_PREFIX + GROUP_NAME + ":" + consumerId;
+        this.serverId = "server-" + UUID.randomUUID();
+        this.heartbeatKey = HEARTBEAT_KEY_PREFIX + GROUP_NAME + ":" + serverId;
     }
 
     /**
@@ -277,7 +277,7 @@ public class AnyCallServerImpl implements AnyCallServer {
                     ensureGroupsForNewStreams(snapshot.keySet());
 
                     List<StreamMessage<String, String>> result = readCommands.xreadgroup(
-                        Consumer.from(GROUP_NAME, consumerId),
+                        Consumer.from(GROUP_NAME, serverId),
                         new XReadArgs().block(POLL_BLOCK_TIMEOUT).count(1),
                         buildOffsets(snapshot.keySet())
                     );
