@@ -150,7 +150,7 @@ def _collect_server(client: redis.Redis, key: str) -> Optional[ServerInfo]:
     return ServerInfo(
         key=key,
         server_id=key.rsplit(":", 1)[-1],
-        last_heartbeat_epoch=int(value),
+        last_heartbeat_epoch=int(value) if value else 0,
         ttl_seconds=ttl if ttl and ttl > 0 else 0,
     )
 

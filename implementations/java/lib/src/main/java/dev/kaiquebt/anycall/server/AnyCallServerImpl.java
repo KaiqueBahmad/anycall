@@ -101,7 +101,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
         this.serverId = "server-" + UUID.randomUUID();
-        this.heartbeatKey = HEARTBEAT_KEY_PREFIX + GROUP_NAME + ":" + serverId;
+        this.heartbeatKey = HEARTBEAT_KEY_PREFIX + serverId;
     }
 
     /**
@@ -264,7 +264,7 @@ public class AnyCallServerImpl implements AnyCallServer {
                 try {
                     long now = System.currentTimeMillis();
                     if (now - lastHeartbeat >= HEARTBEAT_INTERVAL.toMillis()) {
-                        writeCommands.set(heartbeatKey, String.valueOf(now), SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
+                        writeCommands.set(heartbeatKey, "", SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
                         lastHeartbeat = now;
                     }
 

@@ -183,15 +183,6 @@ KEY_ROLE = Qt.ItemDataRole.UserRole
 DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
-def _age(epoch_seconds: float, now: float) -> str:
-    if epoch_seconds <= 0:
-        return "?"
-    delta = max(0, now - epoch_seconds)
-    if delta < 60:
-        return f"{delta:.0f}s ago"
-    return f"{delta / 60:.1f}m ago"
-
-
 class VisualizerApp(QMainWindow):
     def __init__(self, redis_uri: str, interval: float = 1.0):
         super().__init__()
@@ -260,8 +251,8 @@ class VisualizerApp(QMainWindow):
         self._servers_group = QGroupBox("Servers (heartbeats)")
         servers_layout = QVBoxLayout(self._servers_group)
         self._servers_tree = QTreeWidget()
-        self._servers_tree.setColumnCount(3)
-        self._servers_tree.setHeaderLabels(["server id", "last heartbeat", "expires in"])
+        self._servers_tree.setColumnCount(2)
+        self._servers_tree.setHeaderLabels(["server id", "expires in"])
         self._servers_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._servers_tree.setUniformRowHeights(True)
         self._servers_tree.setAlternatingRowColors(True)
@@ -448,17 +439,16 @@ class VisualizerApp(QMainWindow):
         self._restore_tree_state(tree, selected, expanded, current)
 
     def _render_servers(self, snapshot: Snapshot) -> None:
-        now = time.time()
         tree = self._servers_tree
         selected, expanded, current = self._capture_tree_state(tree)
         tree.clear()
 
         top_items = []
         for server in snapshot.servers:
-            item = QTreeWidgetItem([server.server_id, _age(server.last_heartbeat_epoch, now), f"{server.ttl_seconds}s"])
+            item = QTreeWidgetItem([server.server_id, f"{server.ttl_seconds}s"])
             item.setData(0, KEY_ROLE, server.key)
             item.setData(0, DATA_ROLE, self._server_to_dict(server))
-            self._set_numeric_columns(item, range(1, 3))
+            self._set_numeric_columns(item, range(1, 2))
             top_items.append(item)
 
         tree.addTopLevelItems(top_items)

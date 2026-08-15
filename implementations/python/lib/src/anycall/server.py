@@ -119,7 +119,7 @@ class AnyCallServerImpl(AnyCallServer):
         self._executor: Optional[ThreadPoolExecutor] = None
         self._global_limiter = threading.Semaphore(max_concurrency) if max_concurrency else None
         self._server_id = f"server-{uuid.uuid4()}"
-        self._heartbeat_key = f"{HEARTBEAT_KEY_PREFIX}{queues.CONSUMER_GROUP_PREFIX}:{self._server_id}"
+        self._heartbeat_key = f"{HEARTBEAT_KEY_PREFIX}{self._server_id}"
 
     def register(self, *suppliers: Any) -> "AnyCallServer":
         """Register supplier(s) with this server."""
