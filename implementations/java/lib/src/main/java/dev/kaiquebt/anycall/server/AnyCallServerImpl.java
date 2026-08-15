@@ -64,6 +64,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Map<String, MethodHandler> methodHandlers;
     private final Map<String, Semaphore> methodConcurrencyLimiters;
     private final Set<String> groupEnsuredStreams;
+    private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
     private final Semaphore globalConcurrencyLimiter;
@@ -97,6 +98,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.groupEnsuredStreams = ConcurrentHashMap.newKeySet();
+        this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
@@ -220,6 +222,14 @@ public class AnyCallServerImpl implements AnyCallServer {
     @Override
     public boolean isRunning() {
         return running.get();
+    }
+
+    /**
+     * Request IDs currently between deserialization and response in {@link #processRequest}.
+     * A snapshot, not a live view — safe to iterate without external synchronization.
+     */
+    public Set<String> getInFlightRequestIds() {
+        return Set.copyOf(inFlightRequestIds);
     }
 
     /**
@@ -409,6 +419,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             AnyCallRequest request = OBJECT_MAPPER.readValue(requestJson, AnyCallRequest.class);
             requestId = request.requestId();
             methodName = request.methodName();
+            inFlightRequestIds.add(requestId);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [SERVER] [{}] Request deserialized in {}ms", requestId,
@@ -467,6 +478,10 @@ public class AnyCallServerImpl implements AnyCallServer {
                     e.getMessage() != null ? e.getMessage() : e.getClass().getName()
                 );
                 sendResponse(response);
+            }
+        } finally {
+            if (requestId != null) {
+                inFlightRequestIds.remove(requestId);
             }
         }
     }
