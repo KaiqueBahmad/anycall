@@ -29,9 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .poller import (
-    ConsumerInfo,
     Event,
-    GroupInfo,
     MethodInfo,
     PollerThread,
     RequestHeartbeatInfo,
@@ -246,11 +244,11 @@ class VisualizerApp(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        self._methods_group = QGroupBox("Methods (request streams)")
+        self._methods_group = QGroupBox("Methods (request queues)")
         methods_layout = QVBoxLayout(self._methods_group)
         self._methods_tree = QTreeWidget()
-        self._methods_tree.setColumnCount(4)
-        self._methods_tree.setHeaderLabels(["method / group / consumer", "backlog", "processing", "consumers"])
+        self._methods_tree.setColumnCount(2)
+        self._methods_tree.setHeaderLabels(["method", "backlog"])
         self._methods_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._methods_tree.setUniformRowHeights(True)
         self._methods_tree.setAlternatingRowColors(True)
@@ -327,9 +325,9 @@ class VisualizerApp(QMainWindow):
         shortcut.activated.connect(lambda t=tree: self._copy_selection_as_json(t))
 
     def _copy_selection_as_json(self, tree: QTreeWidget) -> None:
-        # A selected group already nests its consumers (same for a selected
-        # method nesting its groups), so if both are selected together, drop
-        # the descendant -- otherwise its data shows up twice in the output.
+        # If a selected row's ancestor is also selected, drop the descendant --
+        # otherwise its data would show up twice in the output. No tree nests
+        # today, but this stays correct if one ever does again.
         selected_items = tree.selectedItems()
         selected_keys = {item.data(0, KEY_ROLE) for item in selected_items}
 
@@ -356,22 +354,9 @@ class VisualizerApp(QMainWindow):
     def _method_to_dict(method: MethodInfo) -> dict:
         return {
             "method": method.name,
+            "kind": method.kind,
             "backlog": method.backlog,
-            "processing": method.processing,
-            "consumer_count": method.consumer_count,
-            "groups": [VisualizerApp._group_to_dict(g) for g in method.groups],
         }
-
-    @staticmethod
-    def _group_to_dict(group: GroupInfo, method_name: str | None = None) -> dict:
-        d = {"group": group.name, "pending": group.pending, "consumers": [asdict(c) for c in group.consumers]}
-        if method_name is not None:
-            d = {"method": method_name, **d}
-        return d
-
-    @staticmethod
-    def _consumer_to_dict(consumer: ConsumerInfo, method_name: str, group_name: str) -> dict:
-        return {"method": method_name, "group": group_name, **asdict(consumer)}
 
     @staticmethod
     def _server_to_dict(server: ServerInfo) -> dict:
@@ -434,32 +419,14 @@ class VisualizerApp(QMainWindow):
         for method in snapshot.methods:
             method_key = f"method:{method.name}"
             method_item = QTreeWidgetItem(
-                [method.name, str(method.backlog), str(method.processing), str(method.consumer_count)]
+                [
+                    f"{method.name}  [{method.kind}]",
+                    str(method.backlog),
+                ]
             )
             method_item.setData(0, KEY_ROLE, method_key)
             method_item.setData(0, DATA_ROLE, self._method_to_dict(method))
-            self._set_numeric_columns(method_item, range(1, 4))
-
-            for group in method.groups:
-                group_key = f"{method_key}:group:{group.name}"
-                group_item = QTreeWidgetItem(
-                    [f"group: {group.name}", "", str(group.pending), str(len(group.consumers))]
-                )
-                group_item.setData(0, KEY_ROLE, group_key)
-                group_item.setData(0, DATA_ROLE, self._group_to_dict(group, method.name))
-                self._set_numeric_columns(group_item, range(1, 4))
-
-                for consumer in group.consumers:
-                    consumer_key = f"{group_key}:consumer:{consumer.name}"
-                    consumer_item = QTreeWidgetItem(
-                        [f"consumer: {consumer.name}  (idle {consumer.idle_ms} ms)", "", str(consumer.pending), ""]
-                    )
-                    consumer_item.setData(0, KEY_ROLE, consumer_key)
-                    consumer_item.setData(0, DATA_ROLE, self._consumer_to_dict(consumer, method.name, group.name))
-                    self._set_numeric_columns(consumer_item, range(1, 4))
-                    group_item.addChild(consumer_item)
-
-                method_item.addChild(group_item)
+            self._set_numeric_columns(method_item, range(1, 2))
 
             top_items.append(method_item)
 
