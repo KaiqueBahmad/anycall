@@ -34,7 +34,7 @@ public class SupplierApplication {
             deleteHealthFile();
         }));
 
-        logger.info("Application ready. Supplier listening on streams.");
+        logger.info("Application ready. Supplier listening on queues.");
 
         Thread.currentThread().join();
     }

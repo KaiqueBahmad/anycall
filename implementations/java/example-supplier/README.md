@@ -26,7 +26,7 @@ docker-compose up -d
 mvn spring-boot:run
 ```
 
-The supplier will listen for requests on the Redis stream for the `analyze-sentiment` operation.
+The supplier will listen for requests on the Redis queue for the `analyze-sentiment` operation.
 
 ## Structure
 
