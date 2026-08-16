@@ -293,7 +293,7 @@ public class AnyCallServerImpl implements AnyCallServer {
 
                     List<StreamMessage<String, String>> result = readCommands.xreadgroup(
                         Consumer.from(GROUP_NAME, serverId),
-                        new XReadArgs().block(POLL_BLOCK_TIMEOUT).count(1),
+                        new XReadArgs().block(POLL_BLOCK_TIMEOUT).count(1).noack(true),
                         buildOffsets(snapshot.keySet())
                     );
 
@@ -357,7 +357,6 @@ public class AnyCallServerImpl implements AnyCallServer {
             // Unregistered between being read and being routed; nothing left to hand it to.
             log.warn("No handler registered for method '{}'; dropping message {} from stream {}",
                     methodName, messageId, streamKey);
-            writeCommands.xack(streamKey, GROUP_NAME, messageId);
             writeCommands.xdel(streamKey, messageId);
             return;
         }
@@ -365,7 +364,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         String requestJson = msg.getBody() != null ? msg.getBody().get(DATA_FIELD) : null;
         if (requestJson == null) {
             log.warn("Discarding malformed message {} on stream {}: missing '{}' field", messageId, streamKey, DATA_FIELD);
-            writeCommands.xack(streamKey, GROUP_NAME, messageId);
             writeCommands.xdel(streamKey, messageId);
             return;
         }
@@ -386,14 +384,13 @@ public class AnyCallServerImpl implements AnyCallServer {
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    // Never got to run the handler; leave the message unacked in the PEL
-                    // rather than pretend it was handled.
+                    // Never got to run the handler. With NOACK there's no PEL entry to
+                    // reclaim, so leave the message undeleted rather than pretend it was handled.
                     return;
                 }
 
                 processRequest(requestJson, handler);
 
-                writeCommands.xack(streamKey, GROUP_NAME, messageId);
                 writeCommands.xdel(streamKey, messageId);
             } finally {
                 if (globalAcquired) {
@@ -488,7 +485,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
                 // TODO: decide whether to delete the heartbeat here or let the TTL expire it.
-                // If deleting, ordering vs xack matters — think it through before choosing.
+                // If deleting, ordering vs xdel matters — think it through before choosing.
             }
         }
     }

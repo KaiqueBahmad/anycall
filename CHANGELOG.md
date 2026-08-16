@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Heartbeat keys split into `servers:` and `requests:` sub-namespaces (`anycall:heartbeat:servers:<serverId>`, `anycall:heartbeat:requests:<requestId>`), replacing the single flat per-server key
 - Server heartbeat key no longer includes the consumer group name
 - The main read loop now also heartbeats every in-flight request id alongside the server's own heartbeat, on the same tick
+- The server now reads with `XREADGROUP ... NOACK`, so messages no longer enter the consumer group's PEL; the now-unnecessary `XACK` calls were removed
 
 ## [0.2] - 2026-08-13
 
