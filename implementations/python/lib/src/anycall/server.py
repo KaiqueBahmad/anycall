@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 POLL_BLOCK_TIMEOUT = 5000  # milliseconds
 IDLE_POLL_INTERVAL_SECONDS = 1  # used when no methods are registered yet
-HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:"
+SERVER_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:servers:"
+REQUEST_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:requests:"
 HEARTBEAT_INTERVAL_SECONDS = 5
 HEARTBEAT_TTL_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 3
 
@@ -75,6 +76,10 @@ class AnyCallServerImpl(AnyCallServer):
     mirrors the Java implementation and keeps the two interoperable: a Java
     and a Python server can share the same consumer group on the same stream.
 
+    The read uses NOACK, so messages never enter the group's PEL -- a handled
+    message is removed with XDEL instead of XACK, same as the Java
+    implementation.
+
     Reads happen one message at a time per stream and dispatch to a shared
     worker pool without blocking the read loop (see `_dispatch_message`), so a
     saturated method only piles up its own worker tasks waiting on its
@@ -88,7 +93,7 @@ class AnyCallServerImpl(AnyCallServer):
     everything. redis-py's client is backed by a connection pool that already
     hands out a separate physical connection per concurrent call (blocking or
     not), so the single blocking read and any number of concurrent
-    acks/deletes/writes never contend for the same socket.
+    deletes/writes never contend for the same socket.
     """
 
     def __init__(
@@ -119,7 +124,9 @@ class AnyCallServerImpl(AnyCallServer):
         self._executor: Optional[ThreadPoolExecutor] = None
         self._global_limiter = threading.Semaphore(max_concurrency) if max_concurrency else None
         self._server_id = f"server-{uuid.uuid4()}"
-        self._heartbeat_key = f"{HEARTBEAT_KEY_PREFIX}{self._server_id}"
+        self._heartbeat_key = f"{SERVER_HEARTBEAT_KEY_PREFIX}{self._server_id}"
+        self._in_flight_request_ids: set[str] = set()
+        self._in_flight_lock = threading.Lock()
 
     def register(self, *suppliers: Any) -> "AnyCallServer":
         """Register supplier(s) with this server."""
@@ -192,12 +199,25 @@ class AnyCallServerImpl(AnyCallServer):
 
         return self
 
+    def get_in_flight_request_ids(self) -> set[str]:
+        """Request ids currently between deserialization and response in
+        `_process_request`. A snapshot, not a live view -- safe to iterate
+        without external synchronization."""
+        with self._in_flight_lock:
+            return set(self._in_flight_request_ids)
+
     def _emit_heartbeats(self) -> None:
         """Periodically writes a TTL'd heartbeat key so external tooling can
-        detect a live server instance. Cleaned up on stop()."""
+        detect a live server instance, plus one per in-flight request id.
+        Cleaned up on stop() -- request heartbeats are left for their TTL to
+        expire instead, same as the Java implementation."""
         while self._running:
             try:
                 self.redis.set_with_ttl(self._heartbeat_key, str(int(time.time())), HEARTBEAT_TTL_SECONDS)
+                for request_id in self.get_in_flight_request_ids():
+                    self.redis.set_with_ttl(
+                        f"{REQUEST_HEARTBEAT_KEY_PREFIX}{request_id}", "", HEARTBEAT_TTL_SECONDS
+                    )
             except Exception as e:
                 logger.warning(f"Failed to write heartbeat: {e}")
             time.sleep(HEARTBEAT_INTERVAL_SECONDS)
@@ -224,7 +244,7 @@ class AnyCallServerImpl(AnyCallServer):
 
                 streams = {queues.request_queue(name): ">" for name in snapshot}
                 result = self.redis.read_group_multi(
-                    streams, queues.CONSUMER_GROUP_PREFIX, self._server_id, POLL_BLOCK_TIMEOUT
+                    streams, queues.CONSUMER_GROUP_PREFIX, self._server_id, POLL_BLOCK_TIMEOUT, noack=True
                 )
 
                 if not result:
@@ -260,14 +280,14 @@ class AnyCallServerImpl(AnyCallServer):
 
         if handler is None:
             logger.debug(f"Discarding message {message_id} for unregistered method (stream {stream_key})")
-            self._ack_and_delete(stream_key, message_id)
+            self.redis.delete_entry(stream_key, message_id)
             return
 
         if b"data" not in data:
             logger.warning(
                 f"Discarding malformed message {message_id} on stream {stream_key}: missing 'data' field"
             )
-            self._ack_and_delete(stream_key, message_id)
+            self.redis.delete_entry(stream_key, message_id)
             return
 
         method_limiter = self._method_limiters.get(method_name)
@@ -292,7 +312,7 @@ class AnyCallServerImpl(AnyCallServer):
                 global_acquired = True
 
             self._process_request(handler, data)
-            self._ack_and_delete(stream_key, message_id)
+            self.redis.delete_entry(stream_key, message_id)
         except Exception as e:
             logger.exception(f"Error processing request: {e}")
         finally:
@@ -301,15 +321,15 @@ class AnyCallServerImpl(AnyCallServer):
             if method_acquired:
                 method_limiter.release()
 
-    def _ack_and_delete(self, stream_key: str, message_id: Any) -> None:
-        self.redis.acknowledge(stream_key, queues.CONSUMER_GROUP_PREFIX, message_id)
-        self.redis.delete_entry(stream_key, message_id)
-
     def _process_request(self, handler: MethodHandler, data: Dict[bytes, bytes]) -> None:
         """Process a single request and send response."""
+        request_id = None
         try:
             request_json = data[b"data"].decode("utf-8")
             rpc_request = deserialize(request_json, AnyCallRequest)
+            request_id = rpc_request.request_id
+            with self._in_flight_lock:
+                self._in_flight_request_ids.add(request_id)
 
             param = deserialize(rpc_request.payload, handler.parameter_type)
 
@@ -322,9 +342,13 @@ class AnyCallServerImpl(AnyCallServer):
         except Exception as e:
             logger.exception(f"Error invoking method: {e}")
             response = AnyCallResponse.error(
-                rpc_request.request_id if "rpc_request" in locals() else "unknown",
+                request_id if request_id is not None else "unknown",
                 str(e)
             )
+        finally:
+            if request_id is not None:
+                with self._in_flight_lock:
+                    self._in_flight_request_ids.discard(request_id)
 
         response_stream = queues.response_queue(response.request_id)
         response_json = serialize(response)

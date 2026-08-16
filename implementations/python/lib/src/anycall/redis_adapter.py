@@ -92,6 +92,7 @@ class RedisStreamAdapter:
         consumer_id: str,
         timeout_ms: int,
         count: int = 1,
+        noack: bool = False,
     ) -> Optional[Any]:
         """Read new messages from every given stream in a single consumer-group
         read -- one blocking call covering all of them instead of one call per
@@ -105,6 +106,9 @@ class RedisStreamAdapter:
             consumer_id: Consumer identity within the group
             timeout_ms: Block timeout in milliseconds
             count: Max entries to return per stream
+            noack: if True, read messages without adding them to the group's
+                PEL -- matches the Java implementation, which relies on
+                explicit XDEL after processing instead of PEL/XACK bookkeeping
 
         Returns:
             List of (stream_key, [(message_id, data_dict), ...]) tuples, or
@@ -116,6 +120,7 @@ class RedisStreamAdapter:
             streams=streams,
             block=timeout_ms,
             count=count,
+            noack=noack,
         )
 
     def create_group(self, stream_key: str, group_name: str) -> None:
@@ -134,19 +139,6 @@ class RedisStreamAdapter:
                 pass
             else:
                 raise
-
-    def acknowledge(self, stream_key: str, group_name: str, message_id: str) -> int:
-        """Acknowledge message in consumer group.
-
-        Args:
-            stream_key: Redis stream key
-            group_name: Consumer group name
-            message_id: Message ID to acknowledge
-
-        Returns:
-            Number of messages acknowledged
-        """
-        return self.redis.xack(stream_key, group_name, message_id)
 
     def delete(self, key: str) -> int:
         """Delete a key.
