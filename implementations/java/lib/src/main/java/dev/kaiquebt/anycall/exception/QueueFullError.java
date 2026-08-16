@@ -2,14 +2,14 @@ package dev.kaiquebt.anycall.exception;
 
 /**
  * Raised when a call is rejected at submission because the target method's
- * request stream already has at least {@code maxQueueDepth} entries.
+ * request queue already has at least {@code maxQueueDepth} entries.
  * <p>
- * Thrown before the request is published (before {@code XADD}), so the
+ * Thrown before the request is published (before {@code LPUSH}), so the
  * caller that would have waited for a response is the one that sees the
- * failure — instead of the request silently being dropped later by stream
- * trimming (e.g. {@code MAXLEN}) with no way to signal the original caller.
+ * failure, as a clear backpressure signal rather than letting the queue
+ * grow unbounded with no way to signal the original caller.
  * <p>
- * The depth check ({@code XLEN} then {@code XADD}) is advisory, not a hard
+ * The depth check ({@code LLEN} then {@code LPUSH}) is advisory, not a hard
  * bound: another client can publish between the two calls, so the queue can
  * briefly exceed {@code maxQueueDepth}. A strict bound would need an atomic
  * check-and-add (e.g. a Lua script).

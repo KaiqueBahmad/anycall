@@ -1,11 +1,11 @@
 # AnyCall Library
 
-Redis-based library for RPC in Java. Provides a framework for communication between applications through Redis Streams.
+Redis-based library for RPC in Java. Provides a framework for communication between applications through Redis.
 Call functions across Java services using Redis, with no `.proto` files, exposed ports, or extra service plumbing to maintain.
 
 ## Overview
 
-AnyCall is a framework that allows Java applications to communicate asynchronously through Redis, using Redis Streams as the message transport mechanism.
+AnyCall is a framework that allows Java applications to communicate asynchronously through Redis, using Redis Lists (`LPUSH`/`BRPOP`) as the message transport mechanism.
 
 ## Main Components
 
@@ -13,7 +13,6 @@ AnyCall is a framework that allows Java applications to communicate asynchronous
 - **AnyCall** - Main library interface
 - **AnyCallClient** - Client for calling methods on remote suppliers
 - **AnyCallServer** - Server for registering and executing methods
-- **RedisStreamAdapter** - Redis Streams adapter
 
 ### Publisher
 - **AnyCallPublisher** - Publishes messages/requests

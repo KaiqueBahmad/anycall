@@ -9,8 +9,6 @@ import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-
 /**
  * Internal implementation of AnyCallPublisher.
  * <p>
@@ -20,7 +18,6 @@ import java.util.Collections;
 public class AnyCallPublisherImpl implements AnyCallPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallPublisherImpl.class);
-    private static final String DATA_FIELD = "data";
 
     private final RedisCommands<String, String> commands;
     private final ObjectMapper objectMapper;
@@ -34,22 +31,22 @@ public class AnyCallPublisherImpl implements AnyCallPublisher {
     }
 
     @Override
-    public void publish(String stream, Object message) {
+    public void publish(String queue, Object message) {
         try {
             String jsonMessage = objectMapper.writeValueAsString(message);
-            publishString(stream, jsonMessage);
+            publishString(queue, jsonMessage);
         } catch (JsonProcessingException e) {
-            throw new SerializationError("AnyCall", "Failed to serialize message for stream: " + stream, e);
+            throw new SerializationError("AnyCall", "Failed to serialize message for queue: " + queue, e);
         }
     }
 
     @Override
-    public void publishString(String stream, String message) {
+    public void publishString(String queue, String message) {
         try {
-            commands.xadd(stream, Collections.singletonMap(DATA_FIELD, message));
-            log.debug("Published message to stream: {}", stream);
+            commands.lpush(queue, message);
+            log.debug("Published message to queue: {}", queue);
         } catch (Exception e) {
-            throw new ConnectionError("AnyCall", "Failed to publish message to stream: " + stream, e);
+            throw new ConnectionError("AnyCall", "Failed to publish message to queue: " + queue, e);
         }
     }
 }

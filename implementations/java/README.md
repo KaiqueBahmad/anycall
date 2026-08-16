@@ -44,13 +44,13 @@ For details on how to use as a supplier or consumer, see [USAGE.md](USAGE.md).
 ## Modules
 
 ### lib
-Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall` factory class to create clients and servers:
+Core library implementing an RPC framework via Redis (Lists as queues). Uses the `AnyCall` factory class to create clients and servers:
 
-- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis Stream, waits for the response on a callback stream. Supports configurable timeout and optional metrics collection.
+- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis queue, waits for the response on a callback queue. Supports configurable timeout and optional metrics collection.
   
-- **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via `@Supply` annotation on registered classes. Each method's concurrency is optionally capped by `@Supply(maxConcurrency = ...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redisUri, metricsEnabled, maxConcurrency)`.
+- **AnyCall Server**: Listener that processes requests from Redis. A single read loop blocks on every registered method's request queue and dispatches to a shared worker pool. Methods are discovered via `@Supply` annotation on registered classes. Each method's concurrency is optionally capped by `@Supply(maxConcurrency = ...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redisUri, metricsEnabled, maxConcurrency)`.
 
-- **Publisher**: Abstraction for publishing to Redis Streams (JSON messages).
+- **Publisher**: Abstraction for publishing to Redis queues (JSON messages).
 
 - **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
 

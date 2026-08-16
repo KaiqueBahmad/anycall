@@ -7,12 +7,9 @@ import dev.kaiquebt.anycall.core.AnycallContext;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
-import io.lettuce.core.Consumer;
+import io.lettuce.core.KeyValue;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.SetArgs;
-import io.lettuce.core.StreamMessage;
-import io.lettuce.core.XGroupCreateArgs;
-import io.lettuce.core.XReadArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
@@ -20,8 +17,10 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,16 +37,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * <strong>This class is not intended for direct use. Use {@link dev.kaiquebt.anycall.core.AnyCall#server(String)} instead.</strong>
  * </p>
- * One read loop listens on every registered method's stream via a single blocking
- * {@code XREADGROUP} and dispatches to a shared worker pool. The whole server uses
- * exactly two Redis connections — one for reading, one shared for writes — no matter
- * how many methods or how much concurrency is configured.
+ * One read loop listens on every registered method's request queue via a single
+ * blocking {@code BRPOP} and dispatches to a shared worker pool. The whole server
+ * uses exactly two Redis connections — one for reading, one shared for writes — no
+ * matter how many methods or how much concurrency is configured.
  */
 public class AnyCallServerImpl implements AnyCallServer {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallServerImpl.class);
-    private static final String DATA_FIELD = "data";
-    private static final String GROUP_NAME = "anycall-workers";
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration IDLE_POLL_INTERVAL = Duration.ofSeconds(1);
     private static final String SERVER_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:servers:";
@@ -64,7 +61,6 @@ public class AnyCallServerImpl implements AnyCallServer {
 
     private final Map<String, MethodHandler> methodHandlers;
     private final Map<String, Semaphore> methodConcurrencyLimiters;
-    private final Set<String> groupEnsuredStreams;
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
@@ -98,7 +94,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.writeCommands = writeConnection.sync();
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
-        this.groupEnsuredStreams = ConcurrentHashMap.newKeySet();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
@@ -108,7 +103,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * Starts the server and begins processing incoming requests from Redis streams.
+     * Starts the server and begins processing incoming requests from Redis.
      * Spawns the single read loop plus the worker pool that processes dispatched
      * requests. This method is idempotent - repeated calls have no effect if already
      * running.
@@ -120,7 +115,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         if (running.compareAndSet(false, true)) {
             log.info("Starting AnyCall server");
             executor = Executors.newCachedThreadPool();
-            executor.submit(this::pollAllStreams);
+            executor.submit(this::pollAllQueues);
         }
         return this;
     }
@@ -234,41 +229,11 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * Ensures that a Redis consumer group exists for the given stream.
-     * Creates the group (and the stream itself via {@code MKSTREAM}, since the
-     * stream won't exist yet if no client has ever called this method).
-     *
-     * @param streamKey the Redis stream key to ensure a consumer group for
-     * @param group the consumer group name
-     * @return {@code true} if the group exists (created now or already present),
-     *         {@code false} if creation failed and should be retried later
+     * Single read loop for every registered method's request queue. Only blocks on
+     * queues with spare {@code maxConcurrency} capacity (see {@link #methodsWithCapacity}),
+     * so a saturated method's requests stay in Redis instead of piling up in memory.
      */
-    private boolean ensureConsumerGroup(String streamKey, String group) {
-        try {
-            writeCommands.xgroupCreate(XReadArgs.StreamOffset.latest(streamKey), group, XGroupCreateArgs.Builder.mkstream());
-            log.info("Created consumer group '{}' for stream: {}", group, streamKey);
-            return true;
-        } catch (Exception e) {
-            String msg = e.getMessage() != null ? e.getMessage() : "";
-            if (msg.contains("BUSYGROUP")) {
-                log.debug("Consumer group '{}' already exists for stream: {}", group, streamKey);
-                return true;
-            }
-            log.warn("Could not create consumer group for stream {}: {}", streamKey, msg);
-            return false;
-        }
-    }
-
-    /**
-     * Single read loop for every registered method's stream, sharing one consumer
-     * group name ({@code anycall-workers}) — Redis scopes a group per (stream, name)
-     * pair, so reusing the name across streams doesn't couple the methods together.
-     * Reads one message at a time and dispatches without blocking (see
-     * {@link #handleMessage}), so a saturated method only piles up its own worker
-     * threads waiting on its semaphore, never stalls this loop. Bound that pileup with
-     * client-side {@code maxQueueDepth} if it's a concern for a given method.
-     */
-    private void pollAllStreams() {
+    private void pollAllQueues() {
         long lastHeartbeat = 0;
         try {
             while (running.get()) {
@@ -289,24 +254,29 @@ public class AnyCallServerImpl implements AnyCallServer {
                         continue;
                     }
 
-                    ensureGroupsForNewStreams(snapshot.keySet());
-
-                    List<StreamMessage<String, String>> result = readCommands.xreadgroup(
-                        Consumer.from(GROUP_NAME, serverId),
-                        new XReadArgs().block(POLL_BLOCK_TIMEOUT).count(1).noack(true),
-                        buildOffsets(snapshot.keySet())
-                    );
-
-                    if (result == null || result.isEmpty()) {
+                    Set<String> available = methodsWithCapacity(snapshot.keySet());
+                    if (available.isEmpty()) {
+                        // Every registered method (or the server-wide cap) is fully
+                        // saturated right now — back off instead of busy-looping.
+                        Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
                         continue;
                     }
 
-                    handleMessage(result.get(0), snapshot);
+                    KeyValue<String, String> entry = readCommands.brpop(
+                        POLL_BLOCK_TIMEOUT.getSeconds(),
+                        buildQueueKeys(available)
+                    );
+
+                    if (entry == null) {
+                        continue;
+                    }
+
+                    handleMessage(entry, snapshot);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
                     if (running.get()) {
-                        log.error("Error reading from streams: {}", e.getMessage());
+                        log.error("Error reading from queues: {}", e.getMessage());
                     }
                 }
             }
@@ -319,84 +289,99 @@ public class AnyCallServerImpl implements AnyCallServer {
         }
     }
 
-    private void ensureGroupsForNewStreams(Set<String> methodNames) {
+    // TODO: review whole concurrency implementation
+    /**
+     * Methods with a free permit on both their own semaphore and the server-wide
+     * one, if any. A point-in-time read, not a reservation, so it can be stale by
+     * the time {@link #handleMessage} actually acquires — that's fine, worst case
+     * one extra request gets popped just as its method fills up.
+     */
+    private Set<String> methodsWithCapacity(Set<String> methodNames) {
+        if (globalConcurrencyLimiter != null && globalConcurrencyLimiter.availablePermits() <= 0) {
+            return Set.of();
+        }
+        Set<String> available = new HashSet<>();
         for (String methodName : methodNames) {
-            String streamKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
-            if (!groupEnsuredStreams.contains(streamKey) && ensureConsumerGroup(streamKey, GROUP_NAME)) {
-                groupEnsuredStreams.add(streamKey);
+            Semaphore limiter = methodConcurrencyLimiters.get(methodName);
+            if (limiter == null || limiter.availablePermits() > 0) {
+                available.add(methodName);
             }
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private XReadArgs.StreamOffset<String>[] buildOffsets(Set<String> methodNames) {
-        XReadArgs.StreamOffset<String>[] offsets = new XReadArgs.StreamOffset[methodNames.size()];
-        int i = 0;
-        for (String methodName : methodNames) {
-            offsets[i++] = XReadArgs.StreamOffset.lastConsumed(AnycallQueues.REQUEST_QUEUE_PREFIX + methodName);
-        }
-        return offsets;
+        return available;
     }
 
     /**
-     * Routes one message to its handler and dispatches to the shared worker pool.
-     * Dispatch itself never blocks — the method's {@code maxConcurrency} and the
-     * server-wide cap, if any, are acquired inside the submitted task instead.
-     *
-     * @param msg the message read from one of the request streams
-     * @param snapshot the method registry as it was when this message was read
+     * Builds the array of request queue keys to block on, shuffled so that BRPOP's
+     * preference for the first key with data available doesn't starve a method that
+     * consistently sorts after a busier one in {@code methodNames}' iteration order.
      */
-    private void handleMessage(StreamMessage<String, String> msg, Map<String, MethodHandler> snapshot) {
-        String streamKey = msg.getStream();
-        String messageId = msg.getId();
-        String methodName = streamKey.substring(AnycallQueues.REQUEST_QUEUE_PREFIX.length());
+    private String[] buildQueueKeys(Set<String> methodNames) {
+        List<String> keys = new ArrayList<>(methodNames.size());
+        for (String methodName : methodNames) {
+            keys.add(AnycallQueues.REQUEST_QUEUE_PREFIX + methodName);
+        }
+        Collections.shuffle(keys);
+        return keys.toArray(new String[0]);
+    }
+
+    /**
+     * Routes one popped request to its handler. Acquires both semaphores on this
+     * (the poll loop's) thread, before dispatching — since {@link #methodsWithCapacity}
+     * already filtered for availability, this is normally instant; it only actually
+     * waits if that pre-filter's read is stale, which is exactly when the loop
+     * should wait rather than pop another request the method has no room for.
+     *
+     * @param entry the queue key and raw request JSON popped by BRPOP
+     * @param snapshot the method registry as it was when this entry was read
+     */
+    private void handleMessage(KeyValue<String, String> entry, Map<String, MethodHandler> snapshot) {
+        String queueKey = entry.getKey();
+        String requestJson = entry.getValue();
+        String methodName = queueKey.substring(AnycallQueues.REQUEST_QUEUE_PREFIX.length());
         MethodHandler handler = snapshot.get(methodName);
 
         // TODO verify if this is really the expected behaviour
         if (handler == null) {
-            // Unregistered between being read and being routed; nothing left to hand it to.
-            log.warn("No handler registered for method '{}'; dropping message {} from stream {}",
-                    methodName, messageId, streamKey);
-            writeCommands.xdel(streamKey, messageId);
-            return;
-        }
-
-        String requestJson = msg.getBody() != null ? msg.getBody().get(DATA_FIELD) : null;
-        if (requestJson == null) {
-            log.warn("Discarding malformed message {} on stream {}: missing '{}' field", messageId, streamKey, DATA_FIELD);
-            writeCommands.xdel(streamKey, messageId);
+            // Unregistered between being popped and being routed; nothing left to hand
+            // it to. BRPOP already removed it from Redis, so there's nothing to clean up.
+            log.warn("No handler registered for method '{}'; dropping request from queue {}",
+                    methodName, queueKey);
             return;
         }
 
         Semaphore methodLimiter = methodConcurrencyLimiters.get(methodName);
+        boolean methodAcquired = false;
+        boolean globalAcquired = false;
+        try {
+            if (methodLimiter != null) {
+                methodLimiter.acquire();
+                methodAcquired = true;
+            }
+            if (globalConcurrencyLimiter != null) {
+                globalConcurrencyLimiter.acquire();
+                globalAcquired = true;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (methodAcquired) {
+                methodLimiter.release();
+            }
+            // BRPOP already removed this entry from Redis when it was popped, so
+            // never getting to run the handler just means it's lost — same
+            // at-most-once semantics as before under NOACK.
+            return;
+        }
+
+        boolean releaseGlobal = globalAcquired;
+        boolean releaseMethod = methodAcquired;
         executor.submit(() -> {
-            boolean methodAcquired = false;
-            boolean globalAcquired = false;
             try {
-                try {
-                    if (methodLimiter != null) {
-                        methodLimiter.acquire();
-                        methodAcquired = true;
-                    }
-                    if (globalConcurrencyLimiter != null) {
-                        globalConcurrencyLimiter.acquire();
-                        globalAcquired = true;
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    // Never got to run the handler. With NOACK there's no PEL entry to
-                    // reclaim, so leave the message undeleted rather than pretend it was handled.
-                    return;
-                }
-
                 processRequest(requestJson, handler);
-
-                writeCommands.xdel(streamKey, messageId);
             } finally {
-                if (globalAcquired) {
+                if (releaseGlobal) {
                     globalConcurrencyLimiter.release();
                 }
-                if (methodAcquired) {
+                if (releaseMethod) {
                     methodLimiter.release();
                 }
             }
@@ -491,16 +476,16 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * Sends a response back to the client via a Redis stream.
-     * Serializes the response and pushes it to the client's response stream.
+     * Sends a response back to the client via a Redis queue.
+     * Serializes the response and pushes it to the client's response queue.
      *
      * @param response the response to send
      */
     private void sendResponse(AnyCallResponse response) {
         try {
-            String responseStream = AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
+            String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
             String responseJson = OBJECT_MAPPER.writeValueAsString(response);
-            writeCommands.xadd(responseStream, Collections.singletonMap(DATA_FIELD, responseJson));
+            writeCommands.lpush(responseQueue, responseJson);
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
         }

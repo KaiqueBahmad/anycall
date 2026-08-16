@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4] - 2026-08-16
+
+### Changed
+- AnyCall no longer uses Redis Streams; request and response queues (`anycall:requests:<method>`, `anycall:responses:<requestId>`) are now plain Redis Lists, using `LPUSH`/`BRPOP` instead of `XADD`/`XREADGROUP`/`XREAD` — consumer groups, `XACK`, and `XDEL` are gone entirely
+- `getQueueDepth`/`maxQueueDepth` (`LLEN`) no longer counts requests currently being processed, only requests not yet popped by a worker — previously (`XLEN`) it included both, since Stream entries stuck around until `XDEL` ran after processing finished
+
 ## [0.3] - 2026-08-15
 
 ### Added

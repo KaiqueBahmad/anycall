@@ -8,7 +8,8 @@ public interface AnyCallServer {
 
     /**
      * Starts the server and begins processing incoming requests from Redis.
-     * Launches worker threads for each registered method and begins listening on the corresponding streams.
+     * Spawns the single read loop that blocks on every registered method's request
+     * queue and dispatches to a shared worker pool.
      * This method is idempotent - calling it multiple times on an already running server has no effect.
      *
      * @return this server instance for method chaining

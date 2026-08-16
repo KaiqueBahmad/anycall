@@ -7,16 +7,14 @@ import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
+import io.lettuce.core.KeyValue;
 import io.lettuce.core.RedisClient;
-import io.lettuce.core.XReadArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -29,7 +27,6 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallClientImpl.class);
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
-    private static final String DATA_FIELD = "data";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final StatefulRedisConnection<String, String> connection;
@@ -63,8 +60,8 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     /**
      * Makes a synchronous remote procedure call via Redis.
-     * Serializes the request, publishes it to the appropriate request stream,
-     * waits for the response on a dedicated stream, and deserializes the result.
+     * Serializes the request, publishes it to the appropriate request queue,
+     * waits for the response on a dedicated queue, and deserializes the result.
      *
      * @param <T> the type of the expected response
      * @param methodName the name of the remote method to invoke
@@ -87,17 +84,17 @@ public class AnyCallClientImpl implements AnyCallClient {
     private <T> T call(String methodName, Object request, Class<T> responseType, Long maxQueueDepth) {
         long startTime = metricsEnabled ? System.currentTimeMillis() : 0;
         String _requestId = null;
-        String responseStream = null;
+        String responseQueue = null;
 
         try {
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] Starting call to method: {}", methodName);
             }
 
-            String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+            String requestQueue = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
 
             if (maxQueueDepth != null) {
-                long queueDepth = commands.xlen(requestStream);
+                long queueDepth = commands.llen(requestQueue);
                 if (queueDepth >= maxQueueDepth) {
                     throw new QueueFullError(methodName, queueDepth, maxQueueDepth);
                 }
@@ -115,24 +112,24 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             long beforePush = metricsEnabled ? System.currentTimeMillis() : 0;
-            commands.xadd(requestStream, Collections.singletonMap(DATA_FIELD, requestJson));
+            commands.lpush(requestQueue, requestJson);
 
             if (metricsEnabled) {
-                log.debug("[METRICS] [CLIENT] [{}] Request published to stream in {}ms", requestId,
+                log.debug("[METRICS] [CLIENT] [{}] Request published to queue in {}ms", requestId,
                     System.currentTimeMillis() - beforePush);
             }
 
-            responseStream = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
+            responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
             long beforeWait = metricsEnabled ? System.currentTimeMillis() : 0;
 
-            List<Object> records = readStream(responseStream, timeout);
+            String responseJson = readResponse(responseQueue, timeout);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
                     System.currentTimeMillis() - beforeWait);
             }
 
-            if (records == null || records.isEmpty()) {
+            if (responseJson == null) {
                 throw new TimeoutError(
                     methodName,
                     "Timeout waiting for response from method: " + methodName,
@@ -143,9 +140,6 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
-            @SuppressWarnings("unchecked")
-			Map<String, String> data = (Map<String, String>) records.get(1);
-            String responseJson = data.get(DATA_FIELD);
             AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
             if (response.hasError()) {
@@ -175,8 +169,8 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
             throw new AnyCallError(methodName, "Failed to call method: " + methodName, e);
         } finally {
-            if (responseStream != null) {
-                commands.del(responseStream);
+            if (responseQueue != null) {
+                commands.del(responseQueue);
             }
         }
     }
@@ -223,8 +217,8 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     @Override
     public long getQueueDepth(String methodName) {
-        String requestStream = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
-        return commands.xlen(requestStream);
+        String requestQueue = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+        return commands.llen(requestQueue);
     }
 
     @Override
@@ -242,19 +236,10 @@ public class AnyCallClientImpl implements AnyCallClient {
         registry.register(operation, responseType);
     }
 
-    private List<Object> readStream(String streamKey, Duration timeout) {
+    private String readResponse(String queueKey, Duration timeout) {
         try {
-            XReadArgs args = new XReadArgs();
-            args.block(timeout);
-            XReadArgs.StreamOffset<String> offset = XReadArgs.StreamOffset.from(streamKey, "0-0");
-
-            @SuppressWarnings("unchecked")
-			List<io.lettuce.core.StreamMessage<String, String>> result = commands.xread(args, offset);
-            if (result != null && !result.isEmpty()) {
-                io.lettuce.core.StreamMessage<String, String> msg = result.get(0);
-                return List.of(msg.getId(), msg.getBody());
-            }
-            return null;
+            KeyValue<String, String> entry = commands.brpop(timeout.getSeconds(), queueKey);
+            return entry != null ? entry.getValue() : null;
         } catch (Exception e) {
             return null;
         }

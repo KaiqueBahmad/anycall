@@ -33,7 +33,7 @@ public interface AnyCallClient {
      * @param request the request payload object to be serialized and sent
      * @param responseType the class type for deserializing the response
      * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
-     *        if the request stream's length is at or above this value
+     *        if the request queue's length is at or above this value
      * @return the deserialized response from the remote method
      * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails, times out, or the remote method returns an error
@@ -64,7 +64,7 @@ public interface AnyCallClient {
      * @param methodName the name of the remote method to invoke
      * @param request the request payload object to be serialized and sent
      * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
-     *        if the request stream's length is at or above this value
+     *        if the request queue's length is at or above this value
      * @return the deserialized response from the remote method
      * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the operation is not registered or if the call fails
@@ -92,7 +92,7 @@ public interface AnyCallClient {
      * @param methodName the name of the remote method to invoke
      * @param request the request payload object to be serialized and sent
      * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
-     *        if the request stream's length is at or above this value
+     *        if the request queue's length is at or above this value
      * @return raw response as Map<String,Object> (native structure)
      * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails or times out
@@ -100,14 +100,16 @@ public interface AnyCallClient {
     java.util.Map<String, Object> rawCall(String methodName, Object request, long maxQueueDepth);
 
     /**
-     * Reads the current backlog of a method's request stream ({@code XLEN}).
+     * Reads the current backlog of a method's request queue ({@code LLEN}).
      * <p>
-     * Read-only and non-destructive; safe to poll as a health gauge. Workers
-     * {@code XDEL} each request once it's been processed, so this reflects
-     * the true in-flight backlog, not the method's lifetime call count.
+     * Read-only and non-destructive; safe to poll as a health gauge. A worker's
+     * {@code BRPOP} removes each request the moment it's popped, before
+     * processing starts — so this reflects only requests not yet picked up by
+     * any worker, not the true in-flight count (a request already being
+     * processed no longer counts against this).
      *
      * @param methodName the name of the remote method
-     * @return the number of entries currently in the method's request stream
+     * @return the number of entries currently in the method's request queue
      */
     long getQueueDepth(String methodName);
 
