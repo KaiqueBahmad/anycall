@@ -91,6 +91,17 @@ class SentimentAnalyzer:
         print(f"Uncollected: {req.text} -> {result.label}")
 ```
 
+## Smart cross-implementation test matrix
+
+A harness that discovers `implementations/<lang>/` automatically and runs a
+shared scenario suite (call, errors, timeouts, backpressure, detached/attach)
+across every client × server language pair — a pass/fail grid instead of
+manually-written interop tests per pair.
+
+"Smart" means skipping pairs where neither side changed: with languages
+A, B, and C, a change to A only needs (A×B, A×C, A×A) re-run — B×C
+is untouched by the change and can be skipped.
+
 ## Where this shows up elsewhere
 
 - **"When to use anycall" — fire now, collect later.** Kick off slow work
