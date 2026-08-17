@@ -121,3 +121,11 @@ server.start();
 AnyCallClient anyCall = AnyCall.client(redisUri);
 Sentiment sentiment = anyCall.p2pCall("analyze-sentiment", req, Sentiment.class);
 ```
+
+## OpenTelemetry integration
+
+`request_id` already threads through every request/response envelope — extend
+it into a proper trace context (traceparent) instead of a bare id, so a call
+crossing Java → Redis → Python shows up as one connected trace instead of two
+disjoint services. Client wraps `call` in a span; server continues the trace
+inside `_process_request`/`processRequest`.
