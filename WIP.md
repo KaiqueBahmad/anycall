@@ -102,12 +102,22 @@ manually-written interop tests per pair.
 A, B, and C, a change to A only needs (A×B, A×C, A×A) re-run — B×C
 is untouched by the change and can be skipped.
 
-## Where this shows up elsewhere
+## P2P calls
 
-- **"When to use anycall" — fire now, collect later.** Kick off slow work
-  with `detached_call`, keep the id, and `attach_call` to it when you
-  actually need the answer — possibly from a different service. Anything
-  left uncollected lands in a `@Consumer` handler instead of vanishing.
-- **"How it compares" table — Detached / collect-later row.** Once shipped,
-  anycall will offer this via `detached_call` + `attach_call`, comparable to
-  Celery's result backend.
+Redis becomes discovery-only. The server provides anycall a function that
+resolves its own reachable address; the client looks that up via Redis, then
+the request/response payload travels directly between them, never through
+Redis. The client doesn't need to publish anything — it dials out and gets
+the response on the same connection.
+
+```java
+// Server: advertises where it can be reached
+AnyCallServer server = AnyCall.server(redisUri)
+    .p2p(() -> new InetSocketAddress("10.0.0.5", 7000));
+server.register(new SentimentAnalyzer());
+server.start();
+
+// Client: looks up the address via Redis, then talks to the server directly
+AnyCallClient anyCall = AnyCall.client(redisUri);
+Sentiment sentiment = anyCall.p2pCall("analyze-sentiment", req, Sentiment.class);
+```
