@@ -1,29 +1,57 @@
 import inspect
 import logging
+import random
 import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import queues
 from .config import AnycallProperties
 from .context import AnycallContext
 from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse
-from .redis_adapter import RedisStreamAdapter
+from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
 from redis.exceptions import TimeoutError
 logger = logging.getLogger(__name__)
 
-POLL_BLOCK_TIMEOUT = 5000  # milliseconds
+POLL_BLOCK_TIMEOUT_SECONDS = 5
 IDLE_POLL_INTERVAL_SECONDS = 1  # used when no methods are registered yet
 SERVER_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:servers:"
 REQUEST_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:requests:"
 HEARTBEAT_INTERVAL_SECONDS = 5
 HEARTBEAT_TTL_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 3
+
+
+class ConcurrencyLimiter:
+    """A counting semaphore that also exposes whether it has spare capacity
+    right now, via `available()`. `threading.Semaphore` doesn't expose its
+    count, but the read loop needs to peek before popping a request it might
+    have nowhere to run yet."""
+
+    def __init__(self, capacity: int):
+        self._capacity = capacity
+        self._in_use = 0
+        self._condition = threading.Condition()
+
+    def available(self) -> bool:
+        with self._condition:
+            return self._in_use < self._capacity
+
+    def acquire(self) -> None:
+        with self._condition:
+            while self._in_use >= self._capacity:
+                self._condition.wait()
+            self._in_use += 1
+
+    def release(self) -> None:
+        with self._condition:
+            self._in_use -= 1
+            self._condition.notify()
 
 
 @dataclass
@@ -67,24 +95,21 @@ class AnyCallServer(ABC):
 class AnyCallServerImpl(AnyCallServer):
     """RPC server implementation.
 
-    One read loop listens on every registered method's stream via a single
-    blocking XREADGROUP covering all of them at once, sharing one consumer
-    group name (`queues.CONSUMER_GROUP_PREFIX`) across streams -- Redis scopes
-    a group by (stream, name), so reusing the same literal name doesn't couple
-    the methods together, and it's what lets one XREADGROUP call cover
-    multiple streams (Redis only accepts one group name per call). This
-    mirrors the Java implementation and keeps the two interoperable: a Java
-    and a Python server can share the same consumer group on the same stream.
+    One read loop listens on every registered method's request queue via a
+    single blocking BRPOP covering all of them at once. Only queues for
+    methods with spare max_concurrency capacity right now are included (see
+    `_methods_with_capacity`) -- a saturated method is excluded from the next
+    BRPOP until one of its in-flight requests finishes, so requests for a
+    busy method stay visible in Redis (accurate backlog for
+    `get_queue_depth`/`max_queue_depth`) instead of being popped ahead of
+    time and piling up in memory.
 
-    The read uses NOACK, so messages never enter the group's PEL -- a handled
-    message is removed with XDEL instead of XACK, same as the Java
-    implementation.
-
-    Reads happen one message at a time per stream and dispatch to a shared
-    worker pool without blocking the read loop (see `_dispatch_message`), so a
-    saturated method only piles up its own worker tasks waiting on its
-    semaphore, never stalls the loop. Bound that pileup with client-side
-    `max_queue_depth` if it's a concern for a given method.
+    Capacity is acquired synchronously on this read-loop thread, right after
+    a request is popped and before it's dispatched to the worker pool (see
+    `_dispatch_message`) -- since `_methods_with_capacity` already filtered
+    for availability, this is normally instant; it only actually blocks the
+    loop if that pre-filter's read was stale, which is exactly when the loop
+    should wait rather than pop another request the method has no room for.
 
     Unlike the Java implementation -- which hand-splits a fixed read
     connection from a fixed write connection because its client library
@@ -98,13 +123,13 @@ class AnyCallServerImpl(AnyCallServer):
 
     def __init__(
         self,
-        redis_adapter: RedisStreamAdapter,
+        redis_adapter: RedisQueueAdapter,
         props: AnycallProperties,
         max_concurrency: Optional[int] = None,
     ):
         """
         Args:
-            redis_adapter: Redis stream adapter
+            redis_adapter: Redis queue adapter
             props: Server configuration properties
             max_concurrency: Server-wide cap on requests processed at the same
                 time, across every registered @supply method combined (see
@@ -118,11 +143,11 @@ class AnyCallServerImpl(AnyCallServer):
         self.redis = redis_adapter
         self.props = props
         self.method_handlers: Dict[str, MethodHandler] = {}
-        self._method_limiters: Dict[str, threading.Semaphore] = {}
+        self._method_limiters: Dict[str, ConcurrencyLimiter] = {}
         self._running = False
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
-        self._global_limiter = threading.Semaphore(max_concurrency) if max_concurrency else None
+        self._global_limiter = ConcurrencyLimiter(max_concurrency) if max_concurrency else None
         self._server_id = f"server-{uuid.uuid4()}"
         self._heartbeat_key = f"{SERVER_HEARTBEAT_KEY_PREFIX}{self._server_id}"
         self._in_flight_request_ids: set[str] = set()
@@ -168,20 +193,12 @@ class AnyCallServerImpl(AnyCallServer):
                 parameter_type=parameter_type,
                 max_concurrency=max_concurrency,
             )
-            # Group creation happens here, synchronously, rather than lazily
-            # on the read loop's next iteration: if it were deferred, a
-            # register() called after start() could lose its first message --
-            # a client publishing right after register() returns could beat
-            # the loop to it, and XGROUP CREATE's implicit id="$" starts the
-            # group at the stream's current tail, permanently skipping
-            # whatever was already published before the group existed.
-            # Creating it here means the group always exists before register()
-            # returns, before any caller could possibly have published to it.
-            self.redis.create_group(queues.request_queue(method_name), queues.CONSUMER_GROUP_PREFIX)
             self.method_handlers[method_name] = handler
-            self._method_limiters[method_name] = threading.Semaphore(max_concurrency)
-            # No per-method thread to start anymore -- the single read loop
-            # already covers this stream on its next iteration.
+            self._method_limiters[method_name] = ConcurrencyLimiter(max_concurrency)
+            # No per-method thread or Redis setup to do here -- the single
+            # read loop already covers this queue on its next iteration, and
+            # a Redis List needs no setup, it comes into existence on its
+            # first LPUSH.
 
     def start(self) -> "AnyCallServer":
         """Start the server."""
@@ -191,11 +208,11 @@ class AnyCallServerImpl(AnyCallServer):
 
             self._running = True
             worker_count = sum(h.max_concurrency for h in self.method_handlers.values())
-            # +1 for the heartbeat loop, +1 for the single stream-reading loop.
+            # +1 for the heartbeat loop, +1 for the single queue-reading loop.
             self._executor = ThreadPoolExecutor(max_workers=worker_count + 2)
 
             self._executor.submit(self._emit_heartbeats)
-            self._executor.submit(self._poll_all_streams)
+            self._executor.submit(self._poll_all_queues)
 
         return self
 
@@ -227,11 +244,25 @@ class AnyCallServerImpl(AnyCallServer):
         except Exception as e:
             logger.debug(f"Failed to clean up heartbeat key {self._heartbeat_key}: {e}")
 
-    def _poll_all_streams(self) -> None:
-        """Single read loop for every registered method's stream. Every
-        stream's group already exists by the time it can appear here -- see
-        the comment in _register_supplier -- so this only ever reads."""
-        logger.info("Started polling all registered method streams")
+    def _methods_with_capacity(self, method_names) -> List[str]:
+        """Methods with a free slot right now: the server-wide cap (if any)
+        has room, and the method's own max_concurrency limiter has room. A
+        point-in-time read, not a reservation -- it can be stale by the time
+        a slot is actually acquired in `_dispatch_message`. That's fine:
+        worst case one extra request gets popped just as its method fills
+        up."""
+        if self._global_limiter is not None and not self._global_limiter.available():
+            return []
+        available = []
+        for name in method_names:
+            limiter = self._method_limiters.get(name)
+            if limiter is None or limiter.available():
+                available.append(name)
+        return available
+
+    def _poll_all_queues(self) -> None:
+        """Single read loop for every registered method's request queue."""
+        logger.info("Started polling all registered method queues")
 
         while self._running:
             try:
@@ -242,90 +273,80 @@ class AnyCallServerImpl(AnyCallServer):
                     time.sleep(IDLE_POLL_INTERVAL_SECONDS)
                     continue
 
-                streams = {queues.request_queue(name): ">" for name in snapshot}
-                result = self.redis.read_group_multi(
-                    streams, queues.CONSUMER_GROUP_PREFIX, self._server_id, POLL_BLOCK_TIMEOUT, noack=True
-                )
-
-                if not result:
+                available_methods = self._methods_with_capacity(snapshot.keys())
+                if not available_methods:
+                    # Every registered method (or the server-wide cap) is
+                    # fully saturated right now -- back off instead of
+                    # busy-looping.
+                    time.sleep(IDLE_POLL_INTERVAL_SECONDS)
                     continue
 
-                for stream_key, messages in result:
-                    if isinstance(stream_key, bytes):
-                        stream_key = stream_key.decode("utf-8")
-                    for message_id, data in messages:
-                        self._dispatch_message(stream_key, message_id, data, snapshot)
+                queue_keys = [queues.request_queue(name) for name in available_methods]
+                # Shuffled so BRPOP's preference for the first key with data
+                # available doesn't starve a method that consistently sorts
+                # after a busier one.
+                random.shuffle(queue_keys)
+
+                result = self.redis.pop(queue_keys, POLL_BLOCK_TIMEOUT_SECONDS)
+                if result is None:
+                    continue
+
+                queue_key, request_json = result
+                self._dispatch_message(queue_key, request_json, snapshot)
 
             except TimeoutError:
                 pass
             except Exception as e:
                 if self._running:
-                    logger.exception(f"Error reading from streams: {e}")
+                    logger.exception(f"Error reading from queues: {e}")
 
     def _dispatch_message(
         self,
-        stream_key: str,
-        message_id: Any,
-        data: Dict[bytes, bytes],
+        queue_key: str,
+        request_json: str,
         snapshot: Dict[str, MethodHandler],
     ) -> None:
-        """Routes one message to its handler and dispatches to the shared
-        worker pool. Dispatch itself never blocks -- the method's
-        max_concurrency and the server-wide cap, if any, are acquired inside
-        the submitted task instead. A message with no handler (unregistered
-        between being read and being routed) or missing its payload is
-        dropped here directly, without going through the worker pool."""
-        method_name = queues.method_name_from_stream(stream_key)
+        """Routes one popped request to its handler. Acquires capacity on
+        this thread, before dispatching to the worker pool -- see the class
+        docstring for why that's safe and necessary. A request with no
+        handler (unregistered between being popped and being routed) is
+        dropped directly; BRPOP already removed it from Redis, so there's
+        nothing left to clean up."""
+        method_name = queues.method_name_from_queue(queue_key)
         handler = snapshot.get(method_name)
 
         if handler is None:
-            logger.debug(f"Discarding message {message_id} for unregistered method (stream {stream_key})")
-            self.redis.delete_entry(stream_key, message_id)
-            return
-
-        if b"data" not in data:
-            logger.warning(
-                f"Discarding malformed message {message_id} on stream {stream_key}: missing 'data' field"
-            )
-            self.redis.delete_entry(stream_key, message_id)
+            logger.debug(f"Discarding request for unregistered method (queue {queue_key})")
             return
 
         method_limiter = self._method_limiters.get(method_name)
-        self._executor.submit(self._process_message, stream_key, message_id, data, handler, method_limiter)
+        if method_limiter is not None:
+            method_limiter.acquire()
+        if self._global_limiter is not None:
+            self._global_limiter.acquire()
+
+        self._executor.submit(self._process_message, request_json, handler, method_limiter)
 
     def _process_message(
         self,
-        stream_key: str,
-        message_id: Any,
-        data: Dict[bytes, bytes],
+        request_json: str,
         handler: MethodHandler,
-        method_limiter: Optional[threading.Semaphore],
+        method_limiter: Optional[ConcurrencyLimiter],
     ) -> None:
-        method_acquired = False
-        global_acquired = False
         try:
-            if method_limiter is not None:
-                method_limiter.acquire()
-                method_acquired = True
-            if self._global_limiter is not None:
-                self._global_limiter.acquire()
-                global_acquired = True
-
-            self._process_request(handler, data)
-            self.redis.delete_entry(stream_key, message_id)
+            self._process_request(handler, request_json)
         except Exception as e:
             logger.exception(f"Error processing request: {e}")
         finally:
-            if global_acquired:
+            if self._global_limiter is not None:
                 self._global_limiter.release()
-            if method_acquired:
+            if method_limiter is not None:
                 method_limiter.release()
 
-    def _process_request(self, handler: MethodHandler, data: Dict[bytes, bytes]) -> None:
+    def _process_request(self, handler: MethodHandler, request_json: str) -> None:
         """Process a single request and send response."""
         request_id = None
         try:
-            request_json = data[b"data"].decode("utf-8")
             rpc_request = deserialize(request_json, AnyCallRequest)
             request_id = rpc_request.request_id
             with self._in_flight_lock:
@@ -350,9 +371,9 @@ class AnyCallServerImpl(AnyCallServer):
                 with self._in_flight_lock:
                     self._in_flight_request_ids.discard(request_id)
 
-        response_stream = queues.response_queue(response.request_id)
+        response_queue = queues.response_queue(response.request_id)
         response_json = serialize(response)
-        self.redis.add(response_stream, {"data": response_json})
+        self.redis.push(response_queue, response_json)
 
     def stop(self) -> None:
         """Stop the server."""

@@ -1,7 +1,7 @@
 """Unit tests for AnyCallClient call/raw_call/register_type semantics."""
 
 from dataclasses import dataclass
-from typing import Dict
+from typing import List, Optional, Tuple
 
 import pytest
 
@@ -30,16 +30,16 @@ class MockRedisAdapter:
     def __init__(self, queue_depth: int = 0):
         self.queue_depth = queue_depth
 
-    def add(self, stream_key: str, data: Dict[str, str]) -> str:
-        return "fake-id"
+    def push(self, queue_key: str, value: str) -> int:
+        return self.queue_depth + 1
 
-    def read(self, stream_key: str, timeout_ms: int):
+    def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
         return None
 
     def delete(self, key: str) -> int:
         return 0
 
-    def length(self, stream_key: str) -> int:
+    def length(self, queue_key: str) -> int:
         return self.queue_depth
 
     def close(self) -> None:

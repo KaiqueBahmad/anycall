@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
+from typing import List, Optional, Protocol, Tuple, runtime_checkable
 
 import redis
 
@@ -7,138 +7,62 @@ logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
-class RedisStreamPort(Protocol):
-    """Structural interface for the subset of stream operations AnyCallClient
+class RedisQueuePort(Protocol):
+    """Structural interface for the subset of queue operations AnyCallClient
     depends on. Lets test doubles (e.g. a mock) satisfy the type without
-    inheriting from RedisStreamAdapter."""
+    inheriting from RedisQueueAdapter."""
 
-    def add(self, stream_key: str, data: Dict[str, str]) -> str: ...
+    def push(self, queue_key: str, value: str) -> int: ...
 
-    def read(self, stream_key: str, timeout_ms: int) -> Optional[Any]: ...
+    def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]: ...
 
     def delete(self, key: str) -> int: ...
 
-    def length(self, stream_key: str) -> int: ...
+    def length(self, queue_key: str) -> int: ...
 
     def close(self) -> None: ...
 
 
-class RedisStreamAdapter:
-    """Thin wrapper around Redis Streams operations."""
+class RedisQueueAdapter:
+    """Thin wrapper around Redis List operations, used as AnyCall's request
+    and response queues."""
 
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
 
-    def add(self, stream_key: str, data: Dict[str, str]) -> str:
-        """Add entry to stream.
+    def push(self, queue_key: str, value: str) -> int:
+        """Push a value onto a queue (LPUSH).
 
         Args:
-            stream_key: Redis stream key
-            data: Dictionary with data to store (must have string values)
+            queue_key: Redis list key
+            value: String value to push
 
         Returns:
-            Message ID
+            Length of the queue after the push
         """
-        return self.redis.xadd(stream_key, data)
+        return self.redis.lpush(queue_key, value)
 
-    def read(self, stream_key: str, timeout_ms: int) -> Optional[Any]:
-        """Read from stream with timeout (from beginning).
+    def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
+        """Block until one of the given queues has an entry, then pop and
+        remove it (BRPOP) -- whichever queue yields data first, paired with
+        LPUSH this gives FIFO order per queue.
 
         Args:
-            stream_key: Redis stream key
-            timeout_ms: Block timeout in milliseconds
+            queue_keys: Redis list keys to block on
+            timeout_seconds: Block timeout in seconds (0 blocks indefinitely)
 
         Returns:
-            List of (message_id, data_dict) tuples or None if timeout
+            (queue_key, value) of the popped entry, or None on timeout
         """
-        result = self.redis.xread(
-            {stream_key: "0-0"},
-            block=timeout_ms,
-            count=1
-        )
-        return result
-
-    def read_group(
-        self,
-        stream_key: str,
-        group_name: str,
-        consumer_id: str,
-        timeout_ms: int
-    ) -> Optional[Any]:
-        """Read from stream using consumer group.
-
-        Args:
-            stream_key: Redis stream key
-            group_name: Consumer group name
-            consumer_id: Consumer ID
-            timeout_ms: Block timeout in milliseconds
-
-        Returns:
-            List of (message_id, data_dict) tuples or None if timeout
-        """
-        result = self.redis.xreadgroup(
-            groupname=group_name,
-            consumername=consumer_id,
-            streams={stream_key: ">"},
-            block=timeout_ms,
-            count=1
-        )
-        return result
-
-    def read_group_multi(
-        self,
-        streams: Dict[str, str],
-        group_name: str,
-        consumer_id: str,
-        timeout_ms: int,
-        count: int = 1,
-        noack: bool = False,
-    ) -> Optional[Any]:
-        """Read new messages from every given stream in a single consumer-group
-        read -- one blocking call covering all of them instead of one call per
-        stream, so a server with many registered methods still holds only one
-        connection open for reading.
-
-        Args:
-            streams: stream_key -> id to read from (">" for "only new
-                messages", matching XREADGROUP's own streams argument)
-            group_name: Consumer group name (must already exist on every stream)
-            consumer_id: Consumer identity within the group
-            timeout_ms: Block timeout in milliseconds
-            count: Max entries to return per stream
-            noack: if True, read messages without adding them to the group's
-                PEL -- matches the Java implementation, which relies on
-                explicit XDEL after processing instead of PEL/XACK bookkeeping
-
-        Returns:
-            List of (stream_key, [(message_id, data_dict), ...]) tuples, or
-            None/empty on timeout
-        """
-        return self.redis.xreadgroup(
-            groupname=group_name,
-            consumername=consumer_id,
-            streams=streams,
-            block=timeout_ms,
-            count=count,
-            noack=noack,
-        )
-
-    def create_group(self, stream_key: str, group_name: str) -> None:
-        """Create consumer group on stream.
-
-        Handles BUSYGROUP and missing stream errors gracefully.
-
-        Args:
-            stream_key: Redis stream key
-            group_name: Consumer group name
-        """
-        try:
-            self.redis.xgroup_create(stream_key, group_name, id="$", mkstream=True)
-        except redis.ResponseError as e:
-            if "BUSYGROUP" in str(e):
-                pass
-            else:
-                raise
+        result = self.redis.brpop(queue_keys, timeout_seconds)
+        if result is None:
+            return None
+        key, value = result
+        if isinstance(key, bytes):
+            key = key.decode("utf-8")
+        if isinstance(value, bytes):
+            value = value.decode("utf-8")
+        return key, value
 
     def delete(self, key: str) -> int:
         """Delete a key.
@@ -151,28 +75,16 @@ class RedisStreamAdapter:
         """
         return self.redis.delete(key)
 
-    def delete_entry(self, stream_key: str, message_id: str) -> int:
-        """Delete a single entry from a stream (XDEL).
+    def length(self, queue_key: str) -> int:
+        """Return the number of entries in a queue (LLEN).
 
         Args:
-            stream_key: Redis stream key
-            message_id: Message ID to remove
+            queue_key: Redis list key
 
         Returns:
-            Number of entries deleted
+            Number of entries currently in the queue
         """
-        return self.redis.xdel(stream_key, message_id)
-
-    def length(self, stream_key: str) -> int:
-        """Return the number of entries in a stream (XLEN).
-
-        Args:
-            stream_key: Redis stream key
-
-        Returns:
-            Number of entries currently in the stream
-        """
-        return self.redis.xlen(stream_key)
+        return self.redis.llen(queue_key)
 
     def set_with_ttl(self, key: str, value: str, ttl_seconds: int) -> None:
         """Set a key with an expiry (used for server heartbeats).

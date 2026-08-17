@@ -16,7 +16,7 @@ from .exceptions import (
     QueueFullError,
 )
 from .model import AnyCallRequest, AnyCallResponse
-from .redis_adapter import RedisStreamPort
+from .redis_adapter import RedisQueuePort
 from .registry import TypeRegistry
 from .serialization import deserialize, serialize
 
@@ -140,7 +140,7 @@ class AnyCallClientImpl(AnyCallClient):
 
     def __init__(
         self,
-        redis_adapter: RedisStreamPort,
+        redis_adapter: RedisQueuePort,
         props: AnycallProperties,
         default_max_queue_depth: int | None = None,
     ):
@@ -262,11 +262,11 @@ class AnyCallClientImpl(AnyCallClient):
             raise SerializationError(method_name, f"Failed to serialize request: {e}")
         rpc_request = AnyCallRequest.create(method_name, payload)
 
-        request_stream = queues.request_queue(method_name)
-        response_stream = queues.response_queue(rpc_request.request_id)
+        request_queue = queues.request_queue(method_name)
+        response_queue = queues.response_queue(rpc_request.request_id)
 
         if effective_max_queue_depth is not None:
-            queue_depth = self.redis.length(request_stream)
+            queue_depth = self.redis.length(request_queue)
             if queue_depth >= effective_max_queue_depth:
                 raise QueueFullError(method_name, queue_depth, effective_max_queue_depth)
 
@@ -275,23 +275,21 @@ class AnyCallClientImpl(AnyCallClient):
                 request_json = serialize(rpc_request)
             except (TypeError, ValueError) as e:
                 raise SerializationError(method_name, f"Failed to serialize RPC request: {e}")
-            self.redis.add(request_stream, {"data": request_json})
+            self.redis.push(request_queue, request_json)
 
-            timeout_ms = int(self.props.timeout.total_seconds() * 1000)
-            result = self.redis.read(response_stream, timeout_ms)
+            timeout_seconds = self.props.timeout.total_seconds()
+            result = self.redis.pop([response_queue], timeout_seconds)
 
             if result is None:
                 raise TimeoutError(
                     method_name,
                     f"Timeout waiting for response from method: {method_name}",
-                    timeout_ms,
+                    int(timeout_seconds * 1000),
                     rpc_request.request_id,
-                    int((self.props.timeout.total_seconds() + 60) * 1000),
+                    int((timeout_seconds + 60) * 1000),
                 )
 
-            _, messages = result[0]
-            _, message_data = messages[0]
-            response_json = message_data[b"data"].decode("utf-8")
+            _, response_json = result
             try:
                 response = deserialize(response_json, AnyCallResponse)
             except json.JSONDecodeError as e:
@@ -309,4 +307,4 @@ class AnyCallClientImpl(AnyCallClient):
                 raise JSONDecodeError(method_name, f"Failed to decode response payload: {e}")
 
         finally:
-            self.redis.delete(response_stream)
+            self.redis.delete(response_queue)
