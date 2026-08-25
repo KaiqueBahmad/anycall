@@ -182,9 +182,3 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
 | Built-in load balancing | Yes (via broker)   | Needs LB / mesh   | DIY                | Yes               |
 | Extra infrastructure    | Reuses Redis       | —                 | Redis              | Broker + backend  |
 | Plumbing you write       | None               | Service stubs     | All of it          | Task definitions  |
-
-> **Trade-offs:** anycall trades throughput and advanced features for simplicity.
-> It's best for polyglot services that need to call each other over Redis,
-> where setup speed matters more than raw performance. Not for high-throughput
-> systems, strict schema enforcement, or when you need features like request
-> versioning or strict ordering guarantees.
