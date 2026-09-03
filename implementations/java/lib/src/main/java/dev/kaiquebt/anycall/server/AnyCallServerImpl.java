@@ -116,6 +116,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             log.info("Starting AnyCall server");
             executor = Executors.newCachedThreadPool();
             executor.submit(this::pollAllQueues);
+            executor.submit(this::emitHeartbeats);
         }
         return this;
     }
@@ -234,52 +235,65 @@ public class AnyCallServerImpl implements AnyCallServer {
      * so a saturated method's requests stay in Redis instead of piling up in memory.
      */
     private void pollAllQueues() {
-        long lastHeartbeat = 0;
+        while (running.get()) {
+            try {
+                Map<String, MethodHandler> snapshot = new HashMap<>(methodHandlers);
+                if (snapshot.isEmpty()) {
+                    Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
+                    continue;
+                }
+
+                Set<String> available = methodsWithCapacity(snapshot.keySet());
+                if (available.isEmpty()) {
+                    // Every registered method (or the server-wide cap) is fully
+                    // saturated right now — back off instead of busy-looping.
+                    Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
+                    continue;
+                }
+
+                KeyValue<String, String> entry = readCommands.brpop(
+                    POLL_BLOCK_TIMEOUT.getSeconds(),
+                    buildQueueKeys(available)
+                );
+
+                if (entry == null) {
+                    continue;
+                }
+
+                handleMessage(entry, snapshot);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                if (running.get()) {
+                    log.error("Error reading from queues: {}", e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Periodically writes a TTL'd heartbeat key so external tooling can detect a
+     * live server instance, plus one per in-flight request id. Runs on its own
+     * thread so a large number of in-flight requests never delays {@link #pollAllQueues}
+     * from draining its queues. Cleaned up on stop() — request heartbeats are left
+     * for their TTL to expire instead, same as the Python implementation.
+     */
+    private void emitHeartbeats() {
         try {
             while (running.get()) {
                 try {
-                    long now = System.currentTimeMillis();
-                    if (now - lastHeartbeat >= HEARTBEAT_INTERVAL.toMillis()) {
-                        writeCommands.set(serverHeartbeatKey, "", SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
-                        for (String requestId : inFlightRequestIds) {
-                            writeCommands.set(REQUEST_HEARTBEAT_KEY_PREFIX + requestId, "",
-                                SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
-                        }
-                        lastHeartbeat = now;
+                    writeCommands.set(serverHeartbeatKey, "", SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
+                    for (String requestId : inFlightRequestIds) {
+                        writeCommands.set(REQUEST_HEARTBEAT_KEY_PREFIX + requestId, "",
+                            SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds()));
                     }
-
-                    Map<String, MethodHandler> snapshot = new HashMap<>(methodHandlers);
-                    if (snapshot.isEmpty()) {
-                        Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
-                        continue;
-                    }
-
-                    Set<String> available = methodsWithCapacity(snapshot.keySet());
-                    if (available.isEmpty()) {
-                        // Every registered method (or the server-wide cap) is fully
-                        // saturated right now — back off instead of busy-looping.
-                        Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
-                        continue;
-                    }
-
-                    KeyValue<String, String> entry = readCommands.brpop(
-                        POLL_BLOCK_TIMEOUT.getSeconds(),
-                        buildQueueKeys(available)
-                    );
-
-                    if (entry == null) {
-                        continue;
-                    }
-
-                    handleMessage(entry, snapshot);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 } catch (Exception e) {
-                    if (running.get()) {
-                        log.error("Error reading from queues: {}", e.getMessage());
-                    }
+                    log.warn("Failed to write heartbeat: {}", e.getMessage());
                 }
+                Thread.sleep(HEARTBEAT_INTERVAL.toMillis());
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } finally {
             try {
                 writeCommands.del(serverHeartbeatKey);
