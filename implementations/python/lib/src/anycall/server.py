@@ -9,14 +9,15 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from redis.exceptions import TimeoutError
+
 from . import queues
 from .config import AnycallProperties
 from .context import AnycallContext
-from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse
 from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
-from redis.exceptions import TimeoutError
+
 logger = logging.getLogger(__name__)
 
 POLL_BLOCK_TIMEOUT_SECONDS = 5

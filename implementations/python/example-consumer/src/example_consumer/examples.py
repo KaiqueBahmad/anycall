@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 
 from anycall import AnyCall
+from anycall.exceptions import AnyCallError
 
-from .model.text_request import TextRequest
 from .model.sentiment import Sentiment
+from .model.text_request import TextRequest
 
 
 @dataclass
@@ -68,9 +69,9 @@ def example_registry_absent_error():
     req = TextRequest(text="Unknown operation")
     try:
         # No Type arg, no registry entry → must fail loudly
-        sentiment = client.call("unknown-operation", req)
+        client.call("unknown-operation", req)
         print("ERROR: Should have raised AnyCallException!")
-    except Exception as e:
+    except AnyCallError as e:
         print(f"✓ Expected error: {e}")
         assert "unknown-operation" in str(e)
         assert "register_type" in str(e) or "explicit type" in str(e)
@@ -89,7 +90,7 @@ def example_duplicate_type_error():
     try:
         client.register_type("analyze-sentiment", OrderResponse)
         print("ERROR: Should have raised AnyCallException!")
-    except Exception as e:
+    except AnyCallError as e:
         print(f"✓ Expected error: {e}")
         assert "analyze-sentiment" in str(e)
         assert "already registered" in str(e)
@@ -116,17 +117,17 @@ if __name__ == "__main__":
 
     try:
         example_call_with_explicit_type()
-    except Exception as e:
+    except AnyCallError as e:
         print(f"⚠ Skipped (no supplier): {e}")
 
     try:
         example_call_with_registry()
-    except Exception as e:
+    except AnyCallError as e:
         print(f"⚠ Skipped (no supplier): {e}")
 
     try:
         example_raw_call()
-    except Exception as e:
+    except AnyCallError as e:
         print(f"⚠ Skipped (no supplier): {e}")
 
     # These work without supplier (registry/error logic)
