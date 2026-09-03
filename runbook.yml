@@ -1,0 +1,29 @@
+# This file is consumed by the runbook tool: github.com/kaiquebahmad/runbook
+redis:
+  description: Redis broker used by every implementation
+  run: docker compose up
+
+java/supplier:
+  description: Java example supplier
+  run: ./run-supplier.sh
+  dir: implementations/java
+
+java/consumer:
+  description: Java example consumer
+  run: ./run-consumer.sh
+  dir: implementations/java
+
+python/supplier:
+  description: Python example supplier
+  run: ./run-supplier.sh
+  dir: implementations/python
+
+python/consumer:
+  description: Python example consumer
+  run: ./run-consumer.sh
+  dir: implementations/python
+
+visualizer:
+  description: Call visualizer tool
+  run: ./run.sh
+  dir: tools/visualizer
