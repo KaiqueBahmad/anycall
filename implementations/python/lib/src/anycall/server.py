@@ -230,11 +230,12 @@ class AnyCallServerImpl(AnyCallServer):
         expire instead, same as the Java implementation."""
         while self._running:
             try:
-                self.redis.set_with_ttl(self._heartbeat_key, str(int(time.time())), HEARTBEAT_TTL_SECONDS)
-                for request_id in self.get_in_flight_request_ids():
-                    self.redis.set_with_ttl(
-                        f"{REQUEST_HEARTBEAT_KEY_PREFIX}{request_id}", "", HEARTBEAT_TTL_SECONDS
-                    )
+                entries = [(self._heartbeat_key, str(int(time.time())))]
+                entries += [
+                    (f"{REQUEST_HEARTBEAT_KEY_PREFIX}{request_id}", "")
+                    for request_id in self.get_in_flight_request_ids()
+                ]
+                self.redis.set_many_with_ttl(entries, HEARTBEAT_TTL_SECONDS)
             except Exception as e:
                 logger.warning(f"Failed to write heartbeat: {e}")
             time.sleep(HEARTBEAT_INTERVAL_SECONDS)

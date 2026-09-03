@@ -20,6 +20,10 @@ class RedisQueuePort(Protocol):
 
     def length(self, queue_key: str) -> int: ...
 
+    def set_with_ttl(self, key: str, value: str, ttl_seconds: int) -> None: ...
+
+    def set_many_with_ttl(self, entries: List[Tuple[str, str]], ttl_seconds: int) -> None: ...
+
     def close(self) -> None: ...
 
 
@@ -95,6 +99,27 @@ class RedisQueueAdapter:
             ttl_seconds: Expiry in seconds
         """
         self.redis.set(key, value, ex=ttl_seconds)
+
+    def set_many_with_ttl(self, entries: List[Tuple[str, str]], ttl_seconds: int) -> None:
+        """Set multiple keys with the same expiry in a single round trip
+        (used to emit all of a server's heartbeats -- its own plus one per
+        in-flight request -- together instead of one SET at a time).
+
+        No transaction semantics (MULTI/EXEC) are needed here: each entry is
+        independent, so a plain pipeline is enough, and it stays compatible
+        with Redis Cluster (a transaction would require every key to hash to
+        the same slot).
+
+        Args:
+            entries: (key, value) pairs to set
+            ttl_seconds: Expiry in seconds, applied to every key
+        """
+        if not entries:
+            return
+        pipe = self.redis.pipeline(transaction=False)
+        for key, value in entries:
+            pipe.set(key, value, ex=ttl_seconds)
+        pipe.execute()
 
     def close(self) -> None:
         """Close Redis connection."""
