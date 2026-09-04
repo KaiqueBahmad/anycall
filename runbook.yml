@@ -13,6 +13,11 @@ java/consumer:
   run: ./run-consumer.sh
   dir: implementations/java
 
+python/sync:
+  description: Sync Python dependencies with uv
+  run: uv sync
+  dir: implementations/python
+
 python/supplier:
   description: Python example supplier
   run: ./run-supplier.sh
@@ -23,7 +28,12 @@ python/consumer:
   run: ./run-consumer.sh
   dir: implementations/python
 
-visualizer:
+visualizer/sync:
+  description: Sync visualizer dependencies with uv
+  run: uv sync
+  dir: tools/visualizer
+
+visualizer/run:
   description: Call visualizer tool
   run: ./run.sh
   dir: tools/visualizer
