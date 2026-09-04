@@ -8,12 +8,8 @@ import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import io.lettuce.core.KeyValue;
-import io.lettuce.core.LettuceFutures;
 import io.lettuce.core.RedisClient;
-import io.lettuce.core.RedisFuture;
-import io.lettuce.core.SetArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
-import io.lettuce.core.api.async.RedisAsyncCommands;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +23,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,19 +37,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </p>
  * One read loop listens on every registered method's request queue via a single
  * blocking {@code BRPOP} and dispatches to a shared worker pool. The whole server
- * uses exactly three Redis connections — one for reading, one shared for request/response
- * writes, and one dedicated to pipelining heartbeats — no matter how many methods or how
- * much concurrency is configured.
+ * uses exactly two Redis connections — one for reading and one shared for
+ * request/response writes — no matter how many methods or how much concurrency is
+ * configured.
  */
 public class AnyCallServerImpl implements AnyCallServer {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallServerImpl.class);
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration IDLE_POLL_INTERVAL = Duration.ofSeconds(1);
-    private static final String SERVER_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:servers:";
-    private static final String REQUEST_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:requests:";
-    private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(5);
-    private static final Duration HEARTBEAT_TTL = HEARTBEAT_INTERVAL.multipliedBy(3);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RedisClient redisClient;
@@ -62,8 +53,6 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final RedisCommands<String, String> readCommands;
     private final StatefulRedisConnection<String, String> writeConnection;
     private final RedisCommands<String, String> writeCommands;
-    private final StatefulRedisConnection<String, String> heartbeatConnection;
-    private final RedisAsyncCommands<String, String> heartbeatCommands;
 
     private final Map<String, MethodHandler> methodHandlers;
     private final Map<String, Semaphore> methodConcurrencyLimiters;
@@ -71,8 +60,6 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
     private final Semaphore globalConcurrencyLimiter;
-    private final String serverId;
-    private final String serverHeartbeatKey;
     private ExecutorService executor;
 
     public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
@@ -98,16 +85,12 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.readCommands = readConnection.sync();
         this.writeConnection = redisClient.connect();
         this.writeCommands = writeConnection.sync();
-        this.heartbeatConnection = redisClient.connect();
-        this.heartbeatCommands = heartbeatConnection.async();
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
-        this.serverId = "server-" + UUID.randomUUID();
-        this.serverHeartbeatKey = SERVER_HEARTBEAT_KEY_PREFIX + serverId;
     }
 
     /**
@@ -124,7 +107,6 @@ public class AnyCallServerImpl implements AnyCallServer {
             log.info("Starting AnyCall server");
             executor = Executors.newCachedThreadPool();
             executor.submit(this::pollAllQueues);
-            executor.submit(this::emitHeartbeats);
         }
         return this;
     }
@@ -276,65 +258,6 @@ public class AnyCallServerImpl implements AnyCallServer {
                     log.error("Error reading from queues: {}", e.getMessage());
                 }
             }
-        }
-    }
-
-    /**
-     * Periodically writes a TTL'd heartbeat key so external tooling can detect a
-     * live server instance, plus one per in-flight request id. Runs on its own
-     * thread so a large number of in-flight requests never delays {@link #pollAllQueues}
-     * from draining its queues. Cleaned up on stop() — request heartbeats are left
-     * for their TTL to expire instead, same as the Python implementation.
-     */
-    private void emitHeartbeats() {
-        try {
-            while (running.get()) {
-                try {
-                    writeHeartbeatsPipelined();
-                } catch (Exception e) {
-                    log.warn("Failed to write heartbeat: {}", e.getMessage());
-                }
-                Thread.sleep(HEARTBEAT_INTERVAL.toMillis());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            try {
-                writeCommands.del(serverHeartbeatKey);
-            } catch (Exception e) {
-                log.debug("Failed to clean up heartbeat key {}: {}", serverHeartbeatKey, e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Writes the server's own heartbeat plus one per in-flight request id in a
-     * single round trip: queues every {@code SET} on the async API without
-     * flushing, then flushes once and waits for all replies together. Runs on
-     * its own connection ({@link #heartbeatConnection}) so toggling auto-flush
-     * here never stalls {@link #sendResponse}, which shares {@link #writeCommands}
-     * with other worker threads.
-     * <p>
-     * No {@code MULTI}/{@code EXEC} is used — these keys are independent, so
-     * atomicity buys nothing here, and skipping it keeps this compatible with
-     * Redis Cluster (a transaction requires every key to hash to the same slot).
-     */
-    private void writeHeartbeatsPipelined() {
-        heartbeatConnection.setAutoFlushCommands(false);
-        try {
-            List<RedisFuture<?>> futures = new ArrayList<>();
-            futures.add(heartbeatCommands.set(serverHeartbeatKey, "", SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds())));
-            for (String requestId : inFlightRequestIds) {
-                futures.add(heartbeatCommands.set(REQUEST_HEARTBEAT_KEY_PREFIX + requestId, "",
-                    SetArgs.Builder.ex(HEARTBEAT_TTL.getSeconds())));
-            }
-            heartbeatConnection.flushCommands();
-            boolean completed = LettuceFutures.awaitAll(HEARTBEAT_INTERVAL, futures.toArray(new RedisFuture[0]));
-            if (!completed) {
-                log.warn("Timed out waiting for {} heartbeat writes to complete", futures.size());
-            }
-        } finally {
-            heartbeatConnection.setAutoFlushCommands(true);
         }
     }
 
@@ -518,8 +441,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         } finally {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
-                // TODO: decide whether to delete the heartbeat here or let the TTL expire it.
-                // If deleting, ordering vs xdel matters — think it through before choosing.
             }
         }
     }

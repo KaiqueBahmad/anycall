@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5] - Work In Progress
+
+### Removed
+- The heartbeat system, entirely — Java, Python and the visualizer. Servers no longer write `anycall:heartbeat:servers:<serverId>` or `anycall:heartbeat:requests:<requestId>` keys.
+
 ## [0.4] - 2026-09-04
 
 ### Added

@@ -3,7 +3,6 @@ import logging
 import random
 import threading
 import time
-import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -22,10 +21,6 @@ logger = logging.getLogger(__name__)
 
 POLL_BLOCK_TIMEOUT_SECONDS = 5
 IDLE_POLL_INTERVAL_SECONDS = 1  # used when no methods are registered yet
-SERVER_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:servers:"
-REQUEST_HEARTBEAT_KEY_PREFIX = "anycall:heartbeat:requests:"
-HEARTBEAT_INTERVAL_SECONDS = 5
-HEARTBEAT_TTL_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 3
 
 
 class ConcurrencyLimiter:
@@ -149,8 +144,6 @@ class AnyCallServerImpl(AnyCallServer):
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
         self._global_limiter = ConcurrencyLimiter(max_concurrency) if max_concurrency else None
-        self._server_id = f"server-{uuid.uuid4()}"
-        self._heartbeat_key = f"{SERVER_HEARTBEAT_KEY_PREFIX}{self._server_id}"
         self._in_flight_request_ids: set[str] = set()
         self._in_flight_lock = threading.Lock()
 
@@ -209,10 +202,9 @@ class AnyCallServerImpl(AnyCallServer):
 
             self._running = True
             worker_count = sum(h.max_concurrency for h in self.method_handlers.values())
-            # +1 for the heartbeat loop, +1 for the single queue-reading loop.
-            self._executor = ThreadPoolExecutor(max_workers=worker_count + 2)
+            # +1 for the single queue-reading loop.
+            self._executor = ThreadPoolExecutor(max_workers=worker_count + 1)
 
-            self._executor.submit(self._emit_heartbeats)
             self._executor.submit(self._poll_all_queues)
 
         return self
@@ -223,28 +215,6 @@ class AnyCallServerImpl(AnyCallServer):
         without external synchronization."""
         with self._in_flight_lock:
             return set(self._in_flight_request_ids)
-
-    def _emit_heartbeats(self) -> None:
-        """Periodically writes a TTL'd heartbeat key so external tooling can
-        detect a live server instance, plus one per in-flight request id.
-        Cleaned up on stop() -- request heartbeats are left for their TTL to
-        expire instead, same as the Java implementation."""
-        while self._running:
-            try:
-                entries = [(self._heartbeat_key, str(int(time.time())))]
-                entries += [
-                    (f"{REQUEST_HEARTBEAT_KEY_PREFIX}{request_id}", "")
-                    for request_id in self.get_in_flight_request_ids()
-                ]
-                self.redis.set_many_with_ttl(entries, HEARTBEAT_TTL_SECONDS)
-            except Exception as e:
-                logger.warning(f"Failed to write heartbeat: {e}")
-            time.sleep(HEARTBEAT_INTERVAL_SECONDS)
-
-        try:
-            self.redis.delete(self._heartbeat_key)
-        except Exception as e:
-            logger.debug(f"Failed to clean up heartbeat key {self._heartbeat_key}: {e}")
 
     def _methods_with_capacity(self, method_names) -> List[str]:
         """Methods with a free slot right now: the server-wide cap (if any)

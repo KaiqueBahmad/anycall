@@ -1,8 +1,7 @@
 # AnyCall Visualizer
 
 Read-only PyQt6 dashboard for observing AnyCall traffic on a Redis
-instance: request queue backlogs, server heartbeats, and a best-effort
-activity log.
+instance: request queue backlogs and a best-effort activity log.
 
 Request/response queues can be either a Redis List (Java, as of the
 Streams-to-Lists migration) or a Redis Stream (Python, still pending that
@@ -11,10 +10,9 @@ right way, so both kinds show up side by side, tagged `[list]`/`[stream]`
 in the Methods panel.
 
 It only ever issues non-destructive Redis commands (`SCAN`, `TYPE`, `LLEN`,
-`LRANGE`, `XLEN`, `XRANGE`, `GET`, `TTL`, `INFO`) — it never pushes or pops
-a queue entry, acknowledges/deletes messages, or changes Redis config. It
-has no effect on real client/server traffic and provides no actions of its
-own.
+`LRANGE`, `XLEN`, `XRANGE`, `INFO`) — it never pushes or pops a queue
+entry, acknowledges/deletes messages, or changes Redis config. It has no
+effect on real client/server traffic and provides no actions of its own.
 
 Works against any AnyCall implementation (Java, Python, ...) since they all
 share the same Redis *key* protocol — though as of the Java migration to
@@ -37,12 +35,7 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   `[list]` or `[stream]`, with backlog (not-yet-popped requests). A
   request simply disappears from the backlog the instant a worker pops
   it, for both kinds.
-- **Servers**: one row per live `anycall:heartbeat:servers:*` (or legacy
-  `anycall:heartbeat:<serverId>`) key, with remaining TTL before it's
-  considered offline.
-- **Requests (in flight)**: one row per live `anycall:heartbeat:requests:*`
-  key, with remaining TTL before it's considered abandoned.
-- **Activity log**: method/server discovery, backlog changes, and requests
+- **Activity log**: method discovery, backlog changes, and requests
   spotted entering a queue. Polling can't see everything that happens
   between two polls, so this is best-effort flavor, not a complete audit
   trail — the gauges above stay exact.

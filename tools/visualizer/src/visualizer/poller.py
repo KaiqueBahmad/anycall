@@ -6,9 +6,9 @@ migration) -- this module checks each key's TYPE at poll time and issues the
 right read-only commands for it, so both kinds show up side by side.
 
 Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE, XLEN,
-XRANGE, GET, TTL, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/
-CONFIG SET. This process must never be able to steal or alter real RPC
-traffic; it only observes it.
+XRANGE, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/CONFIG SET. This
+process must never be able to steal or alter real RPC traffic; it only
+observes it.
 """
 from __future__ import annotations
 
@@ -24,8 +24,6 @@ from anycall import queues as anycall_queues
 from anycall.model import AnyCallRequest
 from PyQt6.QtCore import QThread, pyqtSignal
 
-HEARTBEAT_PATTERN = "anycall:heartbeat:*"
-REQUEST_HEARTBEAT_PREFIX = "anycall:heartbeat:requests:"
 RESPONSE_QUEUE_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
 REQUEST_QUEUE_PATTERN = f"{anycall_queues.REQUEST_QUEUE_PREFIX}*"
 ENTRY_PEEK_COUNT = 20
@@ -41,28 +39,11 @@ class MethodInfo:
 
 
 @dataclass
-class ServerInfo:
-    key: str
-    server_id: str
-    last_heartbeat_epoch: int
-    ttl_seconds: int
-
-
-@dataclass
-class RequestHeartbeatInfo:
-    key: str
-    request_id: str
-    ttl_seconds: int
-
-
-@dataclass
 class Snapshot:
     connected: bool
     taken_at: float
     redis_uri: str
     methods: list[MethodInfo] = field(default_factory=list)
-    servers: list[ServerInfo] = field(default_factory=list)
-    requests: list[RequestHeartbeatInfo] = field(default_factory=list)
     inflight_responses: int = 0
     redis_version: str = ""
     connected_clients: int = 0
@@ -93,9 +74,9 @@ def _preview_request(raw_json: Optional[str | bytes]) -> str:
 
 def _entry_key(raw_json: str | bytes) -> str:
     """Stable-ish key for diffing entries across polls. Prefers the request's
-    own request_id (meaningful, and shared with its heartbeat/response keys);
-    falls back to a content hash if the entry doesn't parse. Never a List
-    index -- that shifts every time something is pushed or popped."""
+    own request_id (meaningful, and shared with its response key); falls
+    back to a content hash if the entry doesn't parse. Never a List index --
+    that shifts every time something is pushed or popped."""
     if isinstance(raw_json, bytes):
         raw_json = raw_json.decode("utf-8", errors="replace")
     try:
@@ -146,37 +127,6 @@ def _collect_stream_method(client: redis.Redis, queue_key: str, name: str) -> Me
     return MethodInfo(name=name, backlog=backlog, kind="stream", entries=entries)
 
 
-def _collect_server(client: redis.Redis, key: str) -> Optional[ServerInfo]:
-    value = client.get(key)
-    if value is None:
-        # Expired/deleted between the SCAN that found it and this GET --
-        # it's not real Redis state anymore, so don't invent a row for it.
-        return None
-    ttl = client.ttl(key)
-    if ttl == -2:
-        # Same race, just caught on the TTL call instead of the GET.
-        return None
-    return ServerInfo(
-        key=key,
-        server_id=key.rsplit(":", 1)[-1],
-        last_heartbeat_epoch=int(value) if value else 0,
-        ttl_seconds=ttl if ttl and ttl > 0 else 0,
-    )
-
-
-def _collect_request(client: redis.Redis, key: str) -> Optional[RequestHeartbeatInfo]:
-    ttl = client.ttl(key)
-    if ttl == -2:
-        # Expired/deleted between the SCAN that found it and this call --
-        # it's not real Redis state anymore, so don't invent a row for it.
-        return None
-    return RequestHeartbeatInfo(
-        key=key,
-        request_id=key[len(REQUEST_HEARTBEAT_PREFIX):],
-        ttl_seconds=ttl if ttl and ttl > 0 else 0,
-    )
-
-
 def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     info = client.info()
 
@@ -188,12 +138,6 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
         )
         if method is not None
     ]
-    heartbeat_keys = sorted(client.scan_iter(match=HEARTBEAT_PATTERN, count=200))
-    server_keys = [k for k in heartbeat_keys if not k.startswith(REQUEST_HEARTBEAT_PREFIX)]
-    request_keys = [k for k in heartbeat_keys if k.startswith(REQUEST_HEARTBEAT_PREFIX)]
-
-    servers = [s for s in (_collect_server(client, key) for key in server_keys) if s is not None]
-    requests = [r for r in (_collect_request(client, key) for key in request_keys) if r is not None]
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
 
     return Snapshot(
@@ -201,8 +145,6 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
         taken_at=time.time(),
         redis_uri=redis_uri,
         methods=methods,
-        servers=servers,
-        requests=requests,
         inflight_responses=inflight_responses,
         redis_version=info.get("redis_version", "?"),
         connected_clients=info.get("connected_clients", 0),
@@ -246,14 +188,6 @@ class ActivityTracker:
             for entry_id, preview in method.entries.items():
                 if entry_id not in prev_entries:
                     events.append(Event(now, f"{method.name}: request queued ({preview})"))
-
-        prev_server_keys = {s.key for s in prev.servers} if prev else set()
-        curr_server_keys = {s.key for s in snapshot.servers}
-        for server in snapshot.servers:
-            if server.key not in prev_server_keys:
-                events.append(Event(now, f"server online: {server.server_id}"))
-        for key in prev_server_keys - curr_server_keys:
-            events.append(Event(now, f"server offline (heartbeat expired): {key.rsplit(':', 1)[-1]}"))
 
         self._prev = snapshot
         return events
