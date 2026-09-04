@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.4] - 2026-08-16
+## [0.4] - 2026-09-04
+
+### Added
+- Heartbeats now travel on their own channel: a dedicated thread and a dedicated Redis connection, separate from the queue-reading and request/response-writing ones (three connections in total, still regardless of method count or configured concurrency) — a server with many in-flight requests no longer delays draining its queues to heartbeat, and heartbeating never stalls a response write
+- Every heartbeat tick — the server's own key plus one per in-flight request — is now written in a single pipelined round trip instead of one `SET` per key (Java queues them on Lettuce's async API and flushes once, Python uses `pipeline(transaction=False)`); no `MULTI`/`EXEC` is used, since the keys are independent and skipping it keeps this compatible with Redis Cluster
 
 ### Changed
 - AnyCall no longer uses Redis Streams; request and response queues (`anycall:requests:<method>`, `anycall:responses:<requestId>`) are now plain Redis Lists, using `LPUSH`/`BRPOP` instead of `XADD`/`XREADGROUP`/`XREAD` — consumer groups, `XACK`, and `XDEL` are gone entirely
