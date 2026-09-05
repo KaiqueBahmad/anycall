@@ -57,6 +57,9 @@ public class ConsumerApplication {
             logger.info("All {} calls finished in {} ms", CONCURRENCY, (System.nanoTime() - start) / 1_000_000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            logger.error("Consumer failed", e);
+        } catch(Exception e) {
+            logger.error("Consumer failed", e);
         } finally {
             executor.shutdown();
             try {
