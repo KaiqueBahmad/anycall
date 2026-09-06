@@ -7,12 +7,12 @@ class AnyCallError(Exception):
         super().__init__(message)
 
 
-class ChannelError(AnyCallError):
+class PublishError(AnyCallError):
     """Communication/infrastructure error."""
     pass
 
 
-class TimeoutError(ChannelError):
+class TimeoutError(PublishError):
     """Worker did not respond within time limit."""
 
     def __init__(
@@ -33,7 +33,7 @@ class TimeoutError(ChannelError):
         return self.ttl_timestamp
 
 
-class QueueFullError(ChannelError):
+class QueueFullError(PublishError):
     """Raised when a call is rejected at submission because the target method's
     request stream already has at least max_queue_depth entries.
 
