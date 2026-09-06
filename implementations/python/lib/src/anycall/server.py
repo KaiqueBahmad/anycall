@@ -240,9 +240,8 @@ class AnyCallServerImpl(AnyCallServer):
 
         Runs on its own thread so a slow or unreachable Redis never delays
         `_poll_all_queues` from draining its queues. Each tick is one pipelined
-        round trip (see `RedisQueueAdapter.heartbeat`), which also prunes servers
-        that died without deregistering. On a clean stop the entry is removed
-        immediately rather than left to age out.
+        round trip (see `RedisQueueAdapter.heartbeat`), which also prunes the
+        entries that stopped being refreshed.
         """
         while self._running:
             try:
@@ -257,11 +256,6 @@ class AnyCallServerImpl(AnyCallServer):
             except Exception as e:
                 logger.warning(f"Failed to write heartbeat: {e}")
             time.sleep(HEARTBEAT_PERIOD_SECONDS)
-
-        try:
-            self.redis.remove_member(HEARTBEAT_KEY, self._server_id)
-        except Exception as e:
-            logger.debug(f"Failed to deregister worker {self._server_id}: {e}")
 
     def _methods_with_capacity(self, method_names) -> List[str]:
         """Methods with a free slot right now: the server-wide cap (if any)

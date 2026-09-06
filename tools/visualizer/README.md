@@ -37,8 +37,8 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   `anycall:servers:alive` sorted set, with how long ago it last did so.
   Every AnyCall server `ZADD`s itself there every 2s under a fresh
   timestamp; the dashboard reads back the members scored within the 8s
-  TTL, so a server that stops — cleanly (it `ZREM`s itself) or by
-  crashing (it ages out) — drops off the list within a poll or two.
+  TTL. A server that goes away — cleanly or by crashing — simply stops
+  refreshing its entry and drops off the list once it ages past the TTL.
   Ages come from the server's own clock, so they're only as accurate as
   the clock agreement between that host and this one.
 - **Methods**: one row per `anycall:requests:<method>` queue, tagged

@@ -144,8 +144,8 @@ def _collect_stream_method(client: redis.Redis, queue_key: str, name: str) -> Me
 def _collect_servers(client: redis.Redis, now: float) -> list[ServerInfo]:
     """Live servers, from the sorted set each server ZADDs itself into every
     HEARTBEAT_PERIOD_SECONDS. Members scored older than HEARTBEAT_TTL_SECONDS
-    are servers that died without deregistering; they're filtered out here the
-    same way a live server's next tick would prune them away.
+    are servers that stopped refreshing their entry; they're filtered out here
+    the same way a live server's next tick would prune them away.
 
     Scores are epoch seconds off the *server's* clock, so `age` is only as
     good as the clock agreement between that host and this one.
@@ -222,9 +222,9 @@ class ActivityTracker:
             current_servers = {s.server_id for s in snapshot.servers}
             for server_id in sorted(current_servers - prev_servers):
                 events.append(Event(now, f"server up: {server_id}"))
-            # A server that stops heartbeating reads as gone either way -- it
-            # ZREMs itself on a clean stop, and ages past the TTL if it crashed
-            # -- so there's nothing here to tell the two apart.
+            # Servers never deregister themselves, so this covers every way one
+            # can go away -- a clean stop and a crash both just stop refreshing
+            # the entry, and there's nothing here to tell the two apart.
             for server_id in sorted(prev_servers - current_servers):
                 events.append(Event(now, f"server gone: {server_id}"))
 

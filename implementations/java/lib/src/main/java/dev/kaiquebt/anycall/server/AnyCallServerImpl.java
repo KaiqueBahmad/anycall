@@ -153,7 +153,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         }
         return this;
     }
-
     private void scanAndRegisterSupplier(Object supplier) {
         Class<?> supplierClass = supplier.getClass();
 
@@ -253,8 +252,8 @@ public class AnyCallServerImpl implements AnyCallServer {
      * {@link #HEARTBEAT_TTL} of now.
      * <p>
      * Runs on its own thread so a slow or unreachable Redis never delays
-     * {@link #pollAllQueues} from draining its queues. On a clean stop the entry is
-     * removed immediately rather than left to age out.
+     * {@link #pollAllQueues} from draining its queues.
+     * <p>
      */
     private void emitHeartbeats() {
         try {
@@ -264,23 +263,18 @@ public class AnyCallServerImpl implements AnyCallServer {
                 } catch (Exception e) {
                     log.warn("Failed to write heartbeat: {}", e.getMessage());
                 }
+
                 Thread.sleep(HEARTBEAT_PERIOD.toMillis());
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        } finally {
-            try {
-                writeCommands.zrem(HEARTBEAT_KEY, serverId);
-            } catch (Exception e) {
-                log.debug("Failed to deregister worker {}: {}", serverId, e.getMessage());
-            }
         }
     }
 
     /**
      * One heartbeat tick: {@code ZADD} this server under the current timestamp,
-     * {@code ZREMRANGEBYSCORE} to drop stale members (servers that died without
-     * deregistering), then refresh the key's TTL. Commands are queued without
+     * {@code ZREMRANGEBYSCORE} to drop the members that stopped being refreshed
+     * (servers that are gone), then refresh the key's TTL. Commands are queued without
      * flushing, then flushed and awaited together.
      * <p>
      * Runs on its own connection ({@link #heartbeatConnection}) so it never stalls

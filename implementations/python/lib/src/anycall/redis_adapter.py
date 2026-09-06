@@ -29,8 +29,6 @@ class RedisQueuePort(Protocol):
         min_score: float,
     ) -> None: ...
 
-    def remove_member(self, key: str, member: str) -> int: ...
-
     def close(self) -> None: ...
 
 
@@ -107,9 +105,9 @@ class RedisQueueAdapter:
     ) -> None:
         """Refresh one worker's liveness entry in a sorted set, in a single
         round trip: ZADD the worker under its current timestamp, ZREMRANGEBYSCORE
-        away members whose timestamp is older than `min_score` (servers that died
-        without deregistering), then push the key's own TTL back out so the whole
-        set disappears on its own once every worker is gone.
+        away members whose timestamp is older than `min_score` (servers that are
+        gone), then push the key's own TTL back out so the whole set disappears
+        on its own once every worker is gone.
 
         No transaction semantics (MULTI/EXEC) are needed: the three commands touch
         a single key and none depends on another's result, so a plain pipeline is
@@ -127,19 +125,6 @@ class RedisQueueAdapter:
         pipe.zremrangebyscore(key, "-inf", min_score)
         pipe.expire(key, ttl_seconds)
         pipe.execute()
-
-    def remove_member(self, key: str, member: str) -> int:
-        """Remove a member from a sorted set (ZREM), used to deregister a worker
-        on a clean shutdown instead of waiting for it to age out.
-
-        Args:
-            key: Sorted set key
-            member: Member to remove
-
-        Returns:
-            Number of members removed
-        """
-        return self.redis.zrem(key, member)
 
     def close(self) -> None:
         """Close Redis connection."""
