@@ -14,7 +14,7 @@ package dev.kaiquebt.anycall.exception;
  * briefly exceed {@code maxQueueDepth}. A strict bound would need an atomic
  * check-and-add (e.g. a Lua script).
  */
-public class QueueFullError extends ChannelError {
+public class QueueFullError extends PublishError {
 
     private final String methodName;
     private final long queueDepth;

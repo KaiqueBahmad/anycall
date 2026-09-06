@@ -1,6 +1,6 @@
 package dev.kaiquebt.anycall.exception;
 
-public class TimeoutError extends ChannelError {
+public class TimeoutError extends PublishError {
     private final long timeoutMs;
     private final String callId;
     private final long ttlTimestamp;
