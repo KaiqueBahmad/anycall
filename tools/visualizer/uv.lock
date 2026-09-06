@@ -5,7 +5,7 @@ requires-python = ">=3.10"
 [[package]]
 name = "anycall-py"
 version = "0.4.0"
-source = { directory = "../../implementations/python/lib" }
+source = { editable = "../../implementations/python/lib" }
 dependencies = [
     { name = "dacite" },
     { name = "redis" },
@@ -37,7 +37,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anycall-py", directory = "../../implementations/python/lib" },
+    { name = "anycall-py", editable = "../../implementations/python/lib" },
     { name = "pyqt6", specifier = ">=6.6" },
     { name = "redis", specifier = ">=5.0.0" },
 ]
