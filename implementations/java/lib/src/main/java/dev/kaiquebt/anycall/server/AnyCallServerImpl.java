@@ -8,8 +8,12 @@ import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import io.lettuce.core.KeyValue;
+import io.lettuce.core.LettuceFutures;
+import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisFuture;
 import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.async.RedisAsyncCommands;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +27,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,15 +42,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </p>
  * One read loop listens on every registered method's request queue via a single
  * blocking {@code BRPOP} and dispatches to a shared worker pool. The whole server
- * uses exactly two Redis connections — one for reading and one shared for
- * request/response writes — no matter how many methods or how much concurrency is
- * configured.
+ * uses exactly three Redis connections — one for reading, one shared for
+ * request/response writes, and one dedicated to the heartbeat — no matter how many
+ * methods or how much concurrency is configured.
  */
 public class AnyCallServerImpl implements AnyCallServer {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallServerImpl.class);
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration IDLE_POLL_INTERVAL = Duration.ofSeconds(1);
+
+    private static final String HEARTBEAT_KEY = "anycall:servers:alive";
+    private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
+    private static final Duration HEARTBEAT_TTL = Duration.ofSeconds(8);
+
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RedisClient redisClient;
@@ -53,6 +63,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final RedisCommands<String, String> readCommands;
     private final StatefulRedisConnection<String, String> writeConnection;
     private final RedisCommands<String, String> writeCommands;
+    private final StatefulRedisConnection<String, String> heartbeatConnection;
+    private final RedisAsyncCommands<String, String> heartbeatCommands;
 
     private final Map<String, MethodHandler> methodHandlers;
     private final Map<String, Semaphore> methodConcurrencyLimiters;
@@ -60,6 +72,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final AtomicBoolean running;
     private final boolean metricsEnabled;
     private final Semaphore globalConcurrencyLimiter;
+    private final String serverId;
     private ExecutorService executor;
 
     public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
@@ -85,12 +98,15 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.readCommands = readConnection.sync();
         this.writeConnection = redisClient.connect();
         this.writeCommands = writeConnection.sync();
+        this.heartbeatConnection = redisClient.connect();
+        this.heartbeatCommands = heartbeatConnection.async();
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
         this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
+        this.serverId = UUID.randomUUID().toString();
     }
 
     /**
@@ -104,9 +120,10 @@ public class AnyCallServerImpl implements AnyCallServer {
     @Override
     public AnyCallServer start() {
         if (running.compareAndSet(false, true)) {
-            log.info("Starting AnyCall server");
+            log.info("Starting AnyCall server {}", serverId);
             executor = Executors.newCachedThreadPool();
             executor.submit(this::pollAllQueues);
+            executor.submit(this::emitHeartbeats);
         }
         return this;
     }
@@ -217,6 +234,79 @@ public class AnyCallServerImpl implements AnyCallServer {
      */
     public Set<String> getInFlightRequestIds() {
         return Set.copyOf(inFlightRequestIds);
+    }
+
+    /**
+     * This server instance's id — the member it registers under in {@code anycall:servers:alive}.
+     * Generated at construction, stable for the instance's lifetime, and never reused
+     * across restarts.
+     *
+     * @return this server's id
+     */
+    public String getServerId() {
+        return serverId;
+    }
+
+    /**
+     * Keeps this server's entry in the {@link #HEARTBEAT_KEY} sorted set fresh, so external
+     * tooling can list live servers by reading back the members scored within
+     * {@link #HEARTBEAT_TTL} of now.
+     * <p>
+     * Runs on its own thread so a slow or unreachable Redis never delays
+     * {@link #pollAllQueues} from draining its queues. On a clean stop the entry is
+     * removed immediately rather than left to age out.
+     */
+    private void emitHeartbeats() {
+        try {
+            while (running.get()) {
+                try {
+                    writeHeartbeatPipelined();
+                } catch (Exception e) {
+                    log.warn("Failed to write heartbeat: {}", e.getMessage());
+                }
+                Thread.sleep(HEARTBEAT_PERIOD.toMillis());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            try {
+                writeCommands.zrem(HEARTBEAT_KEY, serverId);
+            } catch (Exception e) {
+                log.debug("Failed to deregister worker {}: {}", serverId, e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * One heartbeat tick: {@code ZADD} this server under the current timestamp,
+     * {@code ZREMRANGEBYSCORE} to drop stale members (servers that died without
+     * deregistering), then refresh the key's TTL. Commands are queued without
+     * flushing, then flushed and awaited together.
+     * <p>
+     * Runs on its own connection ({@link #heartbeatConnection}) so it never stalls
+     * {@link #sendResponse}, which shares {@link #writeCommands} with the worker
+     * threads. No {@code MULTI}/{@code EXEC}: the commands touch one key and are
+     * independent of each other.
+     */
+     private void writeHeartbeatPipelined() {
+        double now = System.currentTimeMillis() / 1000.0;
+        double deadline = now - HEARTBEAT_TTL.getSeconds();
+
+        heartbeatConnection.setAutoFlushCommands(false);
+        try {
+            List<RedisFuture<?>> futures = new ArrayList<>();
+            futures.add(heartbeatCommands.zadd(HEARTBEAT_KEY, now, serverId));
+            futures.add(heartbeatCommands.zremrangebyscore(HEARTBEAT_KEY,
+                Range.create(Double.NEGATIVE_INFINITY, deadline)));
+            futures.add(heartbeatCommands.expire(HEARTBEAT_KEY, HEARTBEAT_TTL.getSeconds()));
+            heartbeatConnection.flushCommands();
+            boolean completed = LettuceFutures.awaitAll(HEARTBEAT_PERIOD, futures.toArray(new RedisFuture[0]));
+            if (!completed) {
+                log.warn("Timed out waiting for heartbeat write to complete");
+            }
+        } finally {
+            heartbeatConnection.setAutoFlushCommands(true);
+        }
     }
 
     /**

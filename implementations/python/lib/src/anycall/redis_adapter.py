@@ -20,6 +20,17 @@ class RedisQueuePort(Protocol):
 
     def length(self, queue_key: str) -> int: ...
 
+    def heartbeat(
+        self,
+        key: str,
+        member: str,
+        score: float,
+        ttl_seconds: int,
+        min_score: float,
+    ) -> None: ...
+
+    def remove_member(self, key: str, member: str) -> int: ...
+
     def close(self) -> None: ...
 
 
@@ -85,6 +96,50 @@ class RedisQueueAdapter:
             Number of entries currently in the queue
         """
         return self.redis.llen(queue_key)
+
+    def heartbeat(
+        self,
+        key: str,
+        member: str,
+        score: float,
+        ttl_seconds: int,
+        min_score: float,
+    ) -> None:
+        """Refresh one worker's liveness entry in a sorted set, in a single
+        round trip: ZADD the worker under its current timestamp, ZREMRANGEBYSCORE
+        away members whose timestamp is older than `min_score` (servers that died
+        without deregistering), then push the key's own TTL back out so the whole
+        set disappears on its own once every worker is gone.
+
+        No transaction semantics (MULTI/EXEC) are needed: the three commands touch
+        a single key and none depends on another's result, so a plain pipeline is
+        enough and it stays compatible with Redis Cluster.
+
+        Args:
+            key: Sorted set key holding the live servers
+            member: This worker's id
+            score: Timestamp to record for this worker (epoch seconds)
+            ttl_seconds: Expiry refreshed on the key itself
+            min_score: Members scored at or below this are pruned as dead
+        """
+        pipe = self.redis.pipeline(transaction=False)
+        pipe.zadd(key, {member: score})
+        pipe.zremrangebyscore(key, "-inf", min_score)
+        pipe.expire(key, ttl_seconds)
+        pipe.execute()
+
+    def remove_member(self, key: str, member: str) -> int:
+        """Remove a member from a sorted set (ZREM), used to deregister a worker
+        on a clean shutdown instead of waiting for it to age out.
+
+        Args:
+            key: Sorted set key
+            member: Member to remove
+
+        Returns:
+            Number of members removed
+        """
+        return self.redis.zrem(key, member)
 
     def close(self) -> None:
         """Close Redis connection."""
