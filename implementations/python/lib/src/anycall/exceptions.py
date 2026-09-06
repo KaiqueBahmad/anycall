@@ -15,22 +15,12 @@ class PublishError(AnyCallError):
 class TimeoutError(PublishError):
     """Worker did not respond within time limit."""
 
-    def __init__(
-        self, service: str, message: str, timeout_ms: int, call_id: str, ttl_timestamp: int
-    ):
+    def __init__(self, service: str, message: str, call_id: str):
         super().__init__(service, message)
-        self.timeout_ms = timeout_ms
         self.call_id = call_id
-        self.ttl_timestamp = ttl_timestamp
-
-    def get_timeout_ms(self) -> int:
-        return self.timeout_ms
 
     def get_id(self) -> str:
         return self.call_id
-
-    def get_ttl_timestamp(self) -> int:
-        return self.ttl_timestamp
 
 
 class QueueFullError(PublishError):

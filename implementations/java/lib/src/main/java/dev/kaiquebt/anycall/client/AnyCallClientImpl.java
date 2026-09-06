@@ -133,9 +133,7 @@ public class AnyCallClientImpl implements AnyCallClient {
                 throw new TimeoutError(
                     methodName,
                     "Timeout waiting for response from method: " + methodName,
-                    timeout.toMillis(),
-                    requestId,
-                    System.currentTimeMillis() + timeout.toMillis()
+                    requestId
                 );
             }
 

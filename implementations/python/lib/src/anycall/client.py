@@ -284,9 +284,7 @@ class AnyCallClientImpl(AnyCallClient):
                 raise TimeoutError(
                     method_name,
                     f"Timeout waiting for response from method: {method_name}",
-                    int(timeout_seconds * 1000),
                     rpc_request.request_id,
-                    int((timeout_seconds + 60) * 1000),
                 )
 
             _, response_json = result
