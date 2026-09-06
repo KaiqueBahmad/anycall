@@ -33,7 +33,7 @@ visualizer/sync:
   run: uv sync
   dir: tools/visualizer
 
-visualizer/run:
+visualizer/gui:
   description: Call visualizer tool
   run: ./run.sh
   dir: tools/visualizer
