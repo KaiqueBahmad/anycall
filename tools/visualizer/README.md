@@ -40,6 +40,10 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   between two polls, so this is best-effort flavor, not a complete audit
   trail — the gauges above stay exact.
 
+## Always on top
+
+The button in the header pins the window above the others.
+
 ## Selection
 
 Rows support Shift-click, Shift-Up/Down, and Ctrl-click for multi-select

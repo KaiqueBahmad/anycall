@@ -5,6 +5,7 @@ Purely observational -- no widget here ever triggers a Redis write.
 from __future__ import annotations
 
 import json
+import os
 import time
 
 from PyQt6.QtCore import QEvent, Qt, QTimer
@@ -141,6 +142,30 @@ QToolButton#fontStepButton:pressed {{
     background-color: {_ACCENT};
 }}
 
+QToolButton#pinButton {{
+    background-color: {_HEADER_BG};
+    color: {_TEXT_MUTED};
+    border: 1px solid {_BORDER};
+    border-radius: 3px;
+    padding: 0px;
+}}
+
+QToolButton#pinButton:hover {{
+    border-color: {_ACCENT};
+    color: {_TEXT};
+}}
+
+QToolButton#pinButton:checked {{
+    background-color: {_ACCENT};
+    color: {_ACCENT_TEXT};
+    border-color: {_ACCENT};
+}}
+
+QToolButton#pinButton:disabled {{
+    color: {_BORDER};
+    border-color: {_BORDER};
+}}
+
 QScrollBar:vertical, QScrollBar:horizontal {{
     background-color: {_PANEL_BG};
     border: none;
@@ -176,6 +201,24 @@ KEY_ROLE = Qt.ItemDataRole.UserRole
 DATA_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
+def _pin_supported() -> bool:
+    """Whether this Qt backend can put the window above the others."""
+    return QApplication.platformName() == "xcb"
+
+
+def _unpinnable_reason() -> str:
+    backend = QApplication.platformName() or "unknown"
+    hint = (
+        "install the xcb-cursor library (libxcb-cursor0 on Debian/Ubuntu) so it can run on XWayland"
+        if os.environ.get("DISPLAY")
+        else "start an X11 session, or a Wayland one with XWayland"
+    )
+    return (
+        f"always-on-top needs the xcb backend; this session runs on '{backend}', which gives "
+        f"the app no way to raise its own window. Fix: {hint}."
+    )
+
+
 class VisualizerApp(QMainWindow):
     def __init__(self, redis_uri: str, interval: float = 1.0):
         super().__init__()
@@ -184,6 +227,8 @@ class VisualizerApp(QMainWindow):
         self.setStyleSheet(DARK_STYLESHEET)
 
         self._build_widgets(redis_uri)
+        if not _pin_supported():
+            self._append_note(_unpinnable_reason())
         self._apply_font_size(DEFAULT_FONT_SIZE)
         # QLabel/QGroupBox/empty tree area don't accept focus, so clicking
         # them doesn't naturally move focus away from the spin box the way
@@ -225,6 +270,9 @@ class VisualizerApp(QMainWindow):
         header.addWidget(self._font_dec_button)
         self._font_inc_button = self._make_font_step_button("+", 1)
         header.addWidget(self._font_inc_button)
+        header.addSpacing(12)
+        self._pin_button = self._make_pin_button()
+        header.addWidget(self._pin_button)
         layout.addLayout(header)
 
         self._methods_group = QGroupBox("Methods (request queues)")
@@ -384,6 +432,42 @@ class VisualizerApp(QMainWindow):
         scrollbar = self._log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+    # -- always on top ---------------------------------------------------------
+
+    def _make_pin_button(self) -> QToolButton:
+        button = QToolButton()
+        button.setObjectName("pinButton")
+        button.setText("\u25f0")
+        button.setCheckable(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Only the xcb backend can raise the window: X11 window managers honour
+        # _NET_WM_STATE_ABOVE, which is what the Qt flag maps to, while Wayland
+        # exposes no stacking control to clients at all. Rather than offer a
+        # toggle that silently does nothing, say so on the button itself.
+        if _pin_supported():
+            button.setToolTip("Keep window always on top")
+            button.toggled.connect(self._set_always_on_top)
+        else:
+            button.setEnabled(False)
+            button.setToolTip(_unpinnable_reason())
+        return button
+
+    def _set_always_on_top(self, enabled: bool) -> None:
+        # Changing window flags on a mapped window unmaps it, so it has to be
+        # shown again; geometry survives, but the re-show is what actually
+        # applies the hint to the window manager.
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+        self.show()
+        self._pin_button.setToolTip(
+            "Always on top: ON -- click to release" if enabled else "Keep window always on top"
+        )
+
+    def _append_note(self, message: str) -> None:
+        ts = time.strftime("%H:%M:%S", time.localtime())
+        self._log_text.appendPlainText(f"[{ts}] {message}")
+        scrollbar = self._log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
     # -- font size -------------------------------------------------------------
 
     def _make_font_step_button(self, label: str, step: int) -> QToolButton:
@@ -419,7 +503,7 @@ class VisualizerApp(QMainWindow):
         self._status_label.setFont(bold_font)
 
         spin_height = self._font_size_spin.sizeHint().height()
-        for button in (self._font_dec_button, self._font_inc_button):
+        for button in (self._font_dec_button, self._font_inc_button, self._pin_button):
             button.setFont(bold_font)
             button.setFixedSize(spin_height, spin_height)
 
