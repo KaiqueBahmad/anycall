@@ -1,6 +1,6 @@
 package dev.kaiquebt.anycall.exception;
 
-public class TimeoutError extends ChannelError implements RecoverableCall {
+public class TimeoutError extends ChannelError {
     private final long timeoutMs;
     private final String callId;
     private final long ttlTimestamp;
@@ -16,12 +16,10 @@ public class TimeoutError extends ChannelError implements RecoverableCall {
         return timeoutMs;
     }
 
-    @Override
     public String getId() {
         return callId;
     }
 
-    @Override
     public long getTTLTimestamp() {
         return ttlTimestamp;
     }
