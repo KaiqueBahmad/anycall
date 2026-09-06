@@ -1,7 +1,8 @@
 # AnyCall Visualizer
 
 Read-only PyQt6 dashboard for observing AnyCall traffic on a Redis
-instance: request queue backlogs and a best-effort activity log.
+instance: live servers, request queue backlogs, and a best-effort
+activity log.
 
 Request/response queues can be either a Redis List (Java, as of the
 Streams-to-Lists migration) or a Redis Stream (Python, still pending that
@@ -10,9 +11,10 @@ right way, so both kinds show up side by side, tagged `[list]`/`[stream]`
 in the Methods panel.
 
 It only ever issues non-destructive Redis commands (`SCAN`, `TYPE`, `LLEN`,
-`LRANGE`, `XLEN`, `XRANGE`, `INFO`) — it never pushes or pops a queue
-entry, acknowledges/deletes messages, or changes Redis config. It has no
-effect on real client/server traffic and provides no actions of its own.
+`LRANGE`, `XLEN`, `XRANGE`, `ZRANGEBYSCORE`, `INFO`) — it never pushes or
+pops a queue entry, acknowledges/deletes messages, writes or prunes the
+heartbeat set, or changes Redis config. It has no effect on real
+client/server traffic and provides no actions of its own.
 
 Works against any AnyCall implementation (Java, Python, ...) since they all
 share the same Redis *key* protocol — though as of the Java migration to
@@ -31,14 +33,22 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
 
 ## What it shows
 
+- **Servers**: one row per server currently heartbeating into the
+  `anycall:servers:alive` sorted set, with how long ago it last did so.
+  Every AnyCall server `ZADD`s itself there every 2s under a fresh
+  timestamp; the dashboard reads back the members scored within the 8s
+  TTL, so a server that stops — cleanly (it `ZREM`s itself) or by
+  crashing (it ages out) — drops off the list within a poll or two.
+  Ages come from the server's own clock, so they're only as accurate as
+  the clock agreement between that host and this one.
 - **Methods**: one row per `anycall:requests:<method>` queue, tagged
   `[list]` or `[stream]`, with backlog (not-yet-popped requests). A
   request simply disappears from the backlog the instant a worker pops
   it, for both kinds.
-- **Activity log**: method discovery, backlog changes, and requests
-  spotted entering a queue. Polling can't see everything that happens
-  between two polls, so this is best-effort flavor, not a complete audit
-  trail — the gauges above stay exact.
+- **Activity log**: servers coming and going, method discovery, backlog
+  changes, and requests spotted entering a queue. Polling can't see
+  everything that happens between two polls, so this is best-effort
+  flavor, not a complete audit trail — the gauges above stay exact.
 
 ## Always on top
 

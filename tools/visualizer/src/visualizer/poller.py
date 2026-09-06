@@ -5,10 +5,15 @@ Streams-to-Lists migration) or a Redis Stream (Python, still pending that
 migration) -- this module checks each key's TYPE at poll time and issues the
 right read-only commands for it, so both kinds show up side by side.
 
+Live servers come from the same sorted set the servers heartbeat into
+(`anycall:servers:alive`), read back the same way a server would prune it:
+members scored within HEARTBEAT_TTL_SECONDS of now are alive, older ones are
+dead but not yet swept.
+
 Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE, XLEN,
-XRANGE, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/CONFIG SET. This
-process must never be able to steal or alter real RPC traffic; it only
-observes it.
+XRANGE, ZRANGEBYSCORE, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/ZADD/
+ZREM/ZREMRANGEBYSCORE/CONFIG SET. This process must never be able to steal or
+alter real RPC traffic; it only observes it.
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import redis
 import redis.exceptions
 from anycall import queues as anycall_queues
 from anycall.model import AnyCallRequest
+from anycall.server import HEARTBEAT_KEY, HEARTBEAT_TTL_SECONDS
 from PyQt6.QtCore import QThread, pyqtSignal
 
 RESPONSE_QUEUE_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
@@ -39,11 +45,19 @@ class MethodInfo:
 
 
 @dataclass
+class ServerInfo:
+    server_id: str
+    last_heartbeat: float  # epoch seconds, as recorded by the server itself
+    age: float  # seconds since that heartbeat, by this process's clock
+
+
+@dataclass
 class Snapshot:
     connected: bool
     taken_at: float
     redis_uri: str
     methods: list[MethodInfo] = field(default_factory=list)
+    servers: list[ServerInfo] = field(default_factory=list)
     inflight_responses: int = 0
     redis_version: str = ""
     connected_clients: int = 0
@@ -127,6 +141,28 @@ def _collect_stream_method(client: redis.Redis, queue_key: str, name: str) -> Me
     return MethodInfo(name=name, backlog=backlog, kind="stream", entries=entries)
 
 
+def _collect_servers(client: redis.Redis, now: float) -> list[ServerInfo]:
+    """Live servers, from the sorted set each server ZADDs itself into every
+    HEARTBEAT_PERIOD_SECONDS. Members scored older than HEARTBEAT_TTL_SECONDS
+    are servers that died without deregistering; they're filtered out here the
+    same way a live server's next tick would prune them away.
+
+    Scores are epoch seconds off the *server's* clock, so `age` is only as
+    good as the clock agreement between that host and this one.
+    """
+    members = client.zrangebyscore(
+        HEARTBEAT_KEY, now - HEARTBEAT_TTL_SECONDS, "+inf", withscores=True
+    )
+    servers = [
+        ServerInfo(server_id=member, last_heartbeat=score, age=max(0.0, now - score))
+        for member, score in members or []
+    ]
+    # ZRANGEBYSCORE hands them back oldest-heartbeat-first, which reshuffles
+    # rows on every tick; sort by id so a server keeps its place in the table.
+    servers.sort(key=lambda server: server.server_id)
+    return servers
+
+
 def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     info = client.info()
 
@@ -140,11 +176,15 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     ]
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
 
+    taken_at = time.time()
+    servers = _collect_servers(client, taken_at)
+
     return Snapshot(
         connected=True,
-        taken_at=time.time(),
+        taken_at=taken_at,
         redis_uri=redis_uri,
         methods=methods,
+        servers=servers,
         inflight_responses=inflight_responses,
         redis_version=info.get("redis_version", "?"),
         connected_clients=info.get("connected_clients", 0),
@@ -173,6 +213,20 @@ class ActivityTracker:
             events.append(Event(now, f"lost connection to redis: {snapshot.error}"))
         elif prev is not None and not prev.connected and snapshot.connected:
             events.append(Event(now, "redis connection restored"))
+
+        # Only against another connected snapshot: a poll that failed reports no
+        # servers, which says nothing about whether they're still up.
+        prev_connected = prev is not None and prev.connected
+        if snapshot.connected:
+            prev_servers = {s.server_id for s in prev.servers} if prev_connected else set()
+            current_servers = {s.server_id for s in snapshot.servers}
+            for server_id in sorted(current_servers - prev_servers):
+                events.append(Event(now, f"server up: {server_id}"))
+            # A server that stops heartbeating reads as gone either way -- it
+            # ZREMs itself on a clean stop, and ages past the TTL if it crashed
+            # -- so there's nothing here to tell the two apart.
+            for server_id in sorted(prev_servers - current_servers):
+                events.append(Event(now, f"server gone: {server_id}"))
 
         prev_methods = {m.name: m for m in prev.methods} if prev else {}
         for method in snapshot.methods:

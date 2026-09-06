@@ -10,7 +10,10 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-anycall-py = { path = "../../implementations/python/lib" }
+# Editable: the dashboard reads the protocol constants (queue prefixes, the
+# heartbeat key/TTL) straight out of the library, so it has to track the lib
+# source in this repo rather than a wheel built from some earlier version of it.
+anycall-py = { path = "../../implementations/python/lib", editable = true }
 
 [project.scripts]
 anycall-visualizer = "visualizer.__main__:main"
