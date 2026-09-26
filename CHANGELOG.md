@@ -7,10 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.5] - Work In Progress
+## [0.5] - 2026-09-26
+
+### Added
+- Server liveness registry: every server keeps its own entry fresh in the `anycall:servers:alive` sorted set (`ZADD` its id under the current timestamp every 2s, prune members older than 8s, refresh the key's TTL — one pipelined round trip per tick, no `MULTI`/`EXEC`). The period and TTL are hardcoded
+- Server id exposed on the server (`getServerId()` in Java, `server_id` in Python) and logged on startup; it is now a plain UUID (no `server-` prefix)
+- Visualizer: "Servers" panel now reads the `anycall:servers:alive` sorted set, and a new "always on top" button pins the window above the others
+- Contract releases (`vX.Y` tags) now also create a GitHub Release with the jar and the Python wheel/sdist attached
+
+### Changed
+- `ChannelError` renamed to `PublishError` (Java and Python); `TimeoutError`, `QueueFullError` and (Java) `ConnectionError` now extend it
+- `TimeoutError` now only carries the call id — `timeoutMs`/`timeout_ms` and the TTL timestamp were removed from it
+- The heartbeat no longer does any cleanup on shutdown: a stopped server simply drops off the registry once its entry ages past the TTL
 
 ### Removed
-- The heartbeat system, entirely — Java, Python and the visualizer. Servers no longer write `anycall:heartbeat:servers:<serverId>` or `anycall:heartbeat:requests:<requestId>` keys.
+- The per-key heartbeat system: servers no longer write `anycall:heartbeat:servers:<serverId>` or `anycall:heartbeat:requests:<requestId>` keys, and in-flight requests are no longer heartbeated
+- Unused exceptions: `RecoverableCall`, `ChannelClosedError`, `WorkerUnavailableError`, `ValidationError`, `TypeMismatchError` (Java and Python), `JSONDecodeError` (Java) and `ConnectionError` (Python)
 
 ## [0.4] - 2026-09-04
 
