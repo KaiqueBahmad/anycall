@@ -64,6 +64,13 @@ jobs:
             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
             -Dorg.slf4j.simpleLogger.defaultLogLevel=info
 
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-jar
+          path: implementations/java/lib/target/anycall-${{ steps.version.outputs.version }}.jar
+          if-no-files-found: error
+
   release-python:
     runs-on: ubuntu-latest
     steps:
@@ -101,3 +108,31 @@ jobs:
         run: |
           cd implementations/python/lib
           python -m twine upload dist/* -u __token__ -p ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Upload Python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: implementations/python/lib/dist/*
+          if-no-files-found: error
+
+  github-release:
+    needs: [release-java, release-python]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
