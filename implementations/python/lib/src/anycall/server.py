@@ -236,23 +236,16 @@ class AnyCallServerImpl(AnyCallServer):
     def _emit_heartbeats(self) -> None:
         """Keeps this server's entry in the `HEARTBEAT_KEY` sorted set fresh, so
         external tooling can list live servers by reading back the members scored
-        within HEARTBEAT_TTL_SECONDS of now.
+        within HEARTBEAT_TTL_SECONDS of Redis's current time (`TIME`).
 
         Runs on its own thread so a slow or unreachable Redis never delays
-        `_poll_all_queues` from draining its queues. Each tick is one pipelined
+        `_poll_all_queues` from draining its queues. Each tick is one scripted
         round trip (see `RedisQueueAdapter.heartbeat`), which also prunes the
         entries that stopped being refreshed.
         """
         while self._running:
             try:
-                now = time.time()
-                self.redis.heartbeat(
-                    HEARTBEAT_KEY,
-                    self._server_id,
-                    now,
-                    HEARTBEAT_TTL_SECONDS,
-                    now - HEARTBEAT_TTL_SECONDS,
-                )
+                self.redis.heartbeat(HEARTBEAT_KEY, self._server_id, HEARTBEAT_TTL_SECONDS)
             except Exception as e:
                 logger.warning(f"Failed to write heartbeat: {e}")
             time.sleep(HEARTBEAT_PERIOD_SECONDS)

@@ -11,7 +11,7 @@ members scored within HEARTBEAT_TTL_SECONDS of now are alive, older ones are
 dead but not yet swept.
 
 Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE, XLEN,
-XRANGE, ZRANGEBYSCORE, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/ZADD/
+XRANGE, ZRANGEBYSCORE, TIME, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/ZADD/
 ZREM/ZREMRANGEBYSCORE/CONFIG SET. This process must never be able to steal or
 alter real RPC traffic; it only observes it.
 """
@@ -47,8 +47,8 @@ class MethodInfo:
 @dataclass
 class ServerInfo:
     server_id: str
-    last_heartbeat: float  # epoch seconds, as recorded by the server itself
-    age: float  # seconds since that heartbeat, by this process's clock
+    last_heartbeat: float  # epoch seconds, by Redis's clock
+    age: float  # seconds since that heartbeat, by Redis's clock
 
 
 @dataclass
@@ -141,15 +141,17 @@ def _collect_stream_method(client: redis.Redis, queue_key: str, name: str) -> Me
     return MethodInfo(name=name, backlog=backlog, kind="stream", entries=entries)
 
 
-def _collect_servers(client: redis.Redis, now: float) -> list[ServerInfo]:
+def _collect_servers(client: redis.Redis) -> list[ServerInfo]:
     """Live servers, from the sorted set each server ZADDs itself into every
     HEARTBEAT_PERIOD_SECONDS. Members scored older than HEARTBEAT_TTL_SECONDS
     are servers that stopped refreshing their entry; they're filtered out here
     the same way a live server's next tick would prune them away.
 
-    Scores are epoch seconds off the *server's* clock, so `age` is only as
-    good as the clock agreement between that host and this one.
+    Servers score themselves with Redis's own clock (`TIME`), so "now" is
+    read from Redis too: `age` doesn't depend on this host's clock at all.
     """
+    seconds, microseconds = client.time()
+    now = seconds + microseconds / 1_000_000
     members = client.zrangebyscore(
         HEARTBEAT_KEY, now - HEARTBEAT_TTL_SECONDS, "+inf", withscores=True
     )
@@ -177,7 +179,7 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
 
     taken_at = time.time()
-    servers = _collect_servers(client, taken_at)
+    servers = _collect_servers(client)
 
     return Snapshot(
         connected=True,

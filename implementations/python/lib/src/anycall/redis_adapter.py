@@ -5,6 +5,17 @@ import redis
 
 logger = logging.getLogger(__name__)
 
+# KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds.
+# Kept byte-for-byte identical to the Java server's copy.
+HEARTBEAT_SCRIPT = """\
+local t = redis.call('TIME')
+local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
+redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', string.format('%.6f', now - tonumber(ARGV[2])))
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+"""
+
 
 @runtime_checkable
 class RedisQueuePort(Protocol):
@@ -20,14 +31,7 @@ class RedisQueuePort(Protocol):
 
     def length(self, queue_key: str) -> int: ...
 
-    def heartbeat(
-        self,
-        key: str,
-        member: str,
-        score: float,
-        ttl_seconds: int,
-        min_score: float,
-    ) -> None: ...
+    def heartbeat(self, key: str, member: str, ttl_seconds: int) -> None: ...
 
     def close(self) -> None: ...
 
@@ -38,6 +42,7 @@ class RedisQueueAdapter:
 
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
+        self._heartbeat_script = redis_client.register_script(HEARTBEAT_SCRIPT)
 
     def push(self, queue_key: str, value: str) -> int:
         """Push a value onto a queue (LPUSH).
@@ -95,36 +100,26 @@ class RedisQueueAdapter:
         """
         return self.redis.llen(queue_key)
 
-    def heartbeat(
-        self,
-        key: str,
-        member: str,
-        score: float,
-        ttl_seconds: int,
-        min_score: float,
-    ) -> None:
+    def heartbeat(self, key: str, member: str, ttl_seconds: int) -> None:
         """Refresh one worker's liveness entry in a sorted set, in a single
-        round trip: ZADD the worker under its current timestamp, ZREMRANGEBYSCORE
-        away members whose timestamp is older than `min_score` (servers that are
-        gone), then push the key's own TTL back out so the whole set disappears
-        on its own once every worker is gone.
+        round trip: ZADD the worker under the current time, ZREMRANGEBYSCORE
+        away members older than `ttl_seconds` (servers that are gone), then
+        push the key's own TTL back out so the whole set disappears on its own
+        once every worker is gone.
 
-        No transaction semantics (MULTI/EXEC) are needed: the three commands touch
-        a single key and none depends on another's result, so a plain pipeline is
-        enough and it stays compatible with Redis Cluster.
+        Runs as a Lua script so "now" is Redis's own clock (`TIME`), not this
+        host's: scores written and pruned by different servers are always
+        compared on the same clock, so skew between hosts can't prune a live
+        server or keep a dead one around. The script touches a single key, so
+        it stays compatible with Redis Cluster.
 
         Args:
             key: Sorted set key holding the live servers
             member: This worker's id
-            score: Timestamp to record for this worker (epoch seconds)
-            ttl_seconds: Expiry refreshed on the key itself
-            min_score: Members scored at or below this are pruned as dead
+            ttl_seconds: Members older than this are pruned as dead; also the
+                expiry refreshed on the key itself
         """
-        pipe = self.redis.pipeline(transaction=False)
-        pipe.zadd(key, {member: score})
-        pipe.zremrangebyscore(key, "-inf", min_score)
-        pipe.expire(key, ttl_seconds)
-        pipe.execute()
+        self._heartbeat_script(keys=[key], args=[member, ttl_seconds])
 
     def close(self) -> None:
         """Close Redis connection."""

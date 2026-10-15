@@ -9,9 +9,9 @@ import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import io.lettuce.core.KeyValue;
 import io.lettuce.core.LettuceFutures;
-import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisFuture;
+import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.async.RedisAsyncCommands;
 import io.lettuce.core.api.sync.RedisCommands;
@@ -55,6 +55,16 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final String HEARTBEAT_KEY = "anycall:servers:alive";
     private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
     private static final Duration HEARTBEAT_TTL = Duration.ofSeconds(8);
+    // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds.
+    // Kept byte-for-byte identical to the Python server's copy.
+    private static final String HEARTBEAT_SCRIPT = """
+        local t = redis.call('TIME')
+        local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
+        redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
+        redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', string.format('%.6f', now - tonumber(ARGV[2])))
+        redis.call('EXPIRE', KEYS[1], ARGV[2])
+        return 1
+        """;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -249,7 +259,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     /**
      * Keeps this server's entry in the {@link #HEARTBEAT_KEY} sorted set fresh, so external
      * tooling can list live servers by reading back the members scored within
-     * {@link #HEARTBEAT_TTL} of now.
+     * {@link #HEARTBEAT_TTL} of Redis's current time ({@code TIME}).
      * <p>
      * Runs on its own thread so a slow or unreachable Redis never delays
      * {@link #pollAllQueues} from draining its queues.
@@ -259,7 +269,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         try {
             while (running.get()) {
                 try {
-                    writeHeartbeatPipelined();
+                    writeHeartbeat();
                 } catch (Exception e) {
                     log.warn("Failed to write heartbeat: {}", e.getMessage());
                 }
@@ -272,34 +282,23 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * One heartbeat tick: {@code ZADD} this server under the current timestamp,
-     * {@code ZREMRANGEBYSCORE} to drop the members that stopped being refreshed
-     * (servers that are gone), then refresh the key's TTL. Commands are queued without
-     * flushing, then flushed and awaited together.
+     * One heartbeat tick, as a single {@code EVAL} of {@link #HEARTBEAT_SCRIPT}: {@code ZADD}
+     * this server under the current time, {@code ZREMRANGEBYSCORE} to drop the members
+     * that stopped being refreshed (servers that are gone), then refresh the key's TTL.
+     * <p>
+     * "Now" is Redis's own clock ({@code TIME}), not this host's, so scores written and
+     * pruned by different servers are always compared on the same clock — skew between
+     * hosts can't prune a live server or keep a dead one around. The script touches one
+     * key, so it stays compatible with Redis Cluster.
      * <p>
      * Runs on its own connection ({@link #heartbeatConnection}) so it never stalls
-     * {@link #sendResponse}, which shares {@link #writeCommands} with the worker
-     * threads. No {@code MULTI}/{@code EXEC}: the commands touch one key and are
-     * independent of each other.
+     * {@link #sendResponse}, which shares {@link #writeCommands} with the worker threads.
      */
-     private void writeHeartbeatPipelined() {
-        double now = System.currentTimeMillis() / 1000.0;
-        double deadline = now - HEARTBEAT_TTL.getSeconds();
-
-        heartbeatConnection.setAutoFlushCommands(false);
-        try {
-            List<RedisFuture<?>> futures = new ArrayList<>();
-            futures.add(heartbeatCommands.zadd(HEARTBEAT_KEY, now, serverId));
-            futures.add(heartbeatCommands.zremrangebyscore(HEARTBEAT_KEY,
-                Range.create(Double.NEGATIVE_INFINITY, deadline)));
-            futures.add(heartbeatCommands.expire(HEARTBEAT_KEY, HEARTBEAT_TTL.getSeconds()));
-            heartbeatConnection.flushCommands();
-            boolean completed = LettuceFutures.awaitAll(HEARTBEAT_PERIOD, futures.toArray(new RedisFuture[0]));
-            if (!completed) {
-                log.warn("Timed out waiting for heartbeat write to complete");
-            }
-        } finally {
-            heartbeatConnection.setAutoFlushCommands(true);
+    private void writeHeartbeat() {
+        RedisFuture<Long> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.INTEGER,
+            new String[] {HEARTBEAT_KEY}, serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()));
+        if (!LettuceFutures.awaitAll(HEARTBEAT_PERIOD, future)) {
+            log.warn("Timed out waiting for heartbeat write to complete");
         }
     }
 
