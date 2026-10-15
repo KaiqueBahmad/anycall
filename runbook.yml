@@ -8,10 +8,19 @@ java/supplier:
   run: ./run-supplier.sh
   dir: implementations/java
 
+java/kill-supplier:
+  description: Violently kill the running Java example supplier (SIGKILL, no graceful shutdown)
+  run: pkill -9 -f dev.kaiquebt.anycall.example.SupplierApplication
+
 java/consumer:
   description: Java example consumer
   run: ./run-consumer.sh
   dir: implementations/java
+
+java/kill-consumer:
+  description: Violently kill the running Java example consumer (SIGKILL, no graceful shutdown)
+  run: pkill -9 -f dev.kaiquebt.anycall.example.ConsumerApplication
+
 
 python/sync:
   description: Sync Python dependencies with uv
@@ -23,10 +32,18 @@ python/supplier:
   run: ./run-supplier.sh
   dir: implementations/python
 
+python/kill-supplier:
+  description: Violently kill the running Python example supplier (SIGKILL, no graceful shutdown)
+  run: pkill -9 -f anycall-supplier
+
 python/consumer:
   description: Python example consumer
   run: ./run-consumer.sh
   dir: implementations/python
+
+python/kill-consumer:
+  description: Violently kill the running Python example consumer (SIGKILL, no graceful shutdown)
+  run: pkill -9 -f anycall-consumer
 
 visualizer/sync:
   description: Sync visualizer dependencies with uv
