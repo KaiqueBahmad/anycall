@@ -24,10 +24,11 @@ POLL_BLOCK_TIMEOUT_SECONDS = 5
 IDLE_POLL_INTERVAL_SECONDS = 1  # used when no methods are registered yet
 
 # Liveness registry. Hardcoded on purpose -- edit here to change it; there is no
-# configuration surface for these.
-HEARTBEAT_KEY = "anycall:servers:alive"
+# configuration surface for these. HEARTBEAT_KEY/HEARTBEAT_TTL_SECONDS live in
+# `queues` so the client can share them for its own liveness check.
+HEARTBEAT_KEY = queues.HEARTBEAT_KEY
 HEARTBEAT_PERIOD_SECONDS = 2  # how often a live server refreshes its entry
-HEARTBEAT_TTL_SECONDS = 8  # entries older than this are dead; also the key's own TTL
+HEARTBEAT_TTL_SECONDS = queues.HEARTBEAT_TTL_SECONDS
 
 
 class ConcurrencyLimiter:

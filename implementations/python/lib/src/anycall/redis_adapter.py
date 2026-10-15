@@ -33,6 +33,8 @@ class RedisQueuePort(Protocol):
 
     def heartbeat(self, key: str, member: str, ttl_seconds: int) -> None: ...
 
+    def alive_count(self, key: str, ttl_seconds: int) -> int: ...
+
     def close(self) -> None: ...
 
 
@@ -120,6 +122,25 @@ class RedisQueueAdapter:
                 expiry refreshed on the key itself
         """
         self._heartbeat_script(keys=[key], args=[member, ttl_seconds])
+
+    def alive_count(self, key: str, ttl_seconds: int) -> int:
+        """Count members in a heartbeat sorted set still within `ttl_seconds`
+        of Redis's own current time (`TIME`), i.e. how many are alive.
+
+        Uses Redis's clock rather than this host's, for the same reason the
+        heartbeat script does: skew between hosts can't make a live server
+        look dead (or vice versa) to this check.
+
+        Args:
+            key: Sorted set key holding the live servers
+            ttl_seconds: Members older than this are considered dead
+
+        Returns:
+            Number of members scored within the last ttl_seconds
+        """
+        seconds, microseconds = self.redis.time()
+        now = seconds + microseconds / 1_000_000
+        return self.redis.zcount(key, now - ttl_seconds, "+inf")
 
     def close(self) -> None:
         """Close Redis connection."""

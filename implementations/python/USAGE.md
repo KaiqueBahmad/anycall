@@ -67,6 +67,21 @@ sentiment = client.call("analyze-sentiment", request)
 response = client.raw_call("analyze-sentiment", request)
 ```
 
+### Fail fast if no server is available:
+```python
+from anycall.exceptions import NoServerAvailableError
+
+try:
+    sentiment = client.call("analyze-sentiment", request, Sentiment)
+except NoServerAvailableError:
+    ...  # no server has heartbeated recently; not submitted
+```
+Every call checks the heartbeat registry before publishing the request, the
+same way a plain HTTP call would get connection-refused instead of hanging:
+without this, a request sitting in an empty queue would just wait out the
+full `timeout` with nothing to pop it. This only confirms *some* server is
+alive, not that one of them supports the method being called.
+
 ### Reject when the backlog is too deep:
 ```python
 from anycall.exceptions import QueueFullError

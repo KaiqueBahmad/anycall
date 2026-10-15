@@ -10,6 +10,7 @@ from .config import AnycallProperties
 from .exceptions import (
     AnyCallError,
     JSONDecodeError,
+    NoServerAvailableError,
     QueueFullError,
     RemoteException,
     SerializationError,
@@ -55,6 +56,7 @@ class AnyCallClient(ABC):
 
         Raises:
             QueueFullError: If the request queue is already full
+            NoServerAvailableError: If no server is currently alive
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         pass
@@ -78,6 +80,7 @@ class AnyCallClient(ABC):
 
         Raises:
             QueueFullError: If the request queue is already full
+            NoServerAvailableError: If no server is currently alive
             AnyCallError: On timeout or remote error
         """
         pass
@@ -169,6 +172,7 @@ class AnyCallClientImpl(AnyCallClient):
 
         Raises:
             QueueFullError: If the request queue is already full
+            NoServerAvailableError: If no server is currently alive
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         resolved_type = response_type
@@ -199,6 +203,7 @@ class AnyCallClientImpl(AnyCallClient):
 
         Raises:
             QueueFullError: If the request queue is already full
+            NoServerAvailableError: If no server is currently alive
             AnyCallError: On timeout or remote error
         """
         return self._call_impl(method_name, request, dict, max_queue_depth)
@@ -250,6 +255,7 @@ class AnyCallClientImpl(AnyCallClient):
 
         Raises:
             QueueFullError: If the request queue is already full
+            NoServerAvailableError: If no server is currently alive
             AnyCallError: On timeout or remote error
         """
         effective_max_queue_depth = (
@@ -264,6 +270,9 @@ class AnyCallClientImpl(AnyCallClient):
 
         request_queue = queues.request_queue(method_name)
         response_queue = queues.response_queue(rpc_request.request_id)
+
+        if self.redis.alive_count(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS) == 0:
+            raise NoServerAvailableError(method_name)
 
         if effective_max_queue_depth is not None:
             queue_depth = self.redis.length(request_queue)

@@ -42,6 +42,9 @@ class MockRedisAdapter:
     def length(self, queue_key: str) -> int:
         return self.queue_depth
 
+    def alive_count(self, key: str, ttl_seconds: int) -> int:
+        return 1
+
     def close(self) -> None:
         pass
 

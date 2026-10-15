@@ -59,6 +59,20 @@ Sentiment sentiment = client.call("analyze-sentiment", request);
 Map<String, Object> response = client.rawCall("analyze-sentiment", request);
 ```
 
+### Fail fast if no server is available:
+```java
+try {
+    Sentiment sentiment = client.call("analyze-sentiment", request, Sentiment.class);
+} catch (NoServerAvailableError e) {
+    // no server has heartbeated recently; not submitted
+}
+```
+Every call checks the heartbeat registry before publishing the request, the
+same way a plain HTTP call would get connection-refused instead of hanging:
+without this, a request sitting in an empty queue would just wait out the
+full timeout with nothing to pop it. This only confirms *some* server is
+alive, not that one of them supports the method being called.
+
 ## Configuration
 
 ```java

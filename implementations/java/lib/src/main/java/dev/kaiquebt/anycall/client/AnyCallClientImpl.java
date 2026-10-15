@@ -8,6 +8,7 @@ import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.KeyValue;
+import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
@@ -15,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -92,6 +94,8 @@ public class AnyCallClientImpl implements AnyCallClient {
             }
 
             String requestQueue = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+
+            checkServerAvailable(methodName);
 
             if (maxQueueDepth != null) {
                 long queueDepth = commands.llen(requestQueue);
@@ -232,6 +236,24 @@ public class AnyCallClientImpl implements AnyCallClient {
     @Override
     public void registerType(String operation, Class<?> responseType) {
         registry.register(operation, responseType);
+    }
+
+    /**
+     * Fails fast, before publishing, if no server has heartbeated recently enough to be
+     * considered alive. Mirrors a connection-refused error over plain HTTP: without this,
+     * a request would be queued and the caller would silently wait out the full timeout
+     * with no server around to ever pop it.
+     *
+     * @throws dev.kaiquebt.anycall.exception.NoServerAvailableError if no server is alive
+     */
+    private void checkServerAvailable(String methodName) {
+        List<String> time = commands.time();
+        double now = Double.parseDouble(time.get(0)) + Double.parseDouble(time.get(1)) / 1_000_000.0;
+        double since = now - AnycallQueues.HEARTBEAT_TTL.getSeconds();
+        Long aliveCount = commands.zcount(AnycallQueues.HEARTBEAT_KEY, Range.create(since, Double.POSITIVE_INFINITY));
+        if (aliveCount == null || aliveCount == 0) {
+            throw new NoServerAvailableError(methodName);
+        }
     }
 
     private String readResponse(String queueKey, Duration timeout) {

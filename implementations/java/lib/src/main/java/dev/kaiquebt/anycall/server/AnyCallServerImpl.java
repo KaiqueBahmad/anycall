@@ -52,9 +52,9 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration IDLE_POLL_INTERVAL = Duration.ofSeconds(1);
 
-    private static final String HEARTBEAT_KEY = "anycall:servers:alive";
+    private static final String HEARTBEAT_KEY = AnycallQueues.HEARTBEAT_KEY;
     private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
-    private static final Duration HEARTBEAT_TTL = Duration.ofSeconds(8);
+    private static final Duration HEARTBEAT_TTL = AnycallQueues.HEARTBEAT_TTL;
     // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds.
     // Kept byte-for-byte identical to the Python server's copy.
     private static final String HEARTBEAT_SCRIPT = """

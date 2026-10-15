@@ -49,6 +49,29 @@ class QueueFullError(PublishError):
         self.max_queue_depth = max_queue_depth
 
 
+class NoServerAvailableError(PublishError):
+    """Raised when a call is rejected at submission because no server has
+    heartbeated recently enough to be considered alive.
+
+    Thrown before the request is published (before LPUSH), mirroring what a
+    connection-refused error would look like over plain HTTP: fail
+    immediately instead of queueing a request that may sit unread for the
+    full call timeout.
+
+    This check is advisory, not a guarantee: it only confirms that at least
+    one server process is heartbeating, not that any of them support the
+    requested method. A server could also heartbeat for the first time, or
+    stop heartbeating, in the moment between this check and the LPUSH.
+    """
+
+    def __init__(self, method_name: str):
+        super().__init__(
+            "AnyCall",
+            f"No server is currently alive to handle method: {method_name}",
+        )
+        self.method_name = method_name
+
+
 class RemoteExecutionError(AnyCallError):
     """Function was executed but failed on worker."""
     pass
