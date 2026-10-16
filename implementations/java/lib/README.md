@@ -5,7 +5,7 @@ Call functions across Java services using Redis, with no `.proto` files, exposed
 
 ## Overview
 
-AnyCall is a framework that allows Java applications to communicate asynchronously through Redis, using Redis Lists (`LPUSH`/`BRPOP`) as the message transport mechanism.
+AnyCall is a framework that allows Java applications to communicate asynchronously through Redis, using Redis Lists as the message transport mechanism.
 
 ## Main Components
 

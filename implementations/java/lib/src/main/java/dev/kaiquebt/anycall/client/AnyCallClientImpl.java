@@ -117,6 +117,9 @@ public class AnyCallClientImpl implements AnyCallClient {
 
             long beforePush = metricsEnabled ? System.currentTimeMillis() : 0;
             commands.lpush(requestQueue, requestJson);
+            // Only a hint for idle servers: one that misses it still finds the request
+            // on its fallback poll, so this doesn't need to be atomic with the push.
+            commands.publish(AnycallQueues.WAKE_CHANNEL_PREFIX + methodName, "1");
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Request published to queue in {}ms", requestId,

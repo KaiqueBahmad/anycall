@@ -284,7 +284,7 @@ class AnyCallClientImpl(AnyCallClient):
                 request_json = serialize(rpc_request)
             except (TypeError, ValueError) as e:
                 raise SerializationError(method_name, f"Failed to serialize RPC request: {e}")
-            self.redis.push(request_queue, request_json)
+            self.redis.push_and_wake(request_queue, request_json, queues.wake_channel(method_name))
 
             timeout_seconds = self.props.timeout.total_seconds()
             result = self.redis.pop([response_queue], timeout_seconds)

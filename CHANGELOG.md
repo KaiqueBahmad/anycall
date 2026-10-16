@@ -11,8 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `call()` now fails fast with `NoServerAvailableError` (Java and Python) if no server has heartbeated recently, instead of queueing the request and waiting out the full timeout with nothing around to pop it. Checked against the same `anycall:servers:alive` registry and TTL the heartbeat uses, before the request is published
+- A request whose server dies mid-processing is failed back to its client with a `RemoteException` about 8–10s after the crash, instead of waiting out the whole timeout. Servers record each request they take in `anycall:inflight`, and any other live server cleans up after a dead one. Needs at least one other server alive
+- Clients publish on `anycall:wake:<method>` after pushing a request, so idle servers take it right away
 
 ### Changed
+- Servers take requests with a Lua script that pops the request and records it as in flight atomically, instead of `BRPOP`; idle servers wait for a wake message, falling back to looking at their queues every second. Servers now hold four Redis connections
+- A saturated server takes its next request as soon as a slot frees up, instead of sleeping a fixed 1s
 - The liveness heartbeat now runs as a Lua script that reads Redis's own clock (`TIME`) for both the `ZADD` score and the `ZREMRANGEBYSCORE` cutoff, instead of each host's clock — clock skew between servers can no longer prune a live server or keep a dead one registered. Still one round trip per tick, one key, Cluster-compatible. The visualizer also reads `TIME` to compute each server's age
 
 ## [0.5] - 2026-09-26

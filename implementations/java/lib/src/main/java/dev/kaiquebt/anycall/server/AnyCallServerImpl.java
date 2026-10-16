@@ -7,14 +7,15 @@ import dev.kaiquebt.anycall.core.AnycallContext;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
-import io.lettuce.core.KeyValue;
-import io.lettuce.core.LettuceFutures;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.async.RedisAsyncCommands;
 import io.lettuce.core.api.sync.RedisCommands;
+import io.lettuce.core.pubsub.RedisPubSubAdapter;
+import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;
+import io.lettuce.core.pubsub.api.sync.RedisPubSubCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -40,30 +42,76 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * <strong>This class is not intended for direct use. Use {@link dev.kaiquebt.anycall.core.AnyCall#server(String)} instead.</strong>
  * </p>
- * One read loop listens on every registered method's request queue via a single
- * blocking {@code BRPOP} and dispatches to a shared worker pool. The whole server
- * uses exactly three Redis connections — one for reading, one shared for
- * request/response writes, and one dedicated to the heartbeat — no matter how many
- * methods or how much concurrency is configured.
+ * One read loop takes requests off every registered method's queue and dispatches them
+ * to a shared worker pool. Each take runs {@link #ACQUIRE_SCRIPT}, which pops the request
+ * and records this server as its owner in {@link AnycallQueues#INFLIGHT_KEY} in one
+ * atomic step, so a crash at any point leaves either the request still queued or a
+ * record of who had it — never neither.
+ * <p>
+ * A script can't block, so the loop doesn't either: when there's nothing to take it
+ * waits on {@link #doorbell}, released by a wake message for one of its methods (clients
+ * publish on {@code anycall:wake:<method>} after every push), by a worker freeing a slot,
+ * or after {@link #WAKE_FALLBACK} regardless. It always tries its queues before waiting,
+ * so requests already queued at startup or after a busy spell are picked up without
+ * needing a wake.
+ * <p>
+ * Every heartbeat tick also fails back the in-flight requests of servers that stopped
+ * heartbeating (see {@link #failOrphanedRequests}): their clients get an error response
+ * instead of waiting out their whole timeout.
+ * <p>
+ * The whole server uses exactly four Redis connections — one for taking requests, one
+ * shared for response writes, one dedicated to the heartbeat, and one held by the wake
+ * subscription — no matter how many methods or how much concurrency is configured.
  */
 public class AnyCallServerImpl implements AnyCallServer {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallServerImpl.class);
-    private static final Duration POLL_BLOCK_TIMEOUT = Duration.ofSeconds(5);
-    private static final Duration IDLE_POLL_INTERVAL = Duration.ofSeconds(1);
+    // How long the read loop waits for a wake (or a freed slot) before looking at its
+    // queues anyway — the safety net for a wake missed during a reconnect, or published
+    // by a client that predates wakes.
+    private static final Duration WAKE_FALLBACK = Duration.ofSeconds(1);
+    // Expiry on the error response written for a request whose server died: its client
+    // may have timed out already, and nothing else would ever delete it.
+    private static final Duration ORPHAN_RESPONSE_TTL = Duration.ofSeconds(60);
+    private static final String INFLIGHT_KEY = AnycallQueues.INFLIGHT_KEY;
 
     private static final String HEARTBEAT_KEY = AnycallQueues.HEARTBEAT_KEY;
     private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
     private static final Duration HEARTBEAT_TTL = AnycallQueues.HEARTBEAT_TTL;
     // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds.
+    // Returns {1 if this server's entry was missing (first tick, or it was pruned as
+    // dead), followed by every member still alive after the prune}.
     // Kept byte-for-byte identical to the Python server's copy.
     private static final String HEARTBEAT_SCRIPT = """
         local t = redis.call('TIME')
         local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-        redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
+        local added = redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
         redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', string.format('%.6f', now - tonumber(ARGV[2])))
         redis.call('EXPIRE', KEYS[1], ARGV[2])
-        return 1
+        local result = redis.call('ZRANGE', KEYS[1], 0, -1)
+        table.insert(result, 1, added)
+        return result
+        """;
+
+    // KEYS[1] = in-flight hash, KEYS[2..n] = request queues to try, in order.
+    // ARGV[1] = server id. Returns {queue, request json, request id} for the first queue
+    // with an entry, or {} if all were empty. The request id is '' if the entry isn't a
+    // parseable request — then it isn't recorded as in flight.
+    // Kept byte-for-byte identical to the Python server's copy.
+    private static final String ACQUIRE_SCRIPT = """
+        for i = 2, #KEYS do
+          local item = redis.call('RPOP', KEYS[i])
+          if item then
+            local ok, request = pcall(cjson.decode, item)
+            local id = ''
+            if ok and type(request) == 'table' and type(request.requestId) == 'string' then
+              id = request.requestId
+              redis.call('HSET', KEYS[1], id, ARGV[1])
+            end
+            return {KEYS[i], item, id}
+          end
+        end
+        return {}
         """;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -75,6 +123,18 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final RedisCommands<String, String> writeCommands;
     private final StatefulRedisConnection<String, String> heartbeatConnection;
     private final RedisAsyncCommands<String, String> heartbeatCommands;
+    private final StatefulRedisPubSubConnection<String, String> wakeConnection;
+    private final RedisPubSubCommands<String, String> wakeCommands;
+    private final Set<String> wakeChannels;
+
+    /**
+     * Tells the read loop to look at its queues again: a wake arrived for one of its
+     * methods, a local slot freed up, or the method set changed. Used as a doorbell, not
+     * a counter — the loop drains every permit before looking, so a release that lands
+     * while it looks is kept and its next wait returns straight away.
+     */
+    private final Semaphore doorbell;
+    private volatile boolean heartbeatRegistered;
 
     private final Map<String, MethodHandler> methodHandlers;
     private final Map<String, Semaphore> methodConcurrencyLimiters;
@@ -110,6 +170,18 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.writeCommands = writeConnection.sync();
         this.heartbeatConnection = redisClient.connect();
         this.heartbeatCommands = heartbeatConnection.async();
+        this.wakeConnection = redisClient.connectPubSub();
+        this.wakeCommands = wakeConnection.sync();
+        this.wakeChannels = new HashSet<>();
+        this.doorbell = new Semaphore(0);
+        // Any wake rings the doorbell; which channel it came from doesn't matter, the
+        // read loop tries every method with capacity anyway.
+        wakeConnection.addListener(new RedisPubSubAdapter<>() {
+            @Override
+            public void message(String channel, String message) {
+                doorbell.release();
+            }
+        });
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
@@ -131,6 +203,10 @@ public class AnyCallServerImpl implements AnyCallServer {
     public AnyCallServer start() {
         if (running.compareAndSet(false, true)) {
             log.info("Starting AnyCall server {}", serverId);
+            // Heartbeat once before taking any request: another server's cleanup treats
+            // an in-flight owner missing from the live set as dead, so this server must
+            // be in it before it owns anything.
+            heartbeatTick();
             executor = Executors.newCachedThreadPool();
             executor.submit(this::pollAllQueues);
             executor.submit(this::emitHeartbeats);
@@ -151,14 +227,15 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * Unregisters a method. Takes effect on the read loop's next iteration — there's
-     * no per-method thread or connection to tear down anymore, since the whole server
-     * shares one reader and one writer connection.
+     * Unregisters a method. Takes effect on the read loop's next iteration, which also
+     * drops its wake subscription — there's no per-method thread or connection to tear
+     * down, since the whole server shares one reader and one writer connection.
      */
     public AnyCallServer unregister(String methodName) {
         MethodHandler removed = methodHandlers.remove(methodName);
         if (removed != null) {
             methodConcurrencyLimiters.remove(methodName);
+            doorbell.release();
             log.info("Unregistered method: {}", methodName);
         }
         return this;
@@ -199,6 +276,7 @@ public class AnyCallServerImpl implements AnyCallServer {
 
                 methodHandlers.put(methodName, new MethodHandler(supplier, method, parameterType, maxConcurrency));
                 methodConcurrencyLimiters.put(methodName, new Semaphore(maxConcurrency));
+                doorbell.release();
                 log.debug("Registered supplier method: {} (maxConcurrency={})", methodName, maxConcurrency);
             }
         }
@@ -213,6 +291,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     public void stop() {
         if (running.compareAndSet(true, false)) {
             log.info("Stopping AnyCall server");
+            doorbell.release();
             if (executor != null) {
                 executor.shutdown();
                 try {
@@ -262,23 +341,97 @@ public class AnyCallServerImpl implements AnyCallServer {
      * {@link #HEARTBEAT_TTL} of Redis's current time ({@code TIME}).
      * <p>
      * Runs on its own thread so a slow or unreachable Redis never delays
-     * {@link #pollAllQueues} from draining its queues.
-     * <p>
+     * {@link #pollAllQueues} from draining its queues. {@link #start} already ran the
+     * first tick, so this one sleeps first.
      */
     private void emitHeartbeats() {
         try {
             while (running.get()) {
-                try {
-                    writeHeartbeat();
-                } catch (Exception e) {
-                    log.warn("Failed to write heartbeat: {}", e.getMessage());
-                }
-
                 Thread.sleep(HEARTBEAT_PERIOD.toMillis());
+                heartbeatTick();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * One heartbeat ({@link #writeHeartbeat}, which also prunes the entries that stopped
+     * being refreshed), then fail back whatever the servers found dead were still
+     * processing.
+     */
+    private void heartbeatTick() {
+        Map<String, String> owners;
+        HeartbeatResult heartbeat;
+        try {
+            // Read before the live set, never after: an owner must heartbeat before it
+            // can take a request, so any owner in this snapshot was in the live set first,
+            // and is missing from the one read below only if it really stopped heartbeating.
+            owners = await(heartbeatCommands.hgetall(INFLIGHT_KEY));
+            heartbeat = writeHeartbeat();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        } catch (Exception e) {
+            log.warn("Failed to write heartbeat: {}", e.getMessage());
+            return;
+        }
+
+        if (heartbeat.rejoined() && heartbeatRegistered) {
+            log.warn("Server {} was pruned as dead (no heartbeat for over {}s); the requests it "
+                + "was processing may already have been failed back to their clients",
+                serverId, HEARTBEAT_TTL.getSeconds());
+        }
+        heartbeatRegistered = true;
+
+        failOrphanedRequests(owners, heartbeat.alive());
+    }
+
+    /**
+     * For each in-flight request whose owner isn't alive anymore, pushes an error to its
+     * response queue so the client stops waiting.
+     * <p>
+     * Several live servers can notice the same dead owner on the same tick; the
+     * {@code HDEL} is the claim — only the one that actually removes the entry writes the
+     * error, so the client never gets two.
+     */
+    private void failOrphanedRequests(Map<String, String> owners, Set<String> alive) {
+        for (Map.Entry<String, String> entry : owners.entrySet()) {
+            String requestId = entry.getKey();
+            String owner = entry.getValue();
+            if (alive.contains(owner)) {
+                continue;
+            }
+            try {
+                if (await(heartbeatCommands.hdel(INFLIGHT_KEY, requestId)) != 1) {
+                    continue;
+                }
+                String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
+                String responseJson = OBJECT_MAPPER.writeValueAsString(AnyCallResponse.error(
+                    requestId, "server " + owner + " stopped heartbeating while processing this request"));
+                RedisFuture<Long> push = heartbeatCommands.lpush(responseQueue, responseJson);
+                RedisFuture<Boolean> expire = heartbeatCommands.expire(responseQueue, ORPHAN_RESPONSE_TTL.getSeconds());
+                await(push);
+                await(expire);
+                log.warn("Failed request {} back to its client: server {} is gone", requestId, owner);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                log.warn("Failed to fail back request {} of dead server {}: {}", requestId, owner, e.getMessage());
+            }
+        }
+    }
+
+    private static <T> T await(RedisFuture<T> future) throws Exception {
+        try {
+            return future.get(HEARTBEAT_PERIOD.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("timed out after " + HEARTBEAT_PERIOD.toMillis() + "ms", e);
+        }
+    }
+
+    private record HeartbeatResult(boolean rejoined, Set<String> alive) {
     }
 
     /**
@@ -293,17 +446,22 @@ public class AnyCallServerImpl implements AnyCallServer {
      * <p>
      * Runs on its own connection ({@link #heartbeatConnection}) so it never stalls
      * {@link #sendResponse}, which shares {@link #writeCommands} with the worker threads.
+     *
+     * @return whether this server had no entry before this tick, and every live member
      */
-    private void writeHeartbeat() {
-        RedisFuture<Long> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.INTEGER,
+    private HeartbeatResult writeHeartbeat() throws Exception {
+        RedisFuture<List<Object>> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.MULTI,
             new String[] {HEARTBEAT_KEY}, serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()));
-        if (!LettuceFutures.awaitAll(HEARTBEAT_PERIOD, future)) {
-            log.warn("Timed out waiting for heartbeat write to complete");
+        List<Object> result = await(future);
+        Set<String> alive = new HashSet<>();
+        for (Object member : result.subList(1, result.size())) {
+            alive.add((String) member);
         }
+        return new HeartbeatResult(Long.valueOf(1).equals(result.get(0)), alive);
     }
 
     /**
-     * Single read loop for every registered method's request queue. Only blocks on
+     * Single read loop for every registered method's request queue. Only takes from
      * queues with spare {@code maxConcurrency} capacity (see {@link #methodsWithCapacity}),
      * so a saturated method's requests stay in Redis instead of piling up in memory.
      */
@@ -311,29 +469,28 @@ public class AnyCallServerImpl implements AnyCallServer {
         while (running.get()) {
             try {
                 Map<String, MethodHandler> snapshot = new HashMap<>(methodHandlers);
-                if (snapshot.isEmpty()) {
-                    Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
-                    continue;
-                }
+                syncWakeSubscriptions(snapshot.keySet());
 
                 Set<String> available = methodsWithCapacity(snapshot.keySet());
                 if (available.isEmpty()) {
-                    // Every registered method (or the server-wide cap) is fully
-                    // saturated right now — back off instead of busy-looping.
-                    Thread.sleep(IDLE_POLL_INTERVAL.toMillis());
+                    // Nothing registered, or every registered method (or the server-wide
+                    // cap) is saturated: a worker finishing releases the doorbell, so wait
+                    // for that instead of busy-looping.
+                    waitForDoorbell();
                     continue;
                 }
 
-                KeyValue<String, String> entry = readCommands.brpop(
-                    POLL_BLOCK_TIMEOUT.getSeconds(),
-                    buildQueueKeys(available)
-                );
-
-                if (entry == null) {
+                // Drained before looking, not after: a wake that lands while the script
+                // runs stays as a permit, so the wait below returns at once.
+                doorbell.drainPermits();
+                List<Object> acquired = readCommands.eval(ACQUIRE_SCRIPT, ScriptOutputType.MULTI,
+                    buildAcquireKeys(available), serverId);
+                if (acquired == null || acquired.isEmpty()) {
+                    waitForDoorbell();
                     continue;
                 }
 
-                handleMessage(entry, snapshot);
+                handleMessage((String) acquired.get(0), (String) acquired.get(1), (String) acquired.get(2), snapshot);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (Exception e) {
@@ -344,12 +501,50 @@ public class AnyCallServerImpl implements AnyCallServer {
         }
     }
 
+    private void waitForDoorbell() throws InterruptedException {
+        doorbell.tryAcquire(WAKE_FALLBACK.toMillis(), TimeUnit.MILLISECONDS);
+        doorbell.drainPermits();
+    }
+
+    /**
+     * Subscribes to the wake channel of every registered method and drops the ones no
+     * longer registered. Called from the read loop, so runtime (un)registrations are
+     * picked up on its next iteration. After a new subscription the doorbell is released,
+     * since a request could have landed before the subscription existed.
+     * <p>
+     * A wake is only a hint, so losing one is harmless — the loop looks at its queues
+     * every {@link #WAKE_FALLBACK} anyway. Lettuce resubscribes on its own after a
+     * reconnect.
+     */
+    private void syncWakeSubscriptions(Set<String> methodNames) {
+        Set<String> wanted = new HashSet<>();
+        for (String methodName : methodNames) {
+            wanted.add(AnycallQueues.WAKE_CHANNEL_PREFIX + methodName);
+        }
+        Set<String> added = new HashSet<>(wanted);
+        added.removeAll(wakeChannels);
+        Set<String> removed = new HashSet<>(wakeChannels);
+        removed.removeAll(wanted);
+        if (added.isEmpty() && removed.isEmpty()) {
+            return;
+        }
+        if (!added.isEmpty()) {
+            wakeCommands.subscribe(added.toArray(new String[0]));
+            doorbell.release();
+        }
+        if (!removed.isEmpty()) {
+            wakeCommands.unsubscribe(removed.toArray(new String[0]));
+        }
+        wakeChannels.clear();
+        wakeChannels.addAll(wanted);
+    }
+
     // TODO: review whole concurrency implementation
     /**
      * Methods with a free permit on both their own semaphore and the server-wide
      * one, if any. A point-in-time read, not a reservation, so it can be stale by
      * the time {@link #handleMessage} actually acquires — that's fine, worst case
-     * one extra request gets popped just as its method fills up.
+     * one extra request gets taken just as its method fills up.
      */
     private Set<String> methodsWithCapacity(Set<String> methodNames) {
         if (globalConcurrencyLimiter != null && globalConcurrencyLimiter.availablePermits() <= 0) {
@@ -366,41 +561,48 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * Builds the array of request queue keys to block on, shuffled so that BRPOP's
-     * preference for the first key with data available doesn't starve a method that
-     * consistently sorts after a busier one in {@code methodNames}' iteration order.
+     * Builds the keys for {@link #ACQUIRE_SCRIPT}: the in-flight hash, then the request
+     * queues to try, shuffled so that the script's preference for the first queue with
+     * data doesn't starve a method that consistently sorts after a busier one in
+     * {@code methodNames}' iteration order.
      */
-    private String[] buildQueueKeys(Set<String> methodNames) {
-        List<String> keys = new ArrayList<>(methodNames.size());
+    private String[] buildAcquireKeys(Set<String> methodNames) {
+        List<String> queues = new ArrayList<>(methodNames.size());
         for (String methodName : methodNames) {
-            keys.add(AnycallQueues.REQUEST_QUEUE_PREFIX + methodName);
+            queues.add(AnycallQueues.REQUEST_QUEUE_PREFIX + methodName);
         }
-        Collections.shuffle(keys);
+        Collections.shuffle(queues);
+        List<String> keys = new ArrayList<>(queues.size() + 1);
+        keys.add(INFLIGHT_KEY);
+        keys.addAll(queues);
         return keys.toArray(new String[0]);
     }
 
     /**
-     * Routes one popped request to its handler. Acquires both semaphores on this
+     * Routes one taken request to its handler. Acquires both semaphores on this
      * (the poll loop's) thread, before dispatching — since {@link #methodsWithCapacity}
      * already filtered for availability, this is normally instant; it only actually
      * waits if that pre-filter's read is stale, which is exactly when the loop
-     * should wait rather than pop another request the method has no room for.
+     * should wait rather than take another request the method has no room for.
      *
-     * @param entry the queue key and raw request JSON popped by BRPOP
+     * @param queueKey the queue the request was taken from
+     * @param requestJson the raw request JSON
+     * @param acquiredId the id {@link #ACQUIRE_SCRIPT} recorded it under in the in-flight
+     *                   hash, or {@code ""} if it couldn't parse one
      * @param snapshot the method registry as it was when this entry was read
      */
-    private void handleMessage(KeyValue<String, String> entry, Map<String, MethodHandler> snapshot) {
-        String queueKey = entry.getKey();
-        String requestJson = entry.getValue();
+    private void handleMessage(String queueKey, String requestJson, String acquiredId,
+                               Map<String, MethodHandler> snapshot) {
         String methodName = queueKey.substring(AnycallQueues.REQUEST_QUEUE_PREFIX.length());
         MethodHandler handler = snapshot.get(methodName);
 
         // TODO verify if this is really the expected behaviour
         if (handler == null) {
-            // Unregistered between being popped and being routed; nothing left to hand
-            // it to. BRPOP already removed it from Redis, so there's nothing to clean up.
+            // Unregistered between being taken and being routed; nothing left to hand
+            // it to, so drop it along with its in-flight entry.
             log.warn("No handler registered for method '{}'; dropping request from queue {}",
                     methodName, queueKey);
+            releaseInflight(acquiredId);
             return;
         }
 
@@ -421,9 +623,9 @@ public class AnyCallServerImpl implements AnyCallServer {
             if (methodAcquired) {
                 methodLimiter.release();
             }
-            // BRPOP already removed this entry from Redis when it was popped, so
-            // never getting to run the handler just means it's lost — same
-            // at-most-once semantics as before under NOACK.
+            // Already out of its queue, so never getting to run the handler just
+            // means it's lost — at-most-once, as before.
+            releaseInflight(acquiredId);
             return;
         }
 
@@ -433,12 +635,16 @@ public class AnyCallServerImpl implements AnyCallServer {
             try {
                 processRequest(requestJson, handler);
             } finally {
+                releaseInflight(acquiredId);
                 if (releaseGlobal) {
                     globalConcurrencyLimiter.release();
                 }
                 if (releaseMethod) {
                     methodLimiter.release();
                 }
+                // A slot just freed up: have the read loop look for more work now
+                // rather than on its next fallback tick.
+                doorbell.release();
             }
         });
     }
@@ -525,6 +731,24 @@ public class AnyCallServerImpl implements AnyCallServer {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
             }
+        }
+    }
+
+    /**
+     * Drops a request's in-flight entry. Runs after its response is sent, never before:
+     * if the process dies in between, the entry is failed back as a crash, but the client
+     * pops the real response before that error ({@code BRPOP} takes the oldest).
+     *
+     * @param acquiredId the id the request was taken under; {@code ""} means none
+     */
+    private void releaseInflight(String acquiredId) {
+        if (acquiredId == null || acquiredId.isEmpty()) {
+            return;
+        }
+        try {
+            writeCommands.hdel(INFLIGHT_KEY, acquiredId);
+        } catch (Exception e) {
+            log.warn("Failed to drop in-flight entry for request {}: {}", acquiredId, e.getMessage());
         }
     }
 

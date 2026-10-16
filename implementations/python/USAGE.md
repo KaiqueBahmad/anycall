@@ -45,6 +45,13 @@ registered method combined:
 server = AnyCall.server("redis://localhost:16379", max_concurrency=16)
 ```
 
+### If a server dies mid-request
+
+If a server crashes while processing a request, another live server notices
+within ~8–10s and fails the request back: the client gets a `RemoteException`
+instead of waiting out its `timeout`. With a single server, the client still
+waits for its timeout. The request is not retried.
+
 ## How to Use as Consumer (Client)
 
 ### Call with explicit type:

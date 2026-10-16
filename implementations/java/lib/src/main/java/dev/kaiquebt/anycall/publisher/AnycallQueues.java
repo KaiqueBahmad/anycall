@@ -21,6 +21,24 @@ public class AnycallQueues {
     public static String RESPONSE_QUEUE_PREFIX = "anycall:responses:";
 
     /**
+     * Prefix for wake channels. Method name is appended to create the full channel name.
+     * Format: {@code anycall:wake:<method-name>}
+     * <p>
+     * A client publishes here right after pushing a request, so idle servers for that
+     * method go look at the queue instead of waiting out their fallback poll. Carries no
+     * data — it only means "there may be something new".
+     */
+    public static final String WAKE_CHANNEL_PREFIX = "anycall:wake:";
+
+    /**
+     * Hash of request id → id of the server processing it. A server writes the entry in
+     * the same script that pops the request, and removes it once the response is sent;
+     * entries whose owner stopped heartbeating are failed back to their client by
+     * whichever live server notices first.
+     */
+    public static final String INFLIGHT_KEY = "anycall:inflight";
+
+    /**
      * Sorted set of server ids heartbeating, scored by Redis's own {@code TIME}. Written by
      * {@link dev.kaiquebt.anycall.server.AnyCallServerImpl}, read by clients to tell whether
      * any server is currently alive before publishing a request.

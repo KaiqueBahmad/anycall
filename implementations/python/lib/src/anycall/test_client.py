@@ -30,8 +30,8 @@ class MockRedisAdapter:
     def __init__(self, queue_depth: int = 0):
         self.queue_depth = queue_depth
 
-    def push(self, queue_key: str, value: str) -> int:
-        return self.queue_depth + 1
+    def push_and_wake(self, queue_key: str, value: str, channel: str) -> None:
+        pass
 
     def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
         return None
