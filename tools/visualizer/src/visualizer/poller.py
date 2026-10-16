@@ -10,9 +10,18 @@ Live servers come from the same sorted set the servers heartbeat into
 members scored within HEARTBEAT_TTL_SECONDS of now are alive, older ones are
 dead but not yet swept.
 
+Requests being processed come from the in-flight hash (`anycall:inflight`,
+request id -> owning server id) that servers write in the same step as taking
+a request off its queue. An entry whose owner isn't among the live servers is
+a request a live server is about to fail back to its client.
+
+How many servers listen on each method's wake channel (`anycall:wake:<method>`)
+comes from PUBSUB NUMSUB -- it counts subscriptions without joining them.
+
 Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE, XLEN,
-XRANGE, ZRANGEBYSCORE, TIME, INFO) -- never BRPOP/LPUSH/XREADGROUP/XACK/XDEL/ZADD/
-ZREM/ZREMRANGEBYSCORE/CONFIG SET. This process must never be able to steal or
+XRANGE, ZRANGEBYSCORE, HGETALL, PUBSUB NUMSUB, TIME, INFO) -- never
+BRPOP/RPOP/LPUSH/HDEL/PUBLISH/SUBSCRIBE/XREADGROUP/XACK/XDEL/ZADD/ZREM/
+ZREMRANGEBYSCORE/CONFIG SET. This process must never be able to steal or
 alter real RPC traffic; it only observes it.
 """
 from __future__ import annotations
@@ -42,6 +51,7 @@ class MethodInfo:
     backlog: int
     kind: str = "stream"  # "list" (Java) or "stream" (Python), from the key's TYPE
     entries: dict[str, str] = field(default_factory=dict)  # entry id -> preview
+    listeners: int = 0  # servers subscribed to the method's wake channel
 
 
 @dataclass
@@ -52,12 +62,20 @@ class ServerInfo:
 
 
 @dataclass
+class InflightInfo:
+    request_id: str
+    owner: str  # id of the server processing it
+    owner_alive: bool  # False: the owner stopped heartbeating; about to be failed back
+
+
+@dataclass
 class Snapshot:
     connected: bool
     taken_at: float
     redis_uri: str
     methods: list[MethodInfo] = field(default_factory=list)
     servers: list[ServerInfo] = field(default_factory=list)
+    inflight: list[InflightInfo] = field(default_factory=list)
     inflight_responses: int = 0
     redis_version: str = ""
     connected_clients: int = 0
@@ -165,6 +183,26 @@ def _collect_servers(client: redis.Redis) -> list[ServerInfo]:
     return servers
 
 
+def _collect_inflight(client: redis.Redis, alive: set[str]) -> list[InflightInfo]:
+    """Requests some server took off a queue and hasn't answered yet."""
+    owners = client.hgetall(anycall_queues.INFLIGHT_KEY) or {}
+    inflight = [
+        InflightInfo(request_id=request_id, owner=owner, owner_alive=owner in alive)
+        for request_id, owner in owners.items()
+    ]
+    inflight.sort(key=lambda entry: (entry.owner, entry.request_id))
+    return inflight
+
+
+def _collect_listeners(client: redis.Redis, methods: list[MethodInfo]) -> None:
+    """Fill in how many servers are subscribed to each method's wake channel."""
+    if not methods:
+        return
+    counts = dict(client.pubsub_numsub(*(anycall_queues.wake_channel(m.name) for m in methods)))
+    for method in methods:
+        method.listeners = int(counts.get(anycall_queues.wake_channel(method.name), 0))
+
+
 def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     info = client.info()
 
@@ -176,10 +214,12 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
         )
         if method is not None
     ]
+    _collect_listeners(client, methods)
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
 
     taken_at = time.time()
     servers = _collect_servers(client)
+    inflight = _collect_inflight(client, {server.server_id for server in servers})
 
     return Snapshot(
         connected=True,
@@ -187,6 +227,7 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
         redis_uri=redis_uri,
         methods=methods,
         servers=servers,
+        inflight=inflight,
         inflight_responses=inflight_responses,
         redis_version=info.get("redis_version", "?"),
         connected_clients=info.get("connected_clients", 0),
@@ -229,6 +270,27 @@ class ActivityTracker:
             # the entry, and there's nothing here to tell the two apart.
             for server_id in sorted(prev_servers - current_servers):
                 events.append(Event(now, f"server gone: {server_id}"))
+
+        if snapshot.connected:
+            prev_inflight = {e.request_id: e for e in prev.inflight} if prev_connected else {}
+            current_inflight = {e.request_id: e for e in snapshot.inflight}
+            for request_id, entry in current_inflight.items():
+                prev_entry = prev_inflight.get(request_id)
+                if prev_entry is None:
+                    events.append(Event(now, f"request {request_id} taken by server {entry.owner}"))
+                elif prev_entry.owner_alive and not entry.owner_alive:
+                    events.append(
+                        Event(now, f"request {request_id} orphaned: server {entry.owner} is gone")
+                    )
+            for request_id, entry in prev_inflight.items():
+                if request_id in current_inflight:
+                    continue
+                if entry.owner_alive:
+                    events.append(Event(now, f"request {request_id} answered by server {entry.owner}"))
+                else:
+                    events.append(
+                        Event(now, f"request {request_id} failed back to its client (server {entry.owner} died)")
+                    )
 
         prev_methods = {m.name: m for m in prev.methods} if prev else {}
         for method in snapshot.methods:

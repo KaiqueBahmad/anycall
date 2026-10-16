@@ -11,9 +11,10 @@ right way, so both kinds show up side by side, tagged `[list]`/`[stream]`
 in the Methods panel.
 
 It only ever issues non-destructive Redis commands (`SCAN`, `TYPE`, `LLEN`,
-`LRANGE`, `XLEN`, `XRANGE`, `ZRANGEBYSCORE`, `INFO`) — it never pushes or
-pops a queue entry, acknowledges/deletes messages, writes or prunes the
-heartbeat set, or changes Redis config. It has no effect on real
+`LRANGE`, `XLEN`, `XRANGE`, `ZRANGEBYSCORE`, `HGETALL`, `PUBSUB NUMSUB`,
+`TIME`, `INFO`) — it never pushes or pops a queue entry, acknowledges/deletes
+messages, writes or prunes the heartbeat set or the in-flight hash, publishes
+or subscribes to a wake channel, or changes Redis config. It has no effect on real
 client/server traffic and provides no actions of its own.
 
 Works against any AnyCall implementation (Java, Python, ...) since they all
@@ -45,8 +46,14 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   `[list]` or `[stream]`, with backlog (not-yet-popped requests). A
   request simply disappears from the backlog the instant a worker pops
   it, for both kinds.
+  The **listening** column counts servers subscribed to the method's wake
+  channel.
+- **In flight**: requests a server has taken and not yet answered, with the
+  owning server and whether it's still alive. A row whose server is *gone*
+  is about to be failed back to its client.
 - **Activity log**: servers coming and going, method discovery, backlog
-  changes, and requests spotted entering a queue. Polling can't see
+  changes, and requests entering a queue, being taken, answered, or failed
+  back. Polling can't see
   everything that happens between two polls, so this is best-effort
   flavor, not a complete audit trail — the gauges above stay exact.
 

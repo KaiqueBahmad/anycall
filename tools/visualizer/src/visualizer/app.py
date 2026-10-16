@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .poller import Event, MethodInfo, PollerThread, ServerInfo, Snapshot
+from .poller import Event, InflightInfo, MethodInfo, PollerThread, ServerInfo, Snapshot
 
 WINDOW_TITLE = "AnyCall Visualizer"
 MAX_LOG_LINES = 1000
@@ -192,12 +192,16 @@ QToolTip {{
 # glyphs cramped inside fixed-size columns.
 METHODS_TREE_BASE_COLUMNS = {0: 340, 1: 80, 2: 90, 3: 90}
 SERVERS_TREE_BASE_COLUMNS = {0: 400, 1: 160}  # 400 fits a full 36-char uuid
+INFLIGHT_TREE_BASE_COLUMNS = {0: 400, 1: 400, 2: 120}
 TREE_BASE_INDENT = 20
 
 # The servers panel is a short list next to a potentially long methods list,
 # so it's capped at this many rows and scrolls past it instead of taking the
 # space away from the methods below.
 SERVERS_VISIBLE_ROWS = 4
+# Same for the in-flight panel: bounded by the total concurrency of every
+# server, so it can grow long, but it's rarely the thing being watched.
+INFLIGHT_VISIBLE_ROWS = 5
 
 # Custom item-data roles: KEY_ROLE holds a stable string identifying the row
 # (survives tree rebuilds, unlike the QTreeWidgetItem instance itself) so
@@ -297,14 +301,27 @@ class VisualizerApp(QMainWindow):
         self._methods_group = QGroupBox("Methods (request queues)")
         methods_layout = QVBoxLayout(self._methods_group)
         self._methods_tree = QTreeWidget()
-        self._methods_tree.setColumnCount(2)
-        self._methods_tree.setHeaderLabels(["method", "backlog"])
+        self._methods_tree.setColumnCount(3)
+        self._methods_tree.setHeaderLabels(["method", "backlog", "listening"])
         self._methods_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._methods_tree.setUniformRowHeights(True)
         self._methods_tree.setAlternatingRowColors(True)
         methods_layout.addWidget(self._methods_tree)
         self._bind_copy_json(self._methods_tree)
         layout.addWidget(self._methods_group, 1)
+
+        self._inflight_group = QGroupBox("In flight (taken, not yet answered)")
+        inflight_layout = QVBoxLayout(self._inflight_group)
+        self._inflight_tree = QTreeWidget()
+        self._inflight_tree.setColumnCount(3)
+        self._inflight_tree.setHeaderLabels(["request id", "server", "server state"])
+        self._inflight_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._inflight_tree.setUniformRowHeights(True)
+        self._inflight_tree.setAlternatingRowColors(True)
+        self._inflight_tree.setRootIsDecorated(False)
+        inflight_layout.addWidget(self._inflight_tree)
+        self._bind_copy_json(self._inflight_tree)
+        layout.addWidget(self._inflight_group)
 
         self._log_group = QGroupBox("Activity log")
         log_layout = QVBoxLayout(self._log_group)
@@ -332,11 +349,12 @@ class VisualizerApp(QMainWindow):
         self._stats_label.setText(
             f"redis {snapshot.redis_version}  |  clients {snapshot.connected_clients}  |  "
             f"memory {snapshot.used_memory_human}  |  servers {len(snapshot.servers)}  |  "
-            f"awaiting delivery {snapshot.inflight_responses}"
+            f"in flight {len(snapshot.inflight)}  |  awaiting delivery {snapshot.inflight_responses}"
         )
 
         self._render_servers(snapshot)
         self._render_methods(snapshot)
+        self._render_inflight(snapshot)
 
     # -- Ctrl-C copy-as-JSON --------------------------------------------------
 
@@ -385,6 +403,15 @@ class VisualizerApp(QMainWindow):
             "method": method.name,
             "kind": method.kind,
             "backlog": method.backlog,
+            "listening": method.listeners,
+        }
+
+    @staticmethod
+    def _inflight_to_dict(entry: InflightInfo) -> dict:
+        return {
+            "request_id": entry.request_id,
+            "server_id": entry.owner,
+            "server_alive": entry.owner_alive,
         }
 
     # -- tree state preservation across rebuilds ------------------------------
@@ -459,15 +486,34 @@ class VisualizerApp(QMainWindow):
                 [
                     f"{method.name}  [{method.kind}]",
                     str(method.backlog),
+                    str(method.listeners),
                 ]
             )
             method_item.setData(0, KEY_ROLE, method_key)
             method_item.setData(0, DATA_ROLE, self._method_to_dict(method))
-            self._set_numeric_columns(method_item, range(1, 2))
+            self._set_numeric_columns(method_item, range(1, 3))
 
             top_items.append(method_item)
 
         tree.addTopLevelItems(top_items)
+        self._restore_tree_state(tree, selected, expanded, current)
+
+    def _render_inflight(self, snapshot: Snapshot) -> None:
+        tree = self._inflight_tree
+        selected, expanded, current = self._capture_tree_state(tree)
+        tree.clear()
+
+        items = []
+        for entry in snapshot.inflight:
+            # A dead owner's entry lingers until a live server's next heartbeat
+            # tick fails it back to the client -- at most a couple of seconds.
+            state = "alive" if entry.owner_alive else "gone (failing back)"
+            item = QTreeWidgetItem([entry.request_id, entry.owner, state])
+            item.setData(0, KEY_ROLE, f"inflight:{entry.request_id}")
+            item.setData(0, DATA_ROLE, self._inflight_to_dict(entry))
+            items.append(item)
+
+        tree.addTopLevelItems(items)
         self._restore_tree_state(tree, selected, expanded, current)
 
     def _append_events(self, events: list[Event]) -> None:
@@ -543,6 +589,7 @@ class VisualizerApp(QMainWindow):
             self._font_size_spin,
             self._servers_group,
             self._methods_group,
+            self._inflight_group,
             self._log_group,
         ):
             widget.setFont(base_font)
@@ -553,7 +600,7 @@ class VisualizerApp(QMainWindow):
             button.setFont(bold_font)
             button.setFixedSize(spin_height, spin_height)
 
-        for tree in (self._servers_tree, self._methods_tree):
+        for tree in (self._servers_tree, self._methods_tree, self._inflight_tree):
             tree.setFont(base_font)
             tree.header().setFont(bold_font)
 
@@ -561,6 +608,8 @@ class VisualizerApp(QMainWindow):
         # tracks the chosen font size instead of clipping bigger glyphs.
         server_row_height = self._servers_tree.fontMetrics().lineSpacing() + 6
         self._servers_tree.setMaximumHeight(server_row_height * (SERVERS_VISIBLE_ROWS + 1) + 12)
+        inflight_row_height = self._inflight_tree.fontMetrics().lineSpacing() + 6
+        self._inflight_tree.setMaximumHeight(inflight_row_height * (INFLIGHT_VISIBLE_ROWS + 1) + 12)
 
         self._log_text.setFont(mono_font)
         if not hasattr(self, "_log_height_set"):
@@ -573,6 +622,8 @@ class VisualizerApp(QMainWindow):
             self._methods_tree.setColumnWidth(column, round(base_width * scale))
         for column, base_width in SERVERS_TREE_BASE_COLUMNS.items():
             self._servers_tree.setColumnWidth(column, round(base_width * scale))
+        for column, base_width in INFLIGHT_TREE_BASE_COLUMNS.items():
+            self._inflight_tree.setColumnWidth(column, round(base_width * scale))
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt override)
         if event.type() == QEvent.Type.MouseButtonPress:
