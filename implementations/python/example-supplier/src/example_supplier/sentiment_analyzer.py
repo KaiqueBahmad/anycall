@@ -18,4 +18,5 @@ class SentimentAnalyzer:
         Returns:
             Sentiment analysis result
         """
+        print(f"[python-supplier] analyze-sentiment received: {req.text!r}", flush=True)
         return Sentiment(text=req.text, label="positive")
