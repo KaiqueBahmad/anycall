@@ -129,3 +129,5 @@ client = AnyCall.client(
     metrics_enabled=True
 )
 ```
+
+`timeout=timedelta(0)` waits for the response with no limit.

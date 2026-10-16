@@ -7,6 +7,23 @@ from .config import AnycallProperties
 from .redis_adapter import RedisQueueAdapter
 from .server import AnyCallServer, AnyCallServerImpl
 
+# Added on top of the call timeout to get the client's socket read timeout, so
+# the socket never gives up on a response BRPOP that is still within its call
+# timeout.
+SOCKET_TIMEOUT_MARGIN = timedelta(seconds=5)
+
+
+def _client_socket_timeout(timeout: timedelta) -> float | None:
+    """Socket read timeout for a client whose calls wait up to `timeout`.
+
+    redis-py 8 changed the default from no limit to 5s, which cut every call
+    waiting longer than that with a TimeoutError. A zero `timeout` means the
+    BRPOP blocks forever, so the socket must too.
+    """
+    if timeout <= timedelta(0):
+        return None
+    return (timeout + SOCKET_TIMEOUT_MARGIN).total_seconds()
+
 
 class AnyCall:
     """Factory for creating AnyCall clients and servers."""
@@ -31,7 +48,9 @@ class AnyCall:
         Returns:
             AnyCallClient instance
         """
-        redis_client = redis.from_url(redis_uri, decode_responses=False)
+        redis_client = redis.from_url(
+            redis_uri, decode_responses=False, socket_timeout=_client_socket_timeout(timeout)
+        )
         redis_adapter = RedisQueueAdapter(redis_client)
         props = AnycallProperties(timeout=timeout, metrics_enabled=metrics_enabled)
         return AnyCallClientImpl(redis_adapter, props, default_max_queue_depth)
