@@ -320,6 +320,8 @@ class AnyCallServerImpl(AnyCallServer):
             logger.warning(f"Failed to write heartbeat: {e}")
             return
 
+        # TODO: This may lead to a leak in Redis. The consumer has already been answered, but the supplier will reply again,
+        # and this second reply may never get read or deleted.
         if rejoined and self._heartbeat_registered:
             logger.warning(
                 f"Server {self._server_id} was pruned as dead (no heartbeat for over "

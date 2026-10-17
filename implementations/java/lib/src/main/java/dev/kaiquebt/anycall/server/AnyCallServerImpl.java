@@ -375,6 +375,8 @@ public class AnyCallServerImpl implements AnyCallServer {
             return;
         }
 
+        // TODO: This may lead to a leak in Redis. The consumer has already been answered, but the supplier will reply again,
+        // and this second reply may never get read or deleted.
         if (heartbeat.rejoined() && heartbeatRegistered) {
             log.warn("Server {} was pruned as dead (no heartbeat for over {}s); the requests it "
                 + "was processing may already have been failed back to their clients",
