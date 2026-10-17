@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With no other server alive to notice, a waiting client fails back its dead server's requests itself, 30–60s after the crash: calls wait for their response in 30s slices, and once a whole client has gone 30s without a sign of a live server (a response, or a call finding one alive before publishing), one of its calls does the same cleanup a server would. The Java client opens a short-lived extra connection for it
 - Clients publish on `anycall:wake:<method>` after pushing a request, so idle servers take it right away
 - Visualizer: "In flight" panel and a "listening" column (servers subscribed to the method's wake channel)
+- Visualizer: for an in-flight request whose server is gone, an estimate of when it will be failed back and by whom (a live server's heartbeat, or its waiting client), marked as an estimate and explained under the panel
 
 ### Changed
 - Servers take requests with a Lua script that pops the request and records it as in flight atomically, instead of `BRPOP`; idle servers wait for a wake message, falling back to looking at their queues every second. Servers now hold four Redis connections

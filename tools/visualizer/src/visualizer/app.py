@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .poller import Event, InflightInfo, MethodInfo, PollerThread, ServerInfo, Snapshot
+from .poller import Event, InflightInfo, MethodInfo, PollerThread, ReapEstimate, ServerInfo, Snapshot
 
 WINDOW_TITLE = "AnyCall Visualizer"
 MAX_LOG_LINES = 1000
@@ -192,7 +192,7 @@ QToolTip {{
 # glyphs cramped inside fixed-size columns.
 METHODS_TREE_BASE_COLUMNS = {0: 340, 1: 80, 2: 90, 3: 90}
 SERVERS_TREE_BASE_COLUMNS = {0: 400, 1: 160}  # 400 fits a full 36-char uuid
-INFLIGHT_TREE_BASE_COLUMNS = {0: 400, 1: 400, 2: 120}
+INFLIGHT_TREE_BASE_COLUMNS = {0: 400, 1: 400, 2: 90, 3: 300}
 TREE_BASE_INDENT = 20
 
 # The servers panel is a short list next to a potentially long methods list,
@@ -202,6 +202,18 @@ SERVERS_VISIBLE_ROWS = 4
 # Same for the in-flight panel: bounded by the total concurrency of every
 # server, so it can grow long, but it's rarely the thing being watched.
 INFLIGHT_VISIBLE_ROWS = 5
+
+# Shown under the in-flight panel and as the estimate column's tooltip: the
+# timing is a guess from what Redis shows, so the GUI says so and says how.
+REAP_ESTIMATE_NOTE = (
+    "* Estimated, not observed: part of the mechanism is a timer inside each client "
+    "process, which never reaches Redis. With a server alive, its next heartbeat "
+    "tick (every 2s) fails the request back. With none, the client still waiting "
+    "for it does, at the end of a 30s wait slice once it has gone 30s without a "
+    "sign of a live server: 8–68s after the last heartbeat this window saw. A "
+    "client that already gave up never does, and the entry stays until a server "
+    "starts."
+)
 
 # Custom item-data roles: KEY_ROLE holds a stable string identifying the row
 # (survives tree rebuilds, unlike the QTreeWidgetItem instance itself) so
@@ -313,13 +325,18 @@ class VisualizerApp(QMainWindow):
         self._inflight_group = QGroupBox("In flight (taken, not yet answered)")
         inflight_layout = QVBoxLayout(self._inflight_group)
         self._inflight_tree = QTreeWidget()
-        self._inflight_tree.setColumnCount(3)
-        self._inflight_tree.setHeaderLabels(["request id", "server", "server state"])
+        self._inflight_tree.setColumnCount(4)
+        self._inflight_tree.setHeaderLabels(["request id", "server", "server state", "failed back *"])
+        self._inflight_tree.headerItem().setToolTip(3, REAP_ESTIMATE_NOTE)
         self._inflight_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._inflight_tree.setUniformRowHeights(True)
         self._inflight_tree.setAlternatingRowColors(True)
         self._inflight_tree.setRootIsDecorated(False)
         inflight_layout.addWidget(self._inflight_tree)
+        self._reap_note_label = QLabel(REAP_ESTIMATE_NOTE)
+        self._reap_note_label.setWordWrap(True)
+        self._reap_note_label.setStyleSheet(f"color: {_TEXT_MUTED};")
+        inflight_layout.addWidget(self._reap_note_label)
         self._bind_copy_json(self._inflight_tree)
         layout.addWidget(self._inflight_group)
 
@@ -412,7 +429,26 @@ class VisualizerApp(QMainWindow):
             "request_id": entry.request_id,
             "server_id": entry.owner,
             "server_alive": entry.owner_alive,
+            "failed_back_estimate": None if entry.reap is None else {
+                "by": entry.reap.by,
+                "earliest_seconds": entry.reap.earliest,
+                "latest_seconds": entry.reap.latest,
+            },
         }
+
+    @staticmethod
+    def _format_reap(estimate: ReapEstimate | None) -> str:
+        if estimate is None:
+            return ""
+        if estimate.by == "server":
+            return f"within ~{estimate.latest:.0f}s, by a live server"
+        if estimate.latest is None:
+            return "by its waiting client (no heartbeat seen yet)"
+        if estimate.latest <= 0:
+            return "overdue: its client may have stopped waiting"
+        if estimate.earliest <= 0:
+            return f"within ~{estimate.latest:.0f}s, by its waiting client"
+        return f"in ~{estimate.earliest:.0f}–{estimate.latest:.0f}s, by its waiting client"
 
     # -- tree state preservation across rebuilds ------------------------------
 
@@ -505,10 +541,8 @@ class VisualizerApp(QMainWindow):
 
         items = []
         for entry in snapshot.inflight:
-            # A dead owner's entry lingers until a live server's next heartbeat
-            # tick fails it back to the client -- at most a couple of seconds.
-            state = "alive" if entry.owner_alive else "gone (failing back)"
-            item = QTreeWidgetItem([entry.request_id, entry.owner, state])
+            state = "alive" if entry.owner_alive else "gone"
+            item = QTreeWidgetItem([entry.request_id, entry.owner, state, self._format_reap(entry.reap)])
             item.setData(0, KEY_ROLE, f"inflight:{entry.request_id}")
             item.setData(0, DATA_ROLE, self._inflight_to_dict(entry))
             items.append(item)
@@ -590,6 +624,7 @@ class VisualizerApp(QMainWindow):
             self._servers_group,
             self._methods_group,
             self._inflight_group,
+            self._reap_note_label,
             self._log_group,
         ):
             widget.setFont(base_font)

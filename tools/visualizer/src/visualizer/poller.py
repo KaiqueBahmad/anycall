@@ -13,7 +13,10 @@ dead but not yet swept.
 Requests being processed come from the in-flight hash (`anycall:inflight`,
 request id -> owning server id) that servers write in the same step as taking
 a request off its queue. An entry whose owner isn't among the live servers is
-a request a live server is about to fail back to its client.
+an orphan: a live server's heartbeat fails it back to its client, or with none
+left, the client that's still waiting for it does. When that happens is only
+estimated here (see `estimate_reaping`): the client's side of it runs on a
+timer kept in the client process, which never reaches Redis.
 
 How many servers listen on each method's wake channel (`anycall:wake:<method>`)
 comes from PUBSUB NUMSUB -- it counts subscriptions without joining them.
@@ -36,7 +39,8 @@ import redis
 import redis.exceptions
 from anycall import queues as anycall_queues
 from anycall.model import AnyCallRequest
-from anycall.server import HEARTBEAT_KEY, HEARTBEAT_TTL_SECONDS
+from anycall.client import WAITER_REAP_QUIET_SECONDS, WAITER_REAP_SLICE_SECONDS
+from anycall.server import HEARTBEAT_KEY, HEARTBEAT_PERIOD_SECONDS, HEARTBEAT_TTL_SECONDS
 from PyQt6.QtCore import QThread, pyqtSignal
 
 RESPONSE_QUEUE_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
@@ -62,10 +66,22 @@ class ServerInfo:
 
 
 @dataclass
+class ReapEstimate:
+    """When an orphaned request should be failed back to its client, and by
+    whom -- estimated, never observed (see `estimate_reaping`)."""
+
+    by: str  # "server" (heartbeat reaping) or "client" (waiter-driven reaping)
+    # Window in seconds from the snapshot, by Redis's clock; None if unknown.
+    earliest: Optional[float] = None
+    latest: Optional[float] = None
+
+
+@dataclass
 class InflightInfo:
     request_id: str
     owner: str  # id of the server processing it
     owner_alive: bool  # False: the owner stopped heartbeating; about to be failed back
+    reap: Optional[ReapEstimate] = None  # only for orphans (owner_alive False)
 
 
 @dataclass
@@ -159,7 +175,7 @@ def _collect_stream_method(client: redis.Redis, queue_key: str, name: str) -> Me
     return MethodInfo(name=name, backlog=backlog, kind="stream", entries=entries)
 
 
-def _collect_servers(client: redis.Redis) -> list[ServerInfo]:
+def _collect_servers(client: redis.Redis, last_seen: dict[str, float]) -> tuple[list[ServerInfo], float]:
     """Live servers, from the sorted set each server ZADDs itself into every
     HEARTBEAT_PERIOD_SECONDS. Members scored older than HEARTBEAT_TTL_SECONDS
     are servers that stopped refreshing their entry; they're filtered out here
@@ -167,20 +183,26 @@ def _collect_servers(client: redis.Redis) -> list[ServerInfo]:
 
     Servers score themselves with Redis's own clock (`TIME`), so "now" is
     read from Redis too: `age` doesn't depend on this host's clock at all.
+
+    Every member's score, dead ones included, is folded into `last_seen`,
+    which outlives the entries themselves (pruned by a live server's next
+    tick, or expired with the whole key once none is left) -- it's what the
+    reaping estimate counts from. Returns the live servers and Redis's now.
     """
     seconds, microseconds = client.time()
     now = seconds + microseconds / 1_000_000
-    members = client.zrangebyscore(
-        HEARTBEAT_KEY, now - HEARTBEAT_TTL_SECONDS, "+inf", withscores=True
-    )
+    members = client.zrangebyscore(HEARTBEAT_KEY, "-inf", "+inf", withscores=True) or []
+    for member, score in members:
+        last_seen[member] = max(score, last_seen.get(member, score))
     servers = [
         ServerInfo(server_id=member, last_heartbeat=score, age=max(0.0, now - score))
-        for member, score in members or []
+        for member, score in members
+        if score >= now - HEARTBEAT_TTL_SECONDS
     ]
     # ZRANGEBYSCORE hands them back oldest-heartbeat-first, which reshuffles
     # rows on every tick; sort by id so a server keeps its place in the table.
     servers.sort(key=lambda server: server.server_id)
-    return servers
+    return servers, now
 
 
 def _collect_inflight(client: redis.Redis, alive: set[str]) -> list[InflightInfo]:
@@ -194,6 +216,36 @@ def _collect_inflight(client: redis.Redis, alive: set[str]) -> list[InflightInfo
     return inflight
 
 
+def estimate_reaping(any_alive: bool, last_seen: dict[str, float], now: float) -> ReapEstimate:
+    """Estimate when an orphaned request gets failed back, from what Redis
+    shows -- a guess, since part of the mechanism lives in client memory:
+
+    - Some server alive: its next heartbeat tick reaps every orphan, so
+      within HEARTBEAT_PERIOD_SECONDS.
+    - None alive: the client waiting for the request reaps it, at the end of
+      a WAITER_REAP_SLICE_SECONDS wait slice, once it has gone
+      WAITER_REAP_QUIET_SECONDS without a sign of a live server. Counted from
+      the last heartbeat ever seen here (D): no earlier than D +
+      HEARTBEAT_TTL_SECONDS (until then the owner doesn't count as dead), no
+      later than D + TTL + QUIET + SLICE (a call starting just before the TTL
+      ran out still saw a live server, then the quiet period, then up to a
+      whole slice). Unknown if no heartbeat was ever seen since startup.
+
+    Assumes the waiting client is still waiting: one that gave up (its own
+    timeout) never reaps, and the entry stays until a server starts again.
+    """
+    if any_alive:
+        return ReapEstimate(by="server", earliest=0.0, latest=float(HEARTBEAT_PERIOD_SECONDS))
+    if not last_seen:
+        return ReapEstimate(by="client")
+    last = max(last_seen.values())
+    return ReapEstimate(
+        by="client",
+        earliest=last + HEARTBEAT_TTL_SECONDS - now,
+        latest=last + HEARTBEAT_TTL_SECONDS + WAITER_REAP_QUIET_SECONDS + WAITER_REAP_SLICE_SECONDS - now,
+    )
+
+
 def _collect_listeners(client: redis.Redis, methods: list[MethodInfo]) -> None:
     """Fill in how many servers are subscribed to each method's wake channel."""
     if not methods:
@@ -203,7 +255,7 @@ def _collect_listeners(client: redis.Redis, methods: list[MethodInfo]) -> None:
         method.listeners = int(counts.get(anycall_queues.wake_channel(method.name), 0))
 
 
-def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
+def collect_snapshot(client: redis.Redis, redis_uri: str, last_seen: dict[str, float]) -> Snapshot:
     info = client.info()
 
     methods = [
@@ -218,8 +270,13 @@ def collect_snapshot(client: redis.Redis, redis_uri: str) -> Snapshot:
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
 
     taken_at = time.time()
-    servers = _collect_servers(client)
+    servers, now = _collect_servers(client, last_seen)
     inflight = _collect_inflight(client, {server.server_id for server in servers})
+    orphans = [entry for entry in inflight if not entry.owner_alive]
+    if orphans:
+        estimate = estimate_reaping(bool(servers), last_seen, now)
+        for entry in orphans:
+            entry.reap = estimate
 
     return Snapshot(
         connected=True,
@@ -325,6 +382,8 @@ class PollerThread(QThread):
         self._stop_event = threading.Event()
         self._tracker = ActivityTracker()
         self._client: Optional[redis.Redis] = None
+        # Server id -> latest heartbeat score ever seen, for the reaping estimate.
+        self._last_seen: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -345,7 +404,7 @@ class PollerThread(QThread):
                     socket_connect_timeout=2,
                     socket_timeout=2,
                 )
-            return collect_snapshot(self._client, self._redis_uri)
+            return collect_snapshot(self._client, self._redis_uri, self._last_seen)
         except redis.exceptions.RedisError as e:
             self._client = None
             return Snapshot(connected=False, taken_at=time.time(), redis_uri=self._redis_uri, error=str(e))

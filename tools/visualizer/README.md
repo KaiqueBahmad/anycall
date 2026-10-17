@@ -50,7 +50,20 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   channel.
 - **In flight**: requests a server has taken and not yet answered, with the
   owning server and whether it's still alive. A row whose server is *gone*
-  is about to be failed back to its client.
+  is an orphan, and the **failed back \*** column estimates when it will be
+  failed back to its client and by whom. It's an estimate, not an
+  observation: part of the mechanism is a timer inside each client process,
+  which never reaches Redis.
+  - With any server alive, that server's next heartbeat tick does it: within
+    ~2s.
+  - With none, the client still waiting for the request does it, at the end
+    of a 30s wait slice once it has gone 30s without a sign of a live server.
+    Counted from the last heartbeat the dashboard saw (D), that's between
+    D + 8s (the TTL, before which the server doesn't count as dead) and
+    D + 68s (8s TTL + 30s quiet + up to a 30s slice). Unknown until the
+    dashboard has seen at least one heartbeat.
+  - A client that already gave up (its own timeout) never does it; the entry
+    stays until a server starts again. The column then shows *overdue*.
 - **Activity log**: servers coming and going, method discovery, backlog
   changes, and requests entering a queue, being taken, answered, or failed
   back. Polling can't see
