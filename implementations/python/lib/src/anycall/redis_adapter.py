@@ -63,6 +63,14 @@ class RedisQueuePort(Protocol):
 
     def alive_count(self, key: str, ttl_seconds: int) -> int: ...
 
+    def alive_members(self, key: str, ttl_seconds: int) -> set[str]: ...
+
+    def inflight_owners(self, inflight_key: str) -> dict[str, str]: ...
+
+    def release_inflight(self, inflight_key: str, request_id: str) -> bool: ...
+
+    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None: ...
+
     def close(self) -> None: ...
 
 
@@ -267,6 +275,19 @@ class RedisQueueAdapter:
         seconds, microseconds = self.redis.time()
         now = seconds + microseconds / 1_000_000
         return self.redis.zcount(key, now - ttl_seconds, "+inf")
+
+    def alive_members(self, key: str, ttl_seconds: int) -> set[str]:
+        """Every member of a heartbeat sorted set still within `ttl_seconds`
+        of Redis's own current time (`TIME`) -- the read-only counterpart of
+        the heartbeat script's prune, for clients, which don't heartbeat.
+
+        Args:
+            key: Sorted set key holding the live servers
+            ttl_seconds: Members older than this are considered dead
+        """
+        seconds, microseconds = self.redis.time()
+        now = seconds + microseconds / 1_000_000
+        return {_text(m) for m in self.redis.zrangebyscore(key, now - ttl_seconds, "+inf")}
 
     def close(self) -> None:
         """Close Redis connection."""

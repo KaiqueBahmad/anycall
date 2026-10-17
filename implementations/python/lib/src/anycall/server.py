@@ -15,6 +15,7 @@ from . import queues
 from .config import AnycallProperties
 from .context import AnycallContext
 from .model import AnyCallRequest, AnyCallResponse
+from .reaping import reap_orphans
 from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
 
@@ -27,9 +28,6 @@ WAKE_FALLBACK_SECONDS = 1
 # How often the wake listener picks up registrations/unregistrations made
 # since it last (un)subscribed.
 WAKE_LISTEN_TICK_SECONDS = 0.5
-# Expiry on the error response written for a request whose server died: its
-# client may have timed out already, and nothing else would ever delete it.
-ORPHAN_RESPONSE_TTL_SECONDS = 60
 
 # Liveness registry. Hardcoded on purpose -- edit here to change it; there is no
 # configuration surface for these. HEARTBEAT_KEY/HEARTBEAT_TTL_SECONDS live in
@@ -154,7 +152,7 @@ class AnyCallServerImpl(AnyCallServer):
     picked up without needing a wake.
 
     Every heartbeat tick also fails back the in-flight requests of servers
-    that stopped heartbeating (see `_reap_orphans`): their clients get a
+    that stopped heartbeating (see `reaping.reap_orphans`): their clients get a
     ServerLostError instead of waiting out their whole timeout.
 
     Capacity is acquired synchronously on this read-loop thread, right after
@@ -330,31 +328,7 @@ class AnyCallServerImpl(AnyCallServer):
             )
         self._heartbeat_registered = True
 
-        self._reap_orphans(owners, alive)
-
-    def _reap_orphans(self, owners: Dict[str, str], alive: set[str]) -> None:
-        """For each in-flight request whose owner isn't alive anymore, push an
-        error to its response queue so the client stops waiting.
-
-        Several live servers can notice the same dead owner on the same tick;
-        the HDEL is the claim -- only the one that actually removes the entry
-        writes the error, so the client never gets two.
-        """
-        for request_id, owner in owners.items():
-            if owner in alive:
-                continue
-            try:
-                if not self.redis.release_inflight(INFLIGHT_KEY, request_id):
-                    continue
-                response = AnyCallResponse.server_lost(request_id, owner)
-                self.redis.push_expiring(
-                    queues.response_queue(request_id),
-                    serialize(response),
-                    ORPHAN_RESPONSE_TTL_SECONDS,
-                )
-                logger.warning(f"Failed request {request_id} back to its client: server {owner} is gone")
-            except Exception as e:
-                logger.warning(f"Failed to fail back request {request_id} of dead server {owner}: {e}")
+        reap_orphans(self.redis, owners, alive)
 
     def _listen_for_wakes(self) -> None:
         """Keeps a Pub/Sub subscription to the wake channel of every

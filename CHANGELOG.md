@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `call()` now fails fast with `NoServerAvailableError` (Java and Python) if no server has heartbeated recently, instead of queueing the request and waiting out the full timeout with nothing around to pop it. Checked against the same `anycall:servers:alive` registry and TTL the heartbeat uses, before the request is published
-- A request whose server dies mid-processing is failed back to its client with a new `ServerLostError` (a `PublishError`, carrying the lost server's id) about 8–10s after the crash, instead of waiting out the whole timeout. Servers record each request they take in `anycall:inflight`, and any other live server cleans up after a dead one. Needs at least one other server alive. The error response carries a `lostServer` field, only on these responses; clients from before this release can't parse it
+- A request whose server dies mid-processing is failed back to its client with a new `ServerLostError` (a `PublishError`, carrying the lost server's id) about 8–10s after the crash, instead of waiting out the whole timeout. Servers record each request they take in `anycall:inflight`, and any other live server cleans up after a dead one. The error response carries a `lostServer` field, only on these responses; clients from before this release can't parse it
+- With no other server alive to notice, a waiting client fails back its dead server's requests itself, 30–60s after the crash: calls wait for their response in 30s slices, and once a whole client has had no response for 30s, one of its calls does the same cleanup a server would. The Java client opens a short-lived extra connection for it
 - Clients publish on `anycall:wake:<method>` after pushing a request, so idle servers take it right away
 - Visualizer: "In flight" panel and a "listening" column (servers subscribed to the method's wake channel)
 

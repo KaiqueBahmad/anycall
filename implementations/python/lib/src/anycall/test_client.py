@@ -1,13 +1,17 @@
 """Unit tests for AnyCallClient call/raw_call/register_type semantics."""
 
+import json
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List, Optional, Tuple
 
 import pytest
 
+from . import client as client_module
 from .client import AnyCallClientImpl
 from .config import AnycallProperties
-from .exceptions import AnyCallError, QueueFullError
+from .exceptions import AnyCallError, QueueFullError, ServerLostError, TimeoutError
+from .model import AnyCallRequest
 
 pytestmark = pytest.mark.unit
 
@@ -45,16 +49,60 @@ class MockRedisAdapter:
     def alive_count(self, key: str, ttl_seconds: int) -> int:
         return 1
 
+    def alive_members(self, key: str, ttl_seconds: int) -> set[str]:
+        return {"live-server"}
+
+    def inflight_owners(self, inflight_key: str) -> dict[str, str]:
+        return {}
+
+    def release_inflight(self, inflight_key: str, request_id: str) -> bool:
+        return False
+
+    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None:
+        pass
+
     def close(self) -> None:
         pass
+
+
+class DeadServerAdapter(MockRedisAdapter):
+    """Every request pushed is taken by a server that is already dead, and
+    nothing else is around to reap it."""
+
+    def __init__(self):
+        super().__init__()
+        self.inflight: dict[str, str] = {}
+        self.responses: dict[str, list[str]] = {}
+        self.reaps = 0
+
+    def push_and_wake(self, queue_key: str, value: str, channel: str) -> None:
+        self.inflight[AnyCallRequest.from_dict(json.loads(value)).request_id] = "dead-server"
+
+    def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
+        pending = self.responses.get(queue_keys[0])
+        return (queue_keys[0], pending.pop()) if pending else None
+
+    def inflight_owners(self, inflight_key: str) -> dict[str, str]:
+        self.reaps += 1
+        return dict(self.inflight)
+
+    def release_inflight(self, inflight_key: str, request_id: str) -> bool:
+        return self.inflight.pop(request_id, None) is not None
+
+    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None:
+        self.responses.setdefault(queue_key, []).insert(0, value)
+
+
+def quick_props() -> AnycallProperties:
+    # The mock's pop returns at once, so with no limit a call would spin forever.
+    return AnycallProperties(timeout=timedelta(milliseconds=50))
 
 
 @pytest.fixture
 def client():
     """Create a test client with mock Redis adapter."""
     adapter = MockRedisAdapter()
-    props = AnycallProperties()
-    return AnyCallClientImpl(adapter, props)
+    return AnyCallClientImpl(adapter, quick_props())
 
 
 class TestRegisterType:
@@ -196,7 +244,7 @@ class TestQueueDepth:
     def test_call_raises_when_queue_at_max_depth(self):
         """Call is rejected before publishing when depth >= max_queue_depth."""
         adapter = MockRedisAdapter(queue_depth=5)
-        client = AnyCallClientImpl(adapter, AnycallProperties())
+        client = AnyCallClientImpl(adapter, quick_props())
 
         with pytest.raises(QueueFullError) as exc_info:
             client.call("my-op", {}, MockResponse, max_queue_depth=5)
@@ -215,7 +263,7 @@ class TestQueueDepth:
     def test_default_max_queue_depth_applies_without_override(self):
         """Client-level default is used when no per-call override is given."""
         adapter = MockRedisAdapter(queue_depth=3)
-        client = AnyCallClientImpl(adapter, AnycallProperties(), default_max_queue_depth=3)
+        client = AnyCallClientImpl(adapter, quick_props(), default_max_queue_depth=3)
 
         with pytest.raises(QueueFullError):
             client.call("my-op", {}, MockResponse)
@@ -223,7 +271,7 @@ class TestQueueDepth:
     def test_per_call_override_wins_over_default(self):
         """A per-call max_queue_depth overrides the client's default."""
         adapter = MockRedisAdapter(queue_depth=3)
-        client = AnyCallClientImpl(adapter, AnycallProperties(), default_max_queue_depth=1)
+        client = AnyCallClientImpl(adapter, quick_props(), default_max_queue_depth=1)
 
         with pytest.raises(AnyCallError) as exc_info:
             client.call("my-op", {}, MockResponse, max_queue_depth=10)
@@ -233,7 +281,7 @@ class TestQueueDepth:
     def test_raw_call_respects_max_queue_depth(self):
         """raw_call() also enforces max_queue_depth."""
         adapter = MockRedisAdapter(queue_depth=2)
-        client = AnyCallClientImpl(adapter, AnycallProperties())
+        client = AnyCallClientImpl(adapter, quick_props())
 
         with pytest.raises(QueueFullError):
             client.raw_call("my-op", {}, max_queue_depth=2)
@@ -248,7 +296,7 @@ class TestQueueDepth:
     def test_get_queue_depth_reads_through_adapter(self):
         """get_queue_depth() reflects the adapter's stream length."""
         adapter = MockRedisAdapter(queue_depth=7)
-        client = AnyCallClientImpl(adapter, AnycallProperties())
+        client = AnyCallClientImpl(adapter, quick_props())
 
         assert client.get_queue_depth("my-op") == 7
 
@@ -265,3 +313,28 @@ class TestQueueDepth:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestWaiterDrivenReaping:
+    """A waiting call reaps orphans itself once the client has gone quiet."""
+
+    def test_call_reaps_its_dead_server_and_raises_server_lost(self, monkeypatch):
+        monkeypatch.setattr(client_module, "WAITER_REAP_QUIET_SECONDS", 0)
+        adapter = DeadServerAdapter()
+        client = AnyCallClientImpl(adapter, AnycallProperties())
+
+        with pytest.raises(ServerLostError) as exc_info:
+            client.raw_call("my-op", {})
+
+        assert exc_info.value.server_id == "dead-server"
+        assert adapter.inflight == {}
+
+    def test_no_reap_while_the_client_is_not_quiet(self):
+        adapter = DeadServerAdapter()
+        client = AnyCallClientImpl(adapter, quick_props())
+
+        with pytest.raises(TimeoutError):
+            client.raw_call("my-op", {})
+
+        assert adapter.reaps == 0
+        assert len(adapter.inflight) == 1

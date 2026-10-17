@@ -51,4 +51,10 @@ public class AnycallQueues {
      * server's own pruning.
      */
     public static final Duration HEARTBEAT_TTL = Duration.ofSeconds(8);
+
+    /**
+     * Expiry on the error response written for a request whose server died: its client
+     * may have timed out already, and nothing else would ever delete it.
+     */
+    public static final Duration ORPHAN_RESPONSE_TTL = Duration.ofSeconds(60);
 }

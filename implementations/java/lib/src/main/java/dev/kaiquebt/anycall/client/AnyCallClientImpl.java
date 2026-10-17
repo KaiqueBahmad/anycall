@@ -16,8 +16,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Internal implementation of AnyCallClient.
@@ -33,14 +37,25 @@ public class AnyCallClientImpl implements AnyCallClient {
     // Added on top of the call timeout to get the connection's command timeout, so
     // Lettuce never gives up on a response BRPOP that is still within its call timeout.
     private static final Duration COMMAND_TIMEOUT_MARGIN = Duration.ofSeconds(5);
+    // A call waits for its response in slices of at most this long; between two, it
+    // checks whether the client has gone quiet long enough to reap.
+    private static final Duration WAITER_REAP_SLICE = Duration.ofSeconds(30);
+    // How long without a response (or a reap) across every call of a client before one
+    // of its waiting calls reaps orphans itself (waiter-driven reaping). While responses
+    // keep coming some server is alive, and its heartbeat already reaps.
+    private static final Duration WAITER_REAP_QUIET = Duration.ofSeconds(30);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private final RedisClient redisClient;
     private final StatefulRedisConnection<String, String> connection;
     private final RedisCommands<String, String> commands;
     private final Duration timeout;
     private final boolean metricsEnabled;
     private final TypeRegistry registry;
     private volatile Long defaultMaxQueueDepth;
+    // Shared by every call of this client, for waiter-driven reaping.
+    private final AtomicLong lastActivityNanos = new AtomicLong(System.nanoTime());
+    private final ReentrantLock reapLock = new ReentrantLock();
 
     public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
         this(redisUri, timeout, metricsEnabled, null);
@@ -59,8 +74,8 @@ public class AnyCallClientImpl implements AnyCallClient {
         this.registry = new TypeRegistry();
         this.defaultMaxQueueDepth = defaultMaxQueueDepth;
 
-        RedisClient client = RedisClient.create(redisUri);
-        this.connection = client.connect();
+        this.redisClient = RedisClient.create(redisUri);
+        this.connection = redisClient.connect();
         // Lettuce's own default (60s) would cut any call waiting longer than that.
         this.connection.setTimeout(this.timeout.isZero() ? Duration.ZERO : this.timeout.plus(COMMAND_TIMEOUT_MARGIN));
         this.commands = connection.sync();
@@ -135,7 +150,7 @@ public class AnyCallClientImpl implements AnyCallClient {
             responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
             long beforeWait = metricsEnabled ? System.currentTimeMillis() : 0;
 
-            String responseJson = readResponse(responseQueue, timeout);
+            String responseJson = readResponse(responseQueue);
 
             if (metricsEnabled) {
                 log.debug("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
@@ -259,21 +274,108 @@ public class AnyCallClientImpl implements AnyCallClient {
      * @throws dev.kaiquebt.anycall.exception.NoServerAvailableError if no server is alive
      */
     private void checkServerAvailable(String methodName) {
-        List<String> time = commands.time();
-        double now = Double.parseDouble(time.get(0)) + Double.parseDouble(time.get(1)) / 1_000_000.0;
-        double since = now - AnycallQueues.HEARTBEAT_TTL.getSeconds();
-        Long aliveCount = commands.zcount(AnycallQueues.HEARTBEAT_KEY, Range.create(since, Double.POSITIVE_INFINITY));
+        Long aliveCount = commands.zcount(AnycallQueues.HEARTBEAT_KEY, aliveRange(commands));
         if (aliveCount == null || aliveCount == 0) {
             throw new NoServerAvailableError(methodName);
         }
     }
 
-    private String readResponse(String queueKey, Duration timeout) {
+    /**
+     * Heartbeat scores still within {@link AnycallQueues#HEARTBEAT_TTL} of Redis's own
+     * clock ({@code TIME}), so skew between hosts can't make a live server look dead.
+     */
+    private static Range<Double> aliveRange(RedisCommands<String, String> commands) {
+        List<String> time = commands.time();
+        double now = Double.parseDouble(time.get(0)) + Double.parseDouble(time.get(1)) / 1_000_000.0;
+        double since = now - AnycallQueues.HEARTBEAT_TTL.getSeconds();
+        return Range.create(since, Double.POSITIVE_INFINITY);
+    }
+
+    /**
+     * Waits for the call's response, up to the client's timeout (forever if it's zero), in
+     * slices of {@link #WAITER_REAP_SLICE}. Returns null once the timeout is up.
+     * <p>
+     * A slice that ends empty gives the call a chance to reap (see {@link #reapIfQuiet}),
+     * so a request whose server died is failed back even when no other server is alive to
+     * notice.
+     */
+    private String readResponse(String queueKey) {
+        long deadline = timeout.isZero() ? 0 : System.nanoTime() + timeout.toNanos();
         try {
-            KeyValue<String, String> entry = commands.brpop(timeout.toMillis() / 1000.0, queueKey);
-            return entry != null ? entry.getValue() : null;
+            while (true) {
+                long waitNanos = WAITER_REAP_SLICE.toNanos();
+                if (deadline != 0) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0) {
+                        return null;
+                    }
+                    waitNanos = Math.min(waitNanos, remaining);
+                }
+                // BRPOP takes 0 as "forever", so never let a slice round down to it.
+                double waitSeconds = Math.max(waitNanos / 1_000_000L, 1) / 1000.0;
+                KeyValue<String, String> entry = commands.brpop(waitSeconds, queueKey);
+                if (entry != null) {
+                    lastActivityNanos.set(System.nanoTime());
+                    return entry.getValue();
+                }
+                reapIfQuiet();
+            }
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * Reaps orphaned requests if no call of this client has had a response for
+     * {@link #WAITER_REAP_QUIET}, unless another call is already at it. Same work as the
+     * server's heartbeat reaping, on a connection of its own: the client's only connection
+     * may be blocked in another thread's {@code BRPOP}. Failures only log; the call goes
+     * back to waiting either way.
+     */
+    private void reapIfQuiet() {
+        if (System.nanoTime() - lastActivityNanos.get() < WAITER_REAP_QUIET.toNanos() || !reapLock.tryLock()) {
+            return;
+        }
+        try (StatefulRedisConnection<String, String> reapConnection = redisClient.connect()) {
+            RedisCommands<String, String> reap = reapConnection.sync();
+            // Owners before the live set: the other way around, a server that starts and
+            // takes a request in between would look dead.
+            Map<String, String> owners = reap.hgetall(AnycallQueues.INFLIGHT_KEY);
+            if (!owners.isEmpty()) {
+                Set<String> alive = new HashSet<>(reap.zrangebyscore(AnycallQueues.HEARTBEAT_KEY, aliveRange(reap)));
+                reapOrphans(reap, owners, alive);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to reap orphaned requests: {}", e.getMessage());
+        } finally {
+            lastActivityNanos.set(System.nanoTime());
+            reapLock.unlock();
+        }
+    }
+
+    /**
+     * For each in-flight request whose owner isn't alive anymore, pushes a server-lost
+     * error to its response queue. Mirrors the server's {@code reapOrphans}, including the
+     * {@code HDEL} as the claim, so a client and a server never both fail the same request.
+     */
+    private static void reapOrphans(RedisCommands<String, String> reap, Map<String, String> owners, Set<String> alive) {
+        for (Map.Entry<String, String> entry : owners.entrySet()) {
+            String requestId = entry.getKey();
+            String owner = entry.getValue();
+            if (alive.contains(owner)) {
+                continue;
+            }
+            try {
+                if (reap.hdel(AnycallQueues.INFLIGHT_KEY, requestId) != 1) {
+                    continue;
+                }
+                String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
+                reap.lpush(responseQueue, OBJECT_MAPPER.writeValueAsString(AnyCallResponse.serverLost(requestId, owner)));
+                reap.expire(responseQueue, AnycallQueues.ORPHAN_RESPONSE_TTL.getSeconds());
+                log.warn("Failed request {} back to its client: server {} is gone", requestId, owner);
+            } catch (Exception e) {
+                log.warn("Failed to fail back request {} of dead server {}: {}", requestId, owner, e.getMessage());
+            }
         }
     }
 }

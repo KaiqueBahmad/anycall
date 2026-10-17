@@ -70,9 +70,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     // queues anyway — the safety net for a wake missed during a reconnect, or published
     // by a client that predates wakes.
     private static final Duration WAKE_FALLBACK = Duration.ofSeconds(1);
-    // Expiry on the error response written for a request whose server died: its client
-    // may have timed out already, and nothing else would ever delete it.
-    private static final Duration ORPHAN_RESPONSE_TTL = Duration.ofSeconds(60);
+    private static final Duration ORPHAN_RESPONSE_TTL = AnycallQueues.ORPHAN_RESPONSE_TTL;
     private static final String INFLIGHT_KEY = AnycallQueues.INFLIGHT_KEY;
 
     private static final String HEARTBEAT_KEY = AnycallQueues.HEARTBEAT_KEY;

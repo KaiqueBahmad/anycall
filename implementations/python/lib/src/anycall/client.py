@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from abc import ABC, abstractmethod
 from typing import Any, Type, TypeVar
 
@@ -18,11 +20,20 @@ from .exceptions import (
     TimeoutError,
 )
 from .model import AnyCallRequest, AnyCallResponse
+from .reaping import reap_orphans
 from .redis_adapter import RedisQueuePort
 from .registry import TypeRegistry
 from .serialization import deserialize, serialize
 
 logger = logging.getLogger(__name__)
+
+# A call waits for its response in slices of at most this long; between two,
+# it checks whether the client has gone quiet long enough to reap.
+WAITER_REAP_SLICE_SECONDS = 30
+# How long without a response (or a reap) across every call of a client before
+# one of its waiting calls reaps orphans itself (waiter-driven reaping). While
+# responses keep coming some server is alive, and its heartbeat already reaps.
+WAITER_REAP_QUIET_SECONDS = 30
 
 T = TypeVar("T")
 
@@ -152,6 +163,9 @@ class AnyCallClientImpl(AnyCallClient):
         self.props = props
         self._registry = TypeRegistry()
         self._default_max_queue_depth = default_max_queue_depth
+        # Shared by every call of this client, for waiter-driven reaping.
+        self._last_activity = time.monotonic()
+        self._reap_lock = threading.Lock()
 
     def call(
         self,
@@ -287,17 +301,15 @@ class AnyCallClientImpl(AnyCallClient):
                 raise SerializationError(method_name, f"Failed to serialize RPC request: {e}")
             self.redis.push_and_wake(request_queue, request_json, queues.wake_channel(method_name))
 
-            timeout_seconds = self.props.timeout.total_seconds()
-            result = self.redis.pop([response_queue], timeout_seconds)
+            response_json = self._await_response(response_queue)
 
-            if result is None:
+            if response_json is None:
                 raise TimeoutError(
                     method_name,
                     f"Timeout waiting for response from method: {method_name}",
                     rpc_request.request_id,
                 )
 
-            _, response_json = result
             try:
                 response = deserialize(response_json, AnyCallResponse)
             except json.JSONDecodeError as e:
@@ -323,3 +335,47 @@ class AnyCallClientImpl(AnyCallClient):
 
         finally:
             self.redis.delete(response_queue)
+
+    def _await_response(self, response_queue: str) -> str | None:
+        """Wait for the call's response, up to the client's timeout (forever
+        if it's zero), in slices of WAITER_REAP_SLICE_SECONDS. Returns None
+        once the timeout is up.
+
+        A slice that ends empty gives the call a chance to reap (see
+        `_reap_if_quiet`), so a request whose server died is failed back even
+        when no other server is alive to notice.
+        """
+        timeout_seconds = self.props.timeout.total_seconds()
+        deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
+        while True:
+            wait = WAITER_REAP_SLICE_SECONDS
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                # BRPOP takes 0 as "forever", so never let a slice round down to it.
+                wait = max(min(wait, remaining), 0.001)
+            result = self.redis.pop([response_queue], wait)
+            if result is not None:
+                self._last_activity = time.monotonic()
+                return result[1]
+            self._reap_if_quiet()
+
+    def _reap_if_quiet(self) -> None:
+        """Reap orphaned requests if no call of this client has had a response
+        for WAITER_REAP_QUIET_SECONDS, unless another call is already at it.
+        Failures only log: the call goes back to waiting either way."""
+        if time.monotonic() - self._last_activity < WAITER_REAP_QUIET_SECONDS:
+            return
+        if not self._reap_lock.acquire(blocking=False):
+            return
+        try:
+            owners = self.redis.inflight_owners(queues.INFLIGHT_KEY)
+            if owners:
+                alive = self.redis.alive_members(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS)
+                reap_orphans(self.redis, owners, alive)
+        except Exception as e:
+            logger.warning(f"Failed to reap orphaned requests: {e}")
+        finally:
+            self._last_activity = time.monotonic()
+            self._reap_lock.release()

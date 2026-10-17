@@ -22,6 +22,10 @@ HEARTBEAT_KEY = "anycall:servers:alive"
 # liveness check will disagree with the server's own pruning.
 HEARTBEAT_TTL_SECONDS = 8
 
+# Expiry on the error response written for a request whose server died: its
+# client may have timed out already, and nothing else would ever delete it.
+ORPHAN_RESPONSE_TTL_SECONDS = 60
+
 
 def request_queue(method_name: str) -> str:
     """Generate request queue key for a method."""
