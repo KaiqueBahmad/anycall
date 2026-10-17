@@ -338,3 +338,13 @@ class TestWaiterDrivenReaping:
 
         assert adapter.reaps == 0
         assert len(adapter.inflight) == 1
+
+    def test_finding_a_live_server_before_publishing_resets_the_quiet_timer(self):
+        adapter = DeadServerAdapter()
+        client = AnyCallClientImpl(adapter, quick_props())
+        client._last_activity = 0.0  # quiet for ages
+
+        with pytest.raises(TimeoutError):
+            client.raw_call("my-op", {})
+
+        assert adapter.reaps == 0

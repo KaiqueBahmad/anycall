@@ -40,9 +40,10 @@ public class AnyCallClientImpl implements AnyCallClient {
     // A call waits for its response in slices of at most this long; between two, it
     // checks whether the client has gone quiet long enough to reap.
     private static final Duration WAITER_REAP_SLICE = Duration.ofSeconds(30);
-    // How long without a response (or a reap) across every call of a client before one
-    // of its waiting calls reaps orphans itself (waiter-driven reaping). While responses
-    // keep coming some server is alive, and its heartbeat already reaps.
+    // How long without a sign of a live server (a response, or a call finding one alive
+    // before publishing) or a reap, across every call of a client, before one of its
+    // waiting calls reaps orphans itself (waiter-driven reaping). Any live server reaps
+    // every orphan on its heartbeat, so one is enough to wait on.
     private static final Duration WAITER_REAP_QUIET = Duration.ofSeconds(30);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -278,6 +279,7 @@ public class AnyCallClientImpl implements AnyCallClient {
         if (aliveCount == null || aliveCount == 0) {
             throw new NoServerAvailableError(methodName);
         }
+        lastActivityNanos.set(System.nanoTime());
     }
 
     /**

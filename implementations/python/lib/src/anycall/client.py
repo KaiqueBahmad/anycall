@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 # A call waits for its response in slices of at most this long; between two,
 # it checks whether the client has gone quiet long enough to reap.
 WAITER_REAP_SLICE_SECONDS = 30
-# How long without a response (or a reap) across every call of a client before
-# one of its waiting calls reaps orphans itself (waiter-driven reaping). While
-# responses keep coming some server is alive, and its heartbeat already reaps.
+# How long without a sign of a live server (a response, or a call finding one
+# alive before publishing) or a reap, across every call of a client, before one
+# of its waiting calls reaps orphans itself (waiter-driven reaping). Any live
+# server reaps every orphan on its heartbeat, so one is enough to wait on.
 WAITER_REAP_QUIET_SECONDS = 30
 
 T = TypeVar("T")
@@ -288,6 +289,7 @@ class AnyCallClientImpl(AnyCallClient):
 
         if self.redis.alive_count(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS) == 0:
             raise NoServerAvailableError(method_name)
+        self._last_activity = time.monotonic()
 
         if effective_max_queue_depth is not None:
             queue_depth = self.redis.length(request_queue)
