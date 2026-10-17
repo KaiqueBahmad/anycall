@@ -29,6 +29,9 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallClientImpl.class);
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
+    // Added on top of the call timeout to get the connection's command timeout, so
+    // Lettuce never gives up on a response BRPOP that is still within its call timeout.
+    private static final Duration COMMAND_TIMEOUT_MARGIN = Duration.ofSeconds(5);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final StatefulRedisConnection<String, String> connection;
@@ -57,6 +60,8 @@ public class AnyCallClientImpl implements AnyCallClient {
 
         RedisClient client = RedisClient.create(redisUri);
         this.connection = client.connect();
+        // Lettuce's own default (60s) would cut any call waiting longer than that.
+        this.connection.setTimeout(this.timeout.isZero() ? Duration.ZERO : this.timeout.plus(COMMAND_TIMEOUT_MARGIN));
         this.commands = connection.sync();
     }
 
@@ -261,7 +266,7 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     private String readResponse(String queueKey, Duration timeout) {
         try {
-            KeyValue<String, String> entry = commands.brpop(timeout.getSeconds(), queueKey);
+            KeyValue<String, String> entry = commands.brpop(timeout.toMillis() / 1000.0, queueKey);
             return entry != null ? entry.getValue() : null;
         } catch (Exception e) {
             return null;

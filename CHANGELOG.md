@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Python client calls longer than 5s no longer fail with `TimeoutError` regardless of the configured timeout (redis-py 8's new 5s default socket timeout)
+- Java client calls longer than 60s no longer fail with `TimeoutError` regardless of the configured timeout (Lettuce's default command timeout), and sub-second timeouts no longer round down to waiting forever
 
 ## [0.5] - 2026-09-26
 
