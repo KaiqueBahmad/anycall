@@ -57,7 +57,7 @@ partially run.
 A `TimeoutError` says nothing about the server: it may be slow, may never have
 taken the request, or may have been lost too recently to be noticed.
 
-See it step by step in [docs/visuals/reaping.html](../../docs/visuals/reaping.html).
+How it works: [docs/reaping.md](../../docs/reaping.md).
 
 ## How to Use as Consumer (Client)
 
