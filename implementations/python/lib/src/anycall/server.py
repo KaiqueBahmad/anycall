@@ -154,7 +154,7 @@ class AnyCallServerImpl(AnyCallServer):
     picked up without needing a wake.
 
     Every heartbeat tick also fails back the in-flight requests of servers
-    that stopped heartbeating (see `_fail_orphaned_requests`): their clients
+    that stopped heartbeating (see `_reap_orphans`): their clients
     get an error response instead of waiting out their whole timeout.
 
     Capacity is acquired synchronously on this read-loop thread, right after
@@ -330,9 +330,9 @@ class AnyCallServerImpl(AnyCallServer):
             )
         self._heartbeat_registered = True
 
-        self._fail_orphaned_requests(owners, alive)
+        self._reap_orphans(owners, alive)
 
-    def _fail_orphaned_requests(self, owners: Dict[str, str], alive: set[str]) -> None:
+    def _reap_orphans(self, owners: Dict[str, str], alive: set[str]) -> None:
         """For each in-flight request whose owner isn't alive anymore, push an
         error to its response queue so the client stops waiting.
 
