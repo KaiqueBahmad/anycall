@@ -33,7 +33,7 @@ sequenceDiagram
 ```
 
 A server takes a request and records it in `anycall:inflight` in one atomic
-step. When it's done, it pushes the response first and only then removes the
+step (see [taking-requests.md](taking-requests.md)). When it's done, it pushes the response first and only then removes the
 entry. If it dies between the two, the entry gets reaped, but the client still
 reads the real response first, because `BRPOP` takes the oldest item.
 

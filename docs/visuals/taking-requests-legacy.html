@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyCall Legacy Taking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: one reading column with a wide step-through stage (servers | Redis | client) that stacks on phones */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --sunken: #eef1f5;
+  --fg: #19202d;
+  --muted: #5d6779;
+  --line: #d7dce5;
+  --redis: #c2410c;
+  --redis-soft: #fdece2;
+  --alive: #15805a;
+  --alive-soft: #def3e9;
+  --dead: #b42335;
+  --dead-soft: #fbe3e6;
+  --orphan: #b26a00;
+  --orphan-soft: #fff1d6;
+  --client: #2a5bd7;
+  --client-soft: #e3ebfc;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #191e27; --sunken: #1f2531; --fg: #e4e8ef; --muted: #9ba5b5; --line: #2d3442;
+    --redis: #f2895a; --redis-soft: #3a2419; --alive: #52cc98; --alive-soft: #163226; --dead: #f07383; --dead-soft: #3a1c22;
+    --orphan: #f2b24a; --orphan-soft: #3a2c12; --client: #7ea2ff; --client-soft: #1c2742; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #191e27; --sunken: #1f2531; --fg: #e4e8ef; --muted: #9ba5b5; --line: #2d3442;
+  --redis: #f2895a; --redis-soft: #3a2419; --alive: #52cc98; --alive-soft: #163226; --dead: #f07383; --dead-soft: #3a1c22;
+  --orphan: #f2b24a; --orphan-soft: #3a2c12; --client: #7ea2ff; --client-soft: #1c2742; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 36px 64px;
+}
+main { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 52px; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--redis); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(32px, 6vw, 48px); line-height: 1.08; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: clamp(22px, 3.2vw, 28px); line-height: 1.2; margin: 0; }
+p { margin: 0; max-width: 66ch; }
+.lede { font-size: 18px; color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--sunken); padding: 1px 5px; border-radius: 4px; }
+
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; overflow-x: auto; }
+.figure svg { display: block; width: 100%; height: auto; min-width: 620px; }
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .mono { font-family: var(--font-mono); }
+svg .muted { fill: var(--muted); }
+
+/* step-through stage */
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.sim-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--sunken); color: var(--fg); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.tab:focus-visible, .btn:focus-visible { outline: 2px solid var(--client); outline-offset: 2px; }
+.clock { font-family: var(--font-mono); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.clock small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.blurb { padding: 12px 16px 0; color: var(--muted); font-size: 14.5px; }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; padding: 16px; }
+@media (max-width: 800px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.col-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; min-width: 0; transition: border-color .25s, background-color .25s; }
+.box.redis { border-color: color-mix(in srgb, var(--redis) 45%, var(--line)); }
+.box.changed { border-color: var(--client); box-shadow: 0 0 0 2px color-mix(in srgb, var(--client) 25%, transparent); }
+.key { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--redis); overflow-wrap: anywhere; }
+.key small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.empty { font-size: 13px; color: var(--muted); font-style: italic; }
+.server { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
+.server .name { font-weight: 600; }
+.server .state { grid-column: 2; font-size: 13px; color: var(--muted); }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--alive); grid-row: span 2; }
+.box.is-dead { background: var(--dead-soft); border-color: var(--dead); }
+.box.is-dead .dot { background: var(--dead); }
+.mem { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.chip { font-family: var(--font-mono); font-size: 12px; border-radius: 6px; padding: 5px 8px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.chip.ok { background: var(--alive-soft); color: var(--alive); }
+.chip.req { background: var(--client-soft); color: var(--client); }
+.chip.orphan { background: var(--orphan-soft); color: var(--orphan); }
+.chip.err { background: var(--dead-soft); color: var(--dead); }
+.chip.lost { background: var(--sunken); color: var(--muted); text-decoration: line-through; }
+.client-state { font-weight: 600; font-size: 15px; }
+.result { border-radius: 8px; padding: 8px 10px; font-weight: 600; font-size: 14px; }
+.result.err { background: var(--dead-soft); color: var(--dead); }
+.result.ok { background: var(--alive-soft); color: var(--alive); }
+.result.stuck { background: var(--orphan-soft); color: var(--orphan); }
+.controls { display: flex; gap: 12px; align-items: center; padding: 0 16px; flex-wrap: wrap; }
+.btn { font: inherit; font-size: 14px; font-weight: 600; border: none; background: var(--redis); color: #fff; border-radius: 8px; padding: 8px 16px; cursor: pointer; min-width: 92px; }
+.btn.ghost { background: var(--sunken); color: var(--fg); min-width: 0; font-weight: 500; }
+.btn:disabled { opacity: .4; cursor: default; }
+.count { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.log { list-style: none; margin: 0; padding: 12px 16px 16px; border-top: 1px solid var(--line); margin-top: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.log li { display: grid; grid-template-columns: 70px 1fr; gap: 8px; opacity: .45; cursor: pointer; }
+.log li.past { opacity: 1; }
+.log li.now { font-weight: 600; }
+.log .t { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* cards */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card h3 { margin: 0; font-family: var(--font-mono); font-size: 15px; }
+.card p { font-size: 14.5px; color: var(--muted); }
+.card ul { margin: 0; padding-left: 18px; font-size: 14.5px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.card .yes { color: var(--alive); font-weight: 600; }
+.card .no { color: var(--dead); font-weight: 600; }
+.card.bad { border-top: 4px solid var(--dead); }
+.card.meh { border-top: 4px solid var(--orphan); }
+.card.good { border-top: 4px solid var(--alive); }
+.card.wake { border-top: 4px solid var(--client); }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="eyebrow">AnyCall · taking requests · legacy</span>
+    <h1>How a server took a request, before</h1>
+    <p class="lede">Before <code>ae10ab9</code>, servers waited on <code>BRPOP</code>. Redis woke them the instant a request arrived, but the request left Redis the moment it was taken, so a crash lost it without a trace. <a href="taking-requests.html">How it works now</a>.</p>
+  </header>
+
+  <section aria-labelledby="map-title">
+    <h2 id="map-title">The pieces</h2>
+    <div class="figure">
+      <svg viewBox="0 0 900 260" role="img" aria-label="The client pushes the request onto anycall:requests:method and waits on its response queue. The server blocks on BRPOP; once it takes a request, the only record is in its own memory.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+          <marker id="ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--alive)"/></marker>
+        </defs>
+        <rect x="20" y="70" width="160" height="120" rx="14" fill="var(--client-soft)" stroke="var(--client)" stroke-width="1.5"/>
+        <text x="100" y="120" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--client)">Client</text>
+        <text x="100" y="145" text-anchor="middle" font-size="13" class="muted">LPUSH, then waits</text>
+
+        <rect x="270" y="20" width="360" height="220" rx="16" fill="var(--redis-soft)" stroke="var(--redis)" stroke-width="1.5"/>
+        <text x="450" y="50" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--redis)">Redis</text>
+        <g font-size="13">
+          <rect x="295" y="68" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="310" y="91" class="mono" font-weight="600" style="fill:var(--redis)">anycall:requests:&lt;method&gt;</text>
+          <text x="310" y="111" class="muted">the queue: requests nobody took yet</text>
+          <rect x="295" y="160" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="310" y="183" class="mono" font-weight="600" style="fill:var(--redis)">anycall:responses:&lt;id&gt;</text>
+          <text x="310" y="203" class="muted">the response the client waits on</text>
+        </g>
+
+        <rect x="720" y="40" width="160" height="180" rx="14" fill="var(--alive-soft)" stroke="var(--alive)" stroke-width="1.5"/>
+        <text x="800" y="80" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--alive)">Server</text>
+        <text x="800" y="104" text-anchor="middle" font-size="13" class="muted">blocks on BRPOP, 5s</text>
+        <rect x="738" y="126" width="124" height="70" rx="9" fill="var(--surface)" stroke="var(--orphan)" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="800" y="152" text-anchor="middle" font-size="12.5" font-weight="600" style="fill:var(--orphan)">in-flight set</text>
+        <text x="800" y="172" text-anchor="middle" font-size="12" class="muted">in memory only:</text>
+        <text x="800" y="188" text-anchor="middle" font-size="12" class="muted">dies with the server</text>
+
+        <g stroke="var(--muted)" stroke-width="1.5" fill="none">
+          <path d="M180 105 C 220 98, 250 96, 292 96" marker-end="url(#ar)"/>
+          <path d="M292 188 L183 160" marker-end="url(#ar)"/>
+          <path d="M720 190 L608 188" marker-end="url(#ar)"/>
+        </g>
+        <g stroke="var(--alive)" stroke-width="2" fill="none">
+          <path d="M720 90 L608 96" marker-end="url(#ar-g)"/>
+        </g>
+        <g font-size="12" class="muted">
+          <text x="200" y="88">LPUSH</text>
+          <text x="196" y="196">BRPOP</text>
+          <text x="626" y="210">LPUSH response</text>
+        </g>
+        <g font-size="12" font-weight="600" style="fill:var(--alive)">
+          <text x="628" y="82">BRPOP takes it</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section aria-labelledby="sim-title">
+    <h2 id="sim-title">Step through it</h2>
+    <p>Pick a scenario and press Next, or click a line in the log.</p>
+    <div class="sim">
+      <div class="sim-top">
+        <div class="tabs" role="tablist" aria-label="Scenario">
+          <button class="tab" role="tab" data-s="normal" aria-selected="true">A normal call</button>
+          <button class="tab" role="tab" data-s="crash" aria-selected="false">Crash while processing</button>
+          <button class="tab" role="tab" data-s="slot" aria-selected="false">Slot freed mid-BRPOP</button>
+        </div>
+        <div class="clock"><span id="clock">0 ms</span><small>after the push</small></div>
+      </div>
+      <p class="blurb" id="blurb"></p>
+
+      <div class="stage">
+        <div class="col">
+          <span class="col-title">Servers</span>
+          <div id="servers" class="col"></div>
+        </div>
+        <div class="col">
+          <span class="col-title">Redis</span>
+          <div class="box redis" id="b-queue"><span class="key">anycall:requests:analyze</span><div id="k-queue" class="col"></div></div>
+          <div class="box redis" id="b-resp"><span class="key">anycall:responses:r1</span><div id="k-resp"></div></div>
+        </div>
+        <div class="col">
+          <span class="col-title">Client</span>
+          <div class="box" id="b-client">
+            <div class="client-state" id="c-state"></div>
+            <div id="c-result"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn ghost" id="prev">← Back</button>
+        <button class="btn" id="next">Next →</button>
+        <button class="btn ghost" id="restart">Restart</button>
+        <span class="count" id="count"></span>
+      </div>
+      <ol class="log" id="log" aria-live="polite"></ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="loop-title">
+    <h2 id="loop-title">The read loop</h2>
+    <div class="grid">
+      <div class="card wake"><h3>1 · Snapshot</h3><p>Read the registered methods, and keep only those with a free slot. None registered, or none free: sleep 1s and start over.</p></div>
+      <div class="card wake"><h3>2 · BRPOP, up to 5s</h3><p>Block on those methods' queues. Redis hands each new request to exactly one waiting server, the instant it's pushed.</p></div>
+      <div class="card wake"><h3>3 · Dispatch</h3><p>Add the id to the in-memory in-flight set and give the request to a worker. Then back to 1.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="why-title">
+    <h2 id="why-title">Why it changed</h2>
+    <div class="grid">
+      <div class="card bad">
+        <h3>Legacy</h3>
+        <ul>
+          <li><code>BRPOP</code>: blocks, no wake needed</li>
+          <li>In-flight set in the server's memory</li>
+          <li>Crash → <code>TimeoutError</code> after 30s (the default)</li>
+          <li>New method or freed slot noticed up to 5s late</li>
+          <li>3 connections per server</li>
+        </ul>
+      </div>
+      <div class="card good">
+        <h3>Current</h3>
+        <ul>
+          <li><code>ACQUIRE_SCRIPT</code>: <code>RPOP</code> + <code>HSET</code>, doesn't block</li>
+          <li><code>anycall:inflight</code> in Redis, read by reaping</li>
+          <li>Crash → <code>ServerLostError</code> in 8–10s (30–60s with no other server)</li>
+          <li>Client publishes a wake; 1s fallback</li>
+          <li>4 connections per server</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>Reconstructed from the Java and Python servers as of the commit before <code>ae10ab9</code>. The steps follow the rules in that code.</footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // Each step is the full state after it happened. Servers: [id, state, alive, in-flight set].
+  // queue: request ids waiting. resp: [text, chip class, note]. result: [class, text].
+  var SCEN = {
+    normal: {
+      blurb: "Redis itself wakes the server: BRPOP returns the moment the request is pushed.",
+      steps: [
+        { t: -2000, m: "Server A blocks on BRPOP over its methods' queues, for up to 5s", servers: [["A", "BRPOP [analyze]", true, "{}"]], queue: [], client: "about to call", changed: [] },
+        { t: 0, m: "Client pushes r1, then waits on BRPOP for anycall:responses:r1", servers: [["A", "BRPOP [analyze]", true, "{}"]], queue: ["r1"], client: "waiting for r1", changed: ["queue"] },
+        { t: 0.5, m: "Redis hands r1 to A's BRPOP at once. r1 is no longer in Redis", servers: [["A", "processing r1", true, "{r1}"]], queue: [], client: "waiting for r1", changed: ["queue"] },
+        { t: 1.5, m: "A pushes the response and drops r1 from its in-memory set", servers: [["A", "BRPOP [analyze]", true, "{}"]], queue: [], resp: ["result", "ok", "from A"], client: "waiting for r1", changed: ["resp"] },
+        { t: 1.6, m: "Client gets the result", servers: [["A", "BRPOP [analyze]", true, "{}"]], queue: [], client: "call finished", result: ["ok", "Result"], changed: ["resp", "client"] }
+      ]
+    },
+    crash: {
+      blurb: "Once BRPOP returned, the only record of r1 was in server A's memory.",
+      steps: [
+        { t: 0, m: "Client pushes r1", servers: [["A", "BRPOP [analyze]", true, "{}"], ["B", "BRPOP [analyze]", true, "{}"]], queue: ["r1"], client: "waiting for r1", changed: ["queue"] },
+        { t: 0.5, m: "A's BRPOP takes r1. It's gone from Redis; A's in-memory set is the only trace", servers: [["A", "processing r1", true, "{r1}"], ["B", "BRPOP [analyze]", true, "{}"]], queue: [], client: "waiting for r1", changed: ["queue"] },
+        { t: 3000, m: "kill -9 on server A. Its in-memory set dies with it", servers: [["A", "dead", false], ["B", "BRPOP [analyze]", true, "{}"]], queue: [], lost: true, client: "waiting for r1", changed: [] },
+        { t: 11000, m: "A drops out of anycall:servers:alive, but nothing in Redis says it had r1. B can't take it or fail it back", servers: [["A", "dead", false], ["B", "BRPOP [analyze]", true, "{}"]], queue: [], lost: true, client: "waiting for r1", changed: [] },
+        { t: 30000, m: "The client's 30s timeout runs out: TimeoutError. It can't tell a dead server from a slow one", servers: [["A", "dead", false], ["B", "BRPOP [analyze]", true, "{}"]], queue: [], lost: true, client: "call finished", result: ["err", "TimeoutError"], changed: ["client"] }
+      ]
+    },
+    slot: {
+      blurb: "BRPOP fixes its list of queues when it starts. analyze has a limit of 1 and is busy, so it's left out.",
+      steps: [
+        { t: -1000, m: "A is processing r0 for analyze (limit 1). It BRPOPs only on translate's queue, for up to 5s", servers: [["A", "BRPOP [translate]", true, "{r0}"]], queue: [], client: "about to call", changed: [] },
+        { t: 0, m: "Client pushes r1 for analyze. A isn't listening on that queue", servers: [["A", "BRPOP [translate]", true, "{r0}"]], queue: ["r1"], client: "waiting for r1", changed: ["queue"] },
+        { t: 500, m: "r0 finishes: analyze has a free slot, but the running BRPOP doesn't know", servers: [["A", "BRPOP [translate]", true, "{}"]], queue: ["r1"], client: "waiting for r1", changed: [] },
+        { t: 4000, m: "BRPOP times out after its 5s. The loop rereads its methods: analyze is free", servers: [["A", "BRPOP [analyze, translate]", true, "{}"]], queue: ["r1"], client: "waiting for r1", changed: [] },
+        { t: 4000.5, m: "The new BRPOP takes r1 at once", servers: [["A", "processing r1", true, "{r1}"]], queue: [], client: "waiting for r1", changed: ["queue"] },
+        { t: 4002, m: "Client gets the result, 3.5s after the slot freed up", servers: [["A", "BRPOP [analyze, translate]", true, "{}"]], queue: [], client: "call finished", result: ["ok", "Result"], changed: ["client"] }
+      ]
+    }
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var scen = "normal", step = 0;
+
+  function fmt(t) {
+    var a = Math.abs(t), s = t < 0 ? "−" : "";
+    if (a >= 1000) return s + (a / 1000).toFixed(a % 1000 ? 1 : 0) + " s";
+    return s + (a % 1 ? a.toFixed(1) : a) + " ms";
+  }
+
+  function render() {
+    var sc = SCEN[scen], s = sc.steps[step];
+    $("clock").textContent = fmt(s.t);
+    $("blurb").textContent = sc.blurb;
+
+    $("servers").innerHTML = s.servers.map(function (v) {
+      return '<div class="box' + (v[2] ? "" : " is-dead") + '"><div class="server"><span class="dot"></span><span class="name">Server ' + v[0] +
+        '</span><span class="state">' + v[1] + "</span></div>" + (v[3] ? '<span class="mem">in-flight set: ' + v[3] + "</span>" : '<span class="mem">in-flight set: lost</span>') + "</div>";
+    }).join("");
+
+    $("k-queue").innerHTML = s.queue.length
+      ? s.queue.map(function (id) { return '<div class="chip req"><span>' + id + "</span><span>waiting to be taken</span></div>"; }).join("")
+      : s.lost ? '<div class="chip lost"><span>r1</span><span>gone from Redis</span></div>' : '<span class="empty">empty</span>';
+    $("k-resp").innerHTML = s.resp
+      ? '<div class="chip ' + s.resp[1] + '"><span>' + s.resp[0] + "</span><span>" + s.resp[2] + "</span></div>"
+      : '<span class="empty">' + (s.result && s.result[1] === "Result" ? "read by the client" : "empty") + "</span>";
+
+    $("c-state").textContent = s.client;
+    $("c-result").innerHTML = s.result ? '<div class="result ' + s.result[0] + '">' + s.result[1] + "</div>" : "";
+
+    ["queue", "resp", "client"].forEach(function (k) {
+      $("b-" + k).classList.toggle("changed", s.changed.indexOf(k) >= 0);
+    });
+
+    $("prev").disabled = step === 0;
+    $("next").disabled = step === sc.steps.length - 1;
+    $("count").textContent = "step " + (step + 1) + " / " + sc.steps.length;
+    var lis = $("log").children;
+    for (var i = 0; i < lis.length; i++) lis[i].className = i < step ? "past" : i === step ? "past now" : "";
+  }
+
+  function build() {
+    $("log").innerHTML = SCEN[scen].steps.map(function (e, i) {
+      return '<li data-i="' + i + '"><span class="t">' + fmt(e.t) + "</span><span>" + e.m + "</span></li>";
+    }).join("");
+    Array.prototype.forEach.call($("log").children, function (li) {
+      li.addEventListener("click", function () { step = parseInt(li.getAttribute("data-i"), 10); render(); });
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[role="tab"]'), function (b) {
+    b.addEventListener("click", function () {
+      scen = b.getAttribute("data-s");
+      Array.prototype.forEach.call(document.querySelectorAll('[role="tab"]'), function (o) { o.setAttribute("aria-selected", o === b ? "true" : "false"); });
+      step = 0; build(); render();
+    });
+  });
+  $("next").addEventListener("click", function () { if (step < SCEN[scen].steps.length - 1) { step++; render(); } });
+  $("prev").addEventListener("click", function () { if (step > 0) { step--; render(); } });
+  $("restart").addEventListener("click", function () { step = 0; render(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "ArrowRight") $("next").click();
+    if (e.key === "ArrowLeft") $("prev").click();
+  });
+
+  // Rest state: the first step of a normal call.
+  build(); render();
+})();
+</script>
+</body>
+</html>
