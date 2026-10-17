@@ -5,5 +5,5 @@ from datetime import timedelta
 @dataclass
 class AnycallProperties:
     """Configuration properties for AnyCall."""
-    timeout: timedelta = timedelta(seconds=30)
+    timeout: timedelta = timedelta(0)  # no limit
     metrics_enabled: bool = False

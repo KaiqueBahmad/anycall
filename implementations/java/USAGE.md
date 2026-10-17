@@ -92,3 +92,5 @@ AnyCallClient client = AnyCall.client(redisUri, true);
 // Both
 AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60), true);
 ```
+
+By default a call waits for its response with no limit (`Duration.ZERO`).

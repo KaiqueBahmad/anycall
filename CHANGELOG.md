@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Servers take requests with a Lua script that pops the request and records it as in flight atomically, instead of `BRPOP`; idle servers wait for a wake message, falling back to looking at their queues every second. Servers now hold four Redis connections
 - A saturated server takes its next request as soon as a slot frees up, instead of sleeping a fixed 1s
+- Calls now wait for their response with no limit by default (Java and Python), instead of 30s
 - The liveness heartbeat now runs as a Lua script that reads Redis's own clock (`TIME`) for both the `ZADD` score and the `ZREMRANGEBYSCORE` cutoff, instead of each host's clock — clock skew between servers can no longer prune a live server or keep a dead one registered. Still one round trip per tick, one key, Cluster-compatible. The visualizer also reads `TIME` to compute each server's age
 
 ### Fixed

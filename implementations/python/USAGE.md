@@ -130,4 +130,4 @@ client = AnyCall.client(
 )
 ```
 
-`timeout=timedelta(0)` waits for the response with no limit.
+By default a call waits for its response with no limit (`timedelta(0)`).

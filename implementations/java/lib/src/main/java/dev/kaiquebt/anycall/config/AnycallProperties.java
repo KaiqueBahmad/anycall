@@ -8,7 +8,7 @@ public record AnycallProperties(
 ) {
     public AnycallProperties {
         if (timeout == null) {
-            timeout = Duration.ofSeconds(30);
+            timeout = Duration.ZERO;
         }
         if (metricsEnabled == null) {
             metricsEnabled = false;
@@ -16,6 +16,6 @@ public record AnycallProperties(
     }
 
     public AnycallProperties() {
-        this(Duration.ofSeconds(30), false);
+        this(Duration.ZERO, false);
     }
 }

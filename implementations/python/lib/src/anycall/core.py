@@ -31,7 +31,7 @@ class AnyCall:
     @staticmethod
     def client(
         redis_uri: str,
-        timeout: timedelta = timedelta(seconds=30),
+        timeout: timedelta = timedelta(0),
         metrics_enabled: bool = False,
         default_max_queue_depth: int | None = None,
     ) -> AnyCallClient:
@@ -39,7 +39,8 @@ class AnyCall:
 
         Args:
             redis_uri: Redis connection URI (e.g., redis://localhost:16379)
-            timeout: Request timeout duration
+            timeout: How long a call waits for its response; timedelta(0)
+                (the default) waits with no limit
             metrics_enabled: Whether to collect metrics
             default_max_queue_depth: Default backlog limit applied to every
                 call made by this client (see AnyCallClient.call's

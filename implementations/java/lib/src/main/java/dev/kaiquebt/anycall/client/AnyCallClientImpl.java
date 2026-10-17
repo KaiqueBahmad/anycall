@@ -28,7 +28,8 @@ import java.util.Map;
 public class AnyCallClientImpl implements AnyCallClient {
 
     private static final Logger log = LoggerFactory.getLogger(AnyCallClientImpl.class);
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
+    // Zero means a call waits for its response with no limit.
+    private static final Duration DEFAULT_TIMEOUT = Duration.ZERO;
     // Added on top of the call timeout to get the connection's command timeout, so
     // Lettuce never gives up on a response BRPOP that is still within its call timeout.
     private static final Duration COMMAND_TIMEOUT_MARGIN = Duration.ofSeconds(5);
