@@ -72,13 +72,33 @@ class NoServerAvailableError(PublishError):
         self.method_name = method_name
 
 
+class ServerLostError(PublishError):
+    """Raised when the server processing a call stopped heartbeating before
+    it responded, so no response will ever come.
+
+    Detected by another live server (heartbeat reaping), about 8-10s after
+    the server went quiet. The request had started and may have partially
+    run; it is not retried. Not seeing this error does not mean the server is
+    alive: a server lost within the last few seconds of a call's timeout
+    still surfaces as a TimeoutError.
+    """
+
+    def __init__(self, service: str, message: str, call_id: str, server_id: str):
+        super().__init__(service, message)
+        self.call_id = call_id
+        self.server_id = server_id
+
+    def get_id(self) -> str:
+        return self.call_id
+
+
 class RemoteExecutionError(AnyCallError):
     """Function was executed but failed on worker."""
     pass
 
 
 class RemoteException(RemoteExecutionError):
-    """Worker died during execution."""
+    """The remote method raised an error."""
 
     def __init__(self, service: str, message: str, exception_type: str):
         super().__init__(service, message)

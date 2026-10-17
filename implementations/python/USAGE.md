@@ -48,9 +48,12 @@ server = AnyCall.server("redis://localhost:16379", max_concurrency=16)
 ### If a server dies mid-request
 
 If a server crashes while processing a request, another live server notices
-within ~8–10s and fails the request back: the client gets a `RemoteException`
+within ~8–10s and fails the request back: the client gets a `ServerLostError`
 instead of waiting out its `timeout`. With a single server, the client still
-waits for its timeout. The request is not retried.
+waits for its timeout. The request is not retried, and may have partially run.
+
+A `TimeoutError` says nothing about the server: it may be slow, may never have
+taken the request, or may have been lost too recently to be noticed.
 
 ## How to Use as Consumer (Client)
 

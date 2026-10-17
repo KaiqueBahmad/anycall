@@ -48,10 +48,15 @@ class AnyCallRequest:
 
 @dataclass
 class AnyCallResponse:
-    """RPC response envelope."""
+    """RPC response envelope.
+
+    `lost_server` is set only on the error a reaping server writes for a
+    request whose server stopped heartbeating; it holds that server's id.
+    """
     request_id: str
     payload: Optional[str] = None
     error_msg: Optional[str] = None
+    lost_server: Optional[str] = None
 
     @staticmethod
     def success(request_id: str, payload: str) -> "AnyCallResponse":
@@ -62,6 +67,15 @@ class AnyCallResponse:
     def error(request_id: str, error_message: str) -> "AnyCallResponse":
         """Create an error response."""
         return AnyCallResponse(request_id=request_id, payload=None, error_msg=error_message)
+
+    @staticmethod
+    def server_lost(request_id: str, server_id: str) -> "AnyCallResponse":
+        """Create the error response for a request whose server stopped heartbeating."""
+        return AnyCallResponse(
+            request_id=request_id,
+            error_msg=f"server {server_id} stopped heartbeating while processing this request",
+            lost_server=server_id,
+        )
 
     def has_error(self) -> bool:
         """Check if this response contains an error."""
@@ -79,6 +93,8 @@ class AnyCallResponse:
                 normalized["error_msg"] = value
             elif key == "errorMsg":  # Also support errorMsg for flexibility
                 normalized["error_msg"] = value
+            elif key == "lostServer":
+                normalized["lost_server"] = value
             else:
                 normalized[key] = value
 
@@ -86,8 +102,13 @@ class AnyCallResponse:
 
     def to_dict(self) -> dict:
         """Serialize to dict using camelCase for Java compatibility."""
-        return {
+        data = {
             "requestId": self.request_id,
             "payload": self.payload,
             "error": self.error_msg  # Java uses "error", not "error_msg"
         }
+        # Only on reaped requests, so every other response stays readable by
+        # clients that predate the field.
+        if self.lost_server is not None:
+            data["lostServer"] = self.lost_server
+        return data

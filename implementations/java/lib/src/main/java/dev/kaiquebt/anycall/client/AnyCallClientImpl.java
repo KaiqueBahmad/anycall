@@ -153,6 +153,9 @@ public class AnyCallClientImpl implements AnyCallClient {
             long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
             AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
+            if (response.lostServer() != null) {
+                throw new ServerLostError(methodName, response.error(), requestId, response.lostServer());
+            }
             if (response.hasError()) {
                 throw new RemoteException(methodName, response.error(), "RemoteExecutionError");
             }

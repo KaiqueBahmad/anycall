@@ -13,6 +13,7 @@ from .exceptions import (
     NoServerAvailableError,
     QueueFullError,
     RemoteException,
+    ServerLostError,
     SerializationError,
     TimeoutError,
 )
@@ -302,6 +303,13 @@ class AnyCallClientImpl(AnyCallClient):
             except json.JSONDecodeError as e:
                 raise JSONDecodeError(method_name, f"Failed to decode response: {e}")
 
+            if response.lost_server is not None:
+                raise ServerLostError(
+                    method_name,
+                    response.error_msg or f"server {response.lost_server} was lost",
+                    rpc_request.request_id,
+                    response.lost_server,
+                )
             if response.has_error():
                 raise RemoteException(method_name, response.error_msg or "Unknown error", "RemoteExecutionError")
 

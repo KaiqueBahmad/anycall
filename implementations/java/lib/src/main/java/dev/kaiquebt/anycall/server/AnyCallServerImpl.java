@@ -56,7 +56,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * needing a wake.
  * <p>
  * Every heartbeat tick also fails back the in-flight requests of servers that stopped
- * heartbeating (see {@link #reapOrphans}): their clients get an error response
+ * heartbeating (see {@link #reapOrphans}): their clients get a {@code ServerLostError}
  * instead of waiting out their whole timeout.
  * <p>
  * The whole server uses exactly four Redis connections — one for taking requests, one
@@ -407,8 +407,7 @@ public class AnyCallServerImpl implements AnyCallServer {
                     continue;
                 }
                 String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
-                String responseJson = OBJECT_MAPPER.writeValueAsString(AnyCallResponse.error(
-                    requestId, "server " + owner + " stopped heartbeating while processing this request"));
+                String responseJson = OBJECT_MAPPER.writeValueAsString(AnyCallResponse.serverLost(requestId, owner));
                 RedisFuture<Long> push = heartbeatCommands.lpush(responseQueue, responseJson);
                 RedisFuture<Boolean> expire = heartbeatCommands.expire(responseQueue, ORPHAN_RESPONSE_TTL.getSeconds());
                 await(push);

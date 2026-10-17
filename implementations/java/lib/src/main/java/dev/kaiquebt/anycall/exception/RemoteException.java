@@ -1,5 +1,8 @@
 package dev.kaiquebt.anycall.exception;
 
+/**
+ * The remote method raised an error.
+ */
 public class RemoteException extends RemoteExecutionError {
     private final String exceptionType;
 

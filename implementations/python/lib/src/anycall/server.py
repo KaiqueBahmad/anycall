@@ -154,8 +154,8 @@ class AnyCallServerImpl(AnyCallServer):
     picked up without needing a wake.
 
     Every heartbeat tick also fails back the in-flight requests of servers
-    that stopped heartbeating (see `_reap_orphans`): their clients
-    get an error response instead of waiting out their whole timeout.
+    that stopped heartbeating (see `_reap_orphans`): their clients get a
+    ServerLostError instead of waiting out their whole timeout.
 
     Capacity is acquired synchronously on this read-loop thread, right after
     a request is taken and before it's dispatched to the worker pool (see
@@ -346,10 +346,7 @@ class AnyCallServerImpl(AnyCallServer):
             try:
                 if not self.redis.release_inflight(INFLIGHT_KEY, request_id):
                     continue
-                response = AnyCallResponse.error(
-                    request_id,
-                    f"server {owner} stopped heartbeating while processing this request",
-                )
+                response = AnyCallResponse.server_lost(request_id, owner)
                 self.redis.push_expiring(
                     queues.response_queue(request_id),
                     serialize(response),
