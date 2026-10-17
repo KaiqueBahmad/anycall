@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyCall Reaping</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: one reading column with a wide simulator (servers | Redis | client) that stacks on phones */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --sunken: #eef1f5;
+  --fg: #19202d;
+  --muted: #5d6779;
+  --line: #d7dce5;
+  --redis: #c2410c;
+  --redis-soft: #fdece2;
+  --alive: #15805a;
+  --alive-soft: #def3e9;
+  --dead: #b42335;
+  --dead-soft: #fbe3e6;
+  --orphan: #b26a00;
+  --orphan-soft: #fff1d6;
+  --client: #2a5bd7;
+  --client-soft: #e3ebfc;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151c; --surface: #191e27; --sunken: #1f2531; --fg: #e4e8ef; --muted: #9ba5b5; --line: #2d3442;
+    --redis: #f2895a; --redis-soft: #3a2419; --alive: #52cc98; --alive-soft: #163226; --dead: #f07383; --dead-soft: #3a1c22;
+    --orphan: #f2b24a; --orphan-soft: #3a2c12; --client: #7ea2ff; --client-soft: #1c2742; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #191e27; --sunken: #1f2531; --fg: #e4e8ef; --muted: #9ba5b5; --line: #2d3442;
+  --redis: #f2895a; --redis-soft: #3a2419; --alive: #52cc98; --alive-soft: #163226; --dead: #f07383; --dead-soft: #3a1c22;
+  --orphan: #f2b24a; --orphan-soft: #3a2c12; --client: #7ea2ff; --client-soft: #1c2742; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 36px 64px;
+}
+main { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 52px; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--redis); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(32px, 6vw, 48px); line-height: 1.08; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: clamp(22px, 3.2vw, 28px); line-height: 1.2; margin: 0; }
+p { margin: 0; max-width: 66ch; }
+.lede { font-size: 18px; color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .86em; background: var(--sunken); padding: 1px 5px; border-radius: 4px; }
+
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; overflow-x: auto; }
+.figure svg { display: block; width: 100%; height: auto; min-width: 620px; }
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .mono { font-family: var(--font-mono); }
+svg .muted { fill: var(--muted); }
+
+/* simulator */
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.sim-top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--sunken); color: var(--fg); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.tab:focus-visible, .btn:focus-visible, input[type=range]:focus-visible { outline: 2px solid var(--client); outline-offset: 2px; }
+.clock { font-family: var(--font-mono); font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.clock small { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; padding: 16px; }
+@media (max-width: 800px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.col-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.box.redis { border-color: color-mix(in srgb, var(--redis) 45%, var(--line)); }
+.key { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--redis); overflow-wrap: anywhere; }
+.empty { font-size: 13px; color: var(--muted); font-style: italic; }
+.server { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; }
+.server .name { font-weight: 600; }
+.server .state { grid-column: 2; font-size: 13px; color: var(--muted); }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--alive); grid-row: span 2; position: relative; }
+.dot.beat::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--alive); opacity: 0; animation: ping .9s ease-out; }
+@keyframes ping { from { opacity: .9; transform: scale(.5); } to { opacity: 0; transform: scale(1.6); } }
+.box.is-dead { background: var(--dead-soft); border-color: var(--dead); }
+.box.is-dead .dot { background: var(--dead); }
+.chip { font-family: var(--font-mono); font-size: 12px; border-radius: 6px; padding: 5px 8px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.chip.ok { background: var(--alive-soft); color: var(--alive); }
+.chip.orphan { background: var(--orphan-soft); color: var(--orphan); }
+.chip.err { background: var(--dead-soft); color: var(--dead); }
+.agerow { display: flex; flex-direction: column; gap: 4px; }
+.agerow .lbl { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 12px; }
+.agebar { height: 6px; background: var(--sunken); border-radius: 3px; overflow: hidden; position: relative; }
+.agebar > i { position: absolute; inset: 0 auto 0 0; background: var(--alive); border-radius: 3px; }
+.agebar.over > i { background: var(--dead); }
+.client-state { font-weight: 600; font-size: 15px; }
+.meter { display: flex; flex-direction: column; gap: 4px; }
+.meter .lbl { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { height: 10px; background: var(--sunken); border-radius: 5px; overflow: hidden; position: relative; }
+.bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; }
+.bar.slice > i { background: var(--client); }
+.bar.quiet > i { background: var(--orphan); }
+.result { border-radius: 8px; padding: 8px 10px; font-weight: 600; font-size: 14px; }
+.result.err { background: var(--dead-soft); color: var(--dead); }
+.result.timeout { background: var(--sunken); color: var(--muted); }
+.controls { display: flex; gap: 12px; align-items: center; padding: 0 16px; flex-wrap: wrap; }
+.btn { font: inherit; font-size: 14px; font-weight: 600; border: none; background: var(--redis); color: #fff; border-radius: 8px; padding: 8px 16px; cursor: pointer; min-width: 92px; }
+.btn.ghost { background: var(--sunken); color: var(--fg); min-width: 0; font-weight: 500; }
+.track { padding: 10px 16px 0; }
+input[type=range] { width: 100%; accent-color: var(--redis); margin: 0; }
+.log { list-style: none; margin: 0; padding: 12px 16px 16px; border-top: 1px solid var(--line); margin-top: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.log li { display: grid; grid-template-columns: 60px 1fr; gap: 8px; opacity: .45; cursor: pointer; }
+.log li.past { opacity: 1; }
+.log li.now { font-weight: 600; }
+.log .t { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* errors */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card h3 { margin: 0; font-family: var(--font-mono); font-size: 15px; }
+.card p { font-size: 14.5px; color: var(--muted); }
+.card.lost { border-top: 4px solid var(--orphan); }
+.card.to { border-top: 4px solid var(--muted); }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+@media (prefers-reduced-motion: reduce) { .dot.beat::after { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="eyebrow">AnyCall · reaping</span>
+    <h1>When a server dies mid-request</h1>
+    <p class="lede">Someone has to tell the client its response is never coming. Either a live server does it, or the waiting client notices on its own.</p>
+  </header>
+
+  <section aria-labelledby="map-title">
+    <h2 id="map-title">The pieces</h2>
+    <div class="figure">
+      <svg viewBox="0 0 900 300" role="img" aria-label="The client waits on its response queue. Servers record each request they take in anycall:inflight and heartbeat into anycall:servers:alive. A live server, or the waiting client, reaps orphans.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+          <marker id="ar-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--orphan)"/></marker>
+        </defs>
+        <rect x="20" y="90" width="160" height="120" rx="14" fill="var(--client-soft)" stroke="var(--client)" stroke-width="1.5"/>
+        <text x="100" y="135" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--client)">Client</text>
+        <text x="100" y="160" text-anchor="middle" font-size="13" class="muted">waits on BRPOP</text>
+        <text x="100" y="178" text-anchor="middle" font-size="13" class="muted">in 30s slices</text>
+
+        <rect x="270" y="20" width="360" height="260" rx="16" fill="var(--redis-soft)" stroke="var(--redis)" stroke-width="1.5"/>
+        <text x="450" y="50" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--redis)">Redis</text>
+        <g font-size="13">
+          <rect x="295" y="68" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--orphan)" stroke-width="1.5"/>
+          <text x="310" y="91" class="mono" font-weight="600" style="fill:var(--redis)">anycall:inflight</text>
+          <text x="310" y="111" class="muted">request id → server id, while processing</text>
+          <rect x="295" y="134" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="310" y="157" class="mono" font-weight="600" style="fill:var(--redis)">anycall:servers:alive</text>
+          <text x="310" y="177" class="muted">heartbeat every 2s, alive if &lt; 8s old</text>
+          <rect x="295" y="200" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="310" y="223" class="mono" font-weight="600" style="fill:var(--redis)">anycall:responses:&lt;id&gt;</text>
+          <text x="310" y="243" class="muted">the response, or the reaper's error</text>
+        </g>
+
+        <rect x="720" y="40" width="160" height="100" rx="14" fill="var(--alive-soft)" stroke="var(--alive)" stroke-width="1.5"/>
+        <text x="800" y="82" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--alive)">Server B</text>
+        <text x="800" y="106" text-anchor="middle" font-size="13" class="muted">alive</text>
+        <rect x="720" y="170" width="160" height="100" rx="14" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.5" stroke-dasharray="6 4"/>
+        <text x="800" y="212" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--dead)">Server A</text>
+        <text x="800" y="236" text-anchor="middle" font-size="13" class="muted">died mid-request</text>
+
+        <g stroke="var(--muted)" stroke-width="1.5" fill="none">
+          <path d="M292 228 L183 180" marker-end="url(#ar)"/>
+          <path d="M720 200 L608 104" marker-end="url(#ar)"/>
+          <path d="M720 110 L608 160" marker-end="url(#ar)"/>
+        </g>
+        <g stroke="var(--orphan)" stroke-width="2" fill="none" stroke-dasharray="6 4">
+          <path d="M720 70 C 680 70, 660 84, 608 90" marker-end="url(#ar-o)"/>
+          <path d="M180 120 C 220 110, 250 96, 292 94" marker-end="url(#ar-o)"/>
+        </g>
+        <g font-size="12" class="muted">
+          <text x="196" y="232">response</text>
+          <text x="676" y="152">heartbeat</text>
+          <text x="618" y="134">took it</text>
+        </g>
+        <g font-size="12" font-weight="600" style="fill:var(--orphan)">
+          <text x="652" y="62">reaps</text>
+          <text x="200" y="92">reaps</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section aria-labelledby="sim-title">
+    <h2 id="sim-title">Watch it happen</h2>
+    <p>Pick a scenario, press play or drag the timeline. Time counts from a <code>kill -9</code> on server A.</p>
+    <div class="sim">
+      <div class="sim-top">
+        <div class="tabs" role="tablist" aria-label="Scenario">
+          <button class="tab" role="tab" data-s="survivor" aria-selected="true">Another server alive</button>
+          <button class="tab" role="tab" data-s="solo" aria-selected="false">Server alone</button>
+          <button class="tab" role="tab" data-s="gaveup" aria-selected="false">Client gave up first</button>
+        </div>
+        <div class="clock"><span id="clock">0.0s</span><small>since the kill</small></div>
+      </div>
+
+      <div class="stage">
+        <div class="col">
+          <span class="col-title">Servers</span>
+          <div id="servers" class="col"></div>
+        </div>
+        <div class="col">
+          <span class="col-title">Redis</span>
+          <div class="box redis"><span class="key">anycall:inflight</span><div id="k-inflight"></div></div>
+          <div class="box redis"><span class="key">anycall:servers:alive</span><div id="k-alive" class="col"></div></div>
+          <div class="box redis"><span class="key">anycall:responses:r1</span><div id="k-resp"></div></div>
+        </div>
+        <div class="col">
+          <span class="col-title">Client</span>
+          <div class="box">
+            <div class="client-state" id="c-state"></div>
+            <div class="meter"><div class="lbl"><span>BRPOP slice</span><span id="c-slice-v"></span></div><div class="bar slice"><i id="c-slice"></i></div></div>
+            <div class="meter"><div class="lbl"><span>no sign of a server</span><span id="c-quiet-v"></span></div><div class="bar quiet"><i id="c-quiet"></i></div></div>
+            <div id="c-result"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="play">▶ Play</button>
+        <button class="btn ghost" id="restart">Restart</button>
+      </div>
+      <div class="track"><input type="range" id="scrub" min="-3" max="40" step="0.1" value="0" aria-label="Timeline"></div>
+      <ol class="log" id="log" aria-live="polite"></ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="who-title">
+    <h2 id="who-title">Who reaps it?</h2>
+    <div class="figure">
+      <svg viewBox="0 0 900 280" role="img" aria-label="An orphan is an in-flight request whose server hasn't heartbeated for over 8 seconds. If another server is alive, its next tick reaps it, 8 to 10 seconds after the death. If not, and the client is still waiting, the client reaps it, 30 to 60 seconds after. If the client gave up, nobody does until a server starts.">
+        <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+        <g font-size="14">
+          <rect x="20" y="100" width="180" height="80" rx="12" fill="var(--orphan-soft)" stroke="var(--orphan)" stroke-width="1.5"/>
+          <text x="110" y="132" text-anchor="middle" font-weight="600">Orphan</text>
+          <text x="110" y="154" text-anchor="middle" font-size="12.5" class="muted">its server stopped</text>
+          <text x="110" y="170" text-anchor="middle" font-size="12.5" class="muted">heartbeating &gt; 8s ago</text>
+
+          <polygon points="340,80 440,140 340,200 240,140" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+          <text x="340" y="136" text-anchor="middle" font-size="13" font-weight="600">another server</text>
+          <text x="340" y="154" text-anchor="middle" font-size="13" font-weight="600">alive?</text>
+
+          <polygon points="580,160 680,220 580,280 480,220" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+          <text x="580" y="216" text-anchor="middle" font-size="13" font-weight="600">client still</text>
+          <text x="580" y="234" text-anchor="middle" font-size="13" font-weight="600">waiting?</text>
+
+          <rect x="490" y="15" width="390" height="66" rx="12" fill="var(--alive-soft)" stroke="var(--alive)" stroke-width="1.5"/>
+          <text x="510" y="43" font-weight="600" style="fill:var(--alive)">The live server, on its next heartbeat</text>
+          <text x="510" y="65" font-size="13" class="muted">8–10s after the death</text>
+
+          <rect x="720" y="110" width="160" height="72" rx="12" fill="var(--client-soft)" stroke="var(--client)" stroke-width="1.5"/>
+          <text x="800" y="140" text-anchor="middle" font-weight="600" style="fill:var(--client)">The client</text>
+          <text x="800" y="162" text-anchor="middle" font-size="13" class="muted">30–60s after</text>
+
+          <rect x="720" y="210" width="160" height="64" rx="12" fill="var(--dead-soft)" stroke="var(--dead)" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="800" y="238" text-anchor="middle" font-weight="600" style="fill:var(--dead)">Nobody</text>
+          <text x="800" y="258" text-anchor="middle" font-size="12.5" class="muted">until a server starts</text>
+        </g>
+        <g stroke="var(--muted)" stroke-width="1.5" fill="none">
+          <path d="M200 140 L238 140" marker-end="url(#a2)"/>
+          <path d="M340 80 L340 48 L486 48" marker-end="url(#a2)"/>
+          <path d="M340 200 L340 220 L476 220" marker-end="url(#a2)"/>
+          <path d="M580 160 L580 146 L716 146" marker-end="url(#a2)"/>
+          <path d="M680 220 L700 220 L700 242 L716 242" marker-end="url(#a2)"/>
+        </g>
+        <g font-size="12.5" font-weight="600">
+          <text x="350" y="70" style="fill:var(--alive)">yes</text>
+          <text x="350" y="214" style="fill:var(--dead)">no</text>
+          <text x="590" y="140" style="fill:var(--alive)">yes</text>
+          <text x="684" y="212" style="fill:var(--dead)">no</text>
+        </g>
+      </svg>
+    </div>
+    <p>Reaping only covers requests a server already took. One still sitting in its queue, with no server alive or none serving its method, just waits out the timeout.</p>
+  </section>
+
+  <section aria-labelledby="err-title">
+    <h2 id="err-title">What the caller sees</h2>
+    <div class="grid">
+      <div class="card lost"><h3>ServerLostError</h3><p>The server holding the request is gone. Carries that server's id. The request started and may have partly run; retry only if it's idempotent.</p></div>
+      <div class="card to"><h3>TimeoutError</h3><p>The configured timeout ran out. Says nothing about the server: slow, lost just now, or never took the request.</p></div>
+    </div>
+  </section>
+
+  <footer>Timings measured against a local Redis 7.4 with Java and Python clients and servers. The simulator follows the rules in the code, with times close to the measured ones.</footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var TTL = 8, PERIOD = 2, SLICE = 30, MIN = -3, MAX = 40, SPEED = 4;
+
+  // Per scenario: when the call starts, when A takes it, A's last heartbeat, B's
+  // heartbeat phase (null: no B), when the orphan is reaped and by whom, how the call ends.
+  var SCEN = {
+    survivor: { call: -3, take: -2.8, aLast: -0.2, bPhase: 1.9, reapAt: 7.9, reapBy: "B", end: 8.2, endKind: "lost", timeout: null },
+    solo:     { call: -1, take: -0.9, aLast: -0.2, bPhase: null, reapAt: 29, reapBy: "client", end: 29.3, endKind: "lost", timeout: null },
+    gaveup:   { call: -1, take: -0.9, aLast: -0.2, bPhase: null, reapAt: null, reapBy: null, end: 9, endKind: "timeout", timeout: 10 }
+  };
+
+  function events(s) {
+    var e = [
+      { t: s.call, m: "Client finds a live server and pushes request r1" },
+      { t: s.take, m: "Server A takes r1 and records it in anycall:inflight" },
+      { t: 0, m: "kill -9 on server A" },
+      { t: s.aLast + TTL, m: "A is 8s past its last heartbeat: it counts as dead" + (s.bPhase === null ? ", and the alive set expires" : "") }
+    ];
+    if (s.reapBy === "B") {
+      e.push({ t: s.reapAt, m: "B's heartbeat tick: claims r1 (HDEL) and pushes the error" });
+      e.push({ t: s.end, m: "Client gets ServerLostError (server A)" });
+    } else if (s.reapBy === "client") {
+      e.push({ t: s.reapAt, m: "Slice ends empty after 30s with no sign of a server: the client reaps" });
+      e.push({ t: s.end, m: "Client gets ServerLostError (server A)" });
+    } else {
+      e.push({ t: s.end, m: "The 10s timeout runs out: TimeoutError, and the client stops waiting" });
+      e.push({ t: 29, m: "Nobody reaps: r1 stays in anycall:inflight until a server starts" });
+    }
+    return e.sort(function (a, b) { return a.t - b.t; });
+  }
+
+  function fmt(t) { return (t < 0 ? "−" : "") + Math.abs(t).toFixed(1) + "s"; }
+  function lastTick(phase, t) { return phase + PERIOD * Math.floor((t - phase) / PERIOD); }
+  var $ = function (id) { return document.getElementById(id); };
+  var scen = "survivor", t = 5, playing = false, lastFrame = 0;
+
+  function render() {
+    var s = SCEN[scen];
+    $("clock").textContent = fmt(t);
+    $("scrub").value = t;
+
+    var aAlive = t < 0;
+    var aAge = t - (aAlive ? lastTick(s.aLast, t) : s.aLast);
+    var servers = [{ id: "A", alive: aAlive, hb: aAlive ? lastTick(s.aLast, t) : s.aLast }];
+    if (s.bPhase !== null) servers.push({ id: "B", alive: true, hb: lastTick(s.bPhase, t) });
+    $("servers").innerHTML = servers.map(function (sv) {
+      var state = !sv.alive ? "dead" : sv.id === "A" && t >= s.take ? "processing r1" : "idle";
+      if (sv.id === "B" && t >= s.reapAt - 0.3 && t < s.reapAt + 0.6) state = "reaping";
+      var beat = sv.alive && t - sv.hb < 0.5;
+      return '<div class="box' + (sv.alive ? "" : " is-dead") + '"><div class="server"><span class="dot' + (beat ? " beat" : "") +
+        '"></span><span class="name">Server ' + sv.id + '</span><span class="state">' + state + "</span></div></div>";
+    }).join("");
+
+    var inInflight = t >= s.take && (s.reapAt === null || t < s.reapAt);
+    var orphan = !aAlive && aAge > TTL;
+    $("k-inflight").innerHTML = inInflight
+      ? '<div class="chip ' + (orphan ? "orphan" : "ok") + '"><span>r1 → A</span><span>' + (orphan ? "orphan" : "owner alive") + "</span></div>"
+      : '<span class="empty">empty</span>';
+
+    var rows = [];
+    if (s.bPhase !== null ? t < s.reapAt : t < s.aLast + TTL) rows.push({ id: "A", age: aAge });
+    if (s.bPhase !== null) rows.push({ id: "B", age: t - lastTick(s.bPhase, t) });
+    $("k-alive").innerHTML = rows.length ? rows.map(function (r) {
+      return '<div class="agerow"><div class="lbl"><span>' + r.id + "</span><span>" + r.age.toFixed(1) + "s / 8s</span></div>" +
+        '<div class="agebar' + (r.age > TTL ? " over" : "") + '"><i style="width:' + Math.min(r.age / TTL, 1) * 100 + '%"></i></div></div>';
+    }).join("") : '<span class="empty">' + (t >= s.aLast + TTL ? "expired: no servers" : "empty") + "</span>";
+
+    var hasErr = s.reapAt !== null && t >= s.reapAt && t < s.end;
+    $("k-resp").innerHTML = hasErr
+      ? '<div class="chip err"><span>ServerLostError</span><span>server A</span></div>'
+      : '<span class="empty">' + (t >= s.end ? "deleted" : "empty") + "</span>";
+
+    var waiting = t >= s.call && t < s.end, since = t - s.call;
+    var sliceLen = s.timeout ? Math.min(SLICE, s.timeout) : SLICE, slicePos = since % SLICE;
+    $("c-state").textContent = t < s.call ? "not called yet" : waiting ? "waiting on BRPOP" : "call finished";
+    $("c-slice").style.width = (waiting ? Math.min(slicePos / sliceLen, 1) * 100 : 0) + "%";
+    $("c-slice-v").textContent = waiting ? slicePos.toFixed(1) + "s / " + sliceLen + "s" : "—";
+    $("c-quiet").style.width = (waiting ? Math.min(since / 30, 1) * 100 : 0) + "%";
+    $("c-quiet-v").textContent = waiting ? since.toFixed(1) + "s / 30s" : "—";
+    $("c-result").innerHTML = t < s.end ? "" : s.endKind === "lost"
+      ? '<div class="result err">ServerLostError · server A</div>'
+      : '<div class="result timeout">TimeoutError</div>';
+
+    var lis = $("log").children, cur = -1, ev = events(s);
+    ev.forEach(function (e, i) { if (t >= e.t) cur = i; });
+    for (var i = 0; i < lis.length; i++) lis[i].className = i < cur ? "past" : i === cur ? "past now" : "";
+  }
+
+  function build() {
+    $("log").innerHTML = events(SCEN[scen]).map(function (e) {
+      return '<li data-t="' + e.t + '"><span class="t">' + fmt(e.t) + "</span><span>" + e.m + "</span></li>";
+    }).join("");
+    Array.prototype.forEach.call($("log").children, function (li) {
+      li.addEventListener("click", function () { setPlaying(false); t = parseFloat(li.getAttribute("data-t")) + 0.05; render(); });
+    });
+  }
+
+  function setPlaying(p) {
+    playing = p;
+    $("play").textContent = p ? "❚❚ Pause" : "▶ Play";
+    if (p) { lastFrame = performance.now(); requestAnimationFrame(tick); }
+  }
+  function tick(now) {
+    if (!playing) return;
+    t = Math.min(MAX, t + (now - lastFrame) / 1000 * SPEED);
+    lastFrame = now;
+    render();
+    if (t >= MAX) setPlaying(false); else requestAnimationFrame(tick);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[role="tab"]'), function (b) {
+    b.addEventListener("click", function () {
+      scen = b.getAttribute("data-s");
+      Array.prototype.forEach.call(document.querySelectorAll('[role="tab"]'), function (o) { o.setAttribute("aria-selected", o === b ? "true" : "false"); });
+      t = SCEN[scen].call; build(); render();
+    });
+  });
+  $("play").addEventListener("click", function () { if (t >= MAX) t = SCEN[scen].call; setPlaying(!playing); });
+  $("restart").addEventListener("click", function () { t = SCEN[scen].call; render(); setPlaying(true); });
+  $("scrub").addEventListener("input", function () { setPlaying(false); t = parseFloat($("scrub").value); render(); });
+
+  // Rest state: 5s after the kill, so the page shows a live moment before any interaction.
+  build(); render();
+})();
+</script>
+</body>
+</html>
