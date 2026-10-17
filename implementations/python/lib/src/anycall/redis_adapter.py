@@ -69,7 +69,9 @@ class RedisQueuePort(Protocol):
 
     def release_inflight(self, inflight_key: str, request_id: str) -> bool: ...
 
-    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None: ...
+    def respond(
+        self, response_queue: str, value: str, ttl_seconds: int, inflight_key: str = "", request_id: str = ""
+    ) -> None: ...
 
     def close(self) -> None: ...
 
@@ -153,20 +155,32 @@ class RedisQueueAdapter:
         queue_key, value, request_id = result
         return _text(queue_key), _text(value), _text(request_id)
 
-    def respond(self, response_queue: str, value: str, inflight_key: str, request_id: str) -> None:
-        """LPUSH a response and drop its request from the in-flight hash, in
-        one pipelined round trip. The push goes first: if the process dies in
-        between, the entry is failed back as a crash, but the client pops the
-        real response before that error (BRPOP takes the oldest).
+    def respond(
+        self,
+        response_queue: str,
+        value: str,
+        ttl_seconds: int,
+        inflight_key: str = "",
+        request_id: str = "",
+    ) -> None:
+        """The one way a response is written, by a server or a reaper: LPUSH
+        it, set the queue's expiry, and drop its request from the in-flight
+        hash, in one pipelined round trip. The push goes first: if the process
+        dies before the HDEL, the entry is failed back as a crash, but the
+        client pops the real response before that error (BRPOP takes the
+        oldest).
 
         Args:
             response_queue: The request's response queue
             value: Serialized response
+            ttl_seconds: Expiry for the queue, in case nobody ever reads it
             inflight_key: Hash of request id -> owning server id
-            request_id: Id the request was acquired under ('' to skip the HDEL)
+            request_id: Id the request was acquired under ('' to skip the
+                HDEL, e.g. for a reaper, whose HDEL was its claim)
         """
         pipe = self.redis.pipeline(transaction=False)
         pipe.lpush(response_queue, value)
+        pipe.expire(response_queue, ttl_seconds)
         if request_id:
             pipe.hdel(inflight_key, request_id)
         pipe.execute()
@@ -189,21 +203,6 @@ class RedisQueueAdapter:
             request_id: Request to drop
         """
         return self.redis.hdel(inflight_key, request_id) == 1
-
-    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None:
-        """LPUSH a value and set the list's expiry, pipelined. For responses
-        nobody may be waiting for anymore (the client could have timed out
-        already), so they don't sit in Redis forever.
-
-        Args:
-            queue_key: Redis list key
-            value: String value to push
-            ttl_seconds: Expiry for the list
-        """
-        pipe = self.redis.pipeline(transaction=False)
-        pipe.lpush(queue_key, value)
-        pipe.expire(queue_key, ttl_seconds)
-        pipe.execute()
 
     def subscriber(self) -> PubSub:
         """A fresh Pub/Sub handle on its own connection, with subscribe

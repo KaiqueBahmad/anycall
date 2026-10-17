@@ -6,6 +6,7 @@ import dev.kaiquebt.anycall.exception.*;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
+import dev.kaiquebt.anycall.publisher.AnycallResponses;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.KeyValue;
 import io.lettuce.core.Range;
@@ -371,9 +372,7 @@ public class AnyCallClientImpl implements AnyCallClient {
                 if (reap.hdel(AnycallQueues.INFLIGHT_KEY, requestId) != 1) {
                     continue;
                 }
-                String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
-                reap.lpush(responseQueue, OBJECT_MAPPER.writeValueAsString(AnyCallResponse.serverLost(requestId, owner)));
-                reap.expire(responseQueue, AnycallQueues.ORPHAN_RESPONSE_TTL.getSeconds());
+                AnycallResponses.push(reap, AnyCallResponse.serverLost(requestId, owner));
                 log.warn("Failed request {} back to its client: server {} is gone", requestId, owner);
             } catch (Exception e) {
                 log.warn("Failed to fail back request {} of dead server {}: {}", requestId, owner, e.getMessage());

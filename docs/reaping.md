@@ -117,7 +117,7 @@ a lost server apart from the method's own error (`RemoteException`).
 | Heartbeat TTL (a server counts as dead after) | 8s |
 | Client wait slice | 30s |
 | Client quiet period before it reaps | 30s |
-| Expiry on a reaper's error response | 60s |
+| Expiry on every response (a server's or a reaper's) | 60s |
 | Heartbeat reaping, after a `kill -9` | 8–10s (measured 7.6–7.9s) |
 | Waiter-driven reaping, after a `kill -9` | 30–60s (measured 30.0–30.4s) |
 

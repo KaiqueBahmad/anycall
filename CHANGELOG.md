@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The liveness heartbeat now runs as a Lua script that reads Redis's own clock (`TIME`) for both the `ZADD` score and the `ZREMRANGEBYSCORE` cutoff, instead of each host's clock — clock skew between servers can no longer prune a live server or keep a dead one registered. Still one round trip per tick, one key, Cluster-compatible. The visualizer also reads `TIME` to compute each server's age
 
 ### Fixed
+- Responses nobody reads (the client timed out or died, or a server pruned as dead answered late) no longer stay in Redis forever: every response, a server's or a reaper's, is written through one path that also sets a 60s expiry on its queue (Java and Python)
 - Python client calls longer than 5s no longer fail with `TimeoutError` regardless of the configured timeout (redis-py 8's new 5s default socket timeout)
 - Java client calls longer than 60s no longer fail with `TimeoutError` regardless of the configured timeout (Lettuce's default command timeout), and sub-second timeouts no longer round down to waiting forever
 

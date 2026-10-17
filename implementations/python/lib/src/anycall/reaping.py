@@ -27,10 +27,10 @@ def reap_orphans(redis, owners: Dict[str, str], alive: set[str]) -> None:
         try:
             if not redis.release_inflight(queues.INFLIGHT_KEY, request_id):
                 continue
-            redis.push_expiring(
+            redis.respond(
                 queues.response_queue(request_id),
                 serialize(AnyCallResponse.server_lost(request_id, owner)),
-                queues.ORPHAN_RESPONSE_TTL_SECONDS,
+                queues.RESPONSE_TTL_SECONDS,
             )
             logger.warning(f"Failed request {request_id} back to its client: server {owner} is gone")
         except Exception as e:

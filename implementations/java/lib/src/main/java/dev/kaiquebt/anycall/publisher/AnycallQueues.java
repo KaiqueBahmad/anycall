@@ -53,8 +53,9 @@ public class AnycallQueues {
     public static final Duration HEARTBEAT_TTL = Duration.ofSeconds(8);
 
     /**
-     * Expiry on the error response written for a request whose server died: its client
-     * may have timed out already, and nothing else would ever delete it.
+     * Expiry on every response queue, set when a response is written (see
+     * {@link AnycallResponses}). A waiting client pops it within milliseconds and deletes
+     * the queue; this only matters when nobody reads it, so it doesn't sit in Redis forever.
      */
-    public static final Duration ORPHAN_RESPONSE_TTL = Duration.ofSeconds(60);
+    public static final Duration RESPONSE_TTL = Duration.ofSeconds(60);
 }

@@ -320,8 +320,6 @@ class AnyCallServerImpl(AnyCallServer):
             logger.warning(f"Failed to write heartbeat: {e}")
             return
 
-        # TODO: This may lead to a leak in Redis. The consumer has already been answered, but the supplier will reply again,
-        # and this second reply may never get read or deleted.
         if rejoined and self._heartbeat_registered:
             logger.warning(
                 f"Server {self._server_id} was pruned as dead (no heartbeat for over "
@@ -527,7 +525,7 @@ class AnyCallServerImpl(AnyCallServer):
 
         response_queue = queues.response_queue(response.request_id)
         response_json = serialize(response)
-        self.redis.respond(response_queue, response_json, INFLIGHT_KEY, acquired_id)
+        self.redis.respond(response_queue, response_json, queues.RESPONSE_TTL_SECONDS, INFLIGHT_KEY, acquired_id)
 
     def stop(self) -> None:
         """Stop the server."""

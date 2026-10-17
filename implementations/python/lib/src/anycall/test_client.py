@@ -58,7 +58,7 @@ class MockRedisAdapter:
     def release_inflight(self, inflight_key: str, request_id: str) -> bool:
         return False
 
-    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None:
+    def respond(self, response_queue: str, value: str, ttl_seconds: int, inflight_key: str = "", request_id: str = "") -> None:
         pass
 
     def close(self) -> None:
@@ -89,8 +89,8 @@ class DeadServerAdapter(MockRedisAdapter):
     def release_inflight(self, inflight_key: str, request_id: str) -> bool:
         return self.inflight.pop(request_id, None) is not None
 
-    def push_expiring(self, queue_key: str, value: str, ttl_seconds: int) -> None:
-        self.responses.setdefault(queue_key, []).insert(0, value)
+    def respond(self, response_queue: str, value: str, ttl_seconds: int, inflight_key: str = "", request_id: str = "") -> None:
+        self.responses.setdefault(response_queue, []).insert(0, value)
 
 
 def quick_props() -> AnycallProperties:

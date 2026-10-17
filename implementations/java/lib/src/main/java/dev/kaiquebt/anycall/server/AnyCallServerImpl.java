@@ -7,6 +7,7 @@ import dev.kaiquebt.anycall.core.AnycallContext;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
+import dev.kaiquebt.anycall.publisher.AnycallResponses;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.ScriptOutputType;
@@ -70,7 +71,6 @@ public class AnyCallServerImpl implements AnyCallServer {
     // queues anyway — the safety net for a wake missed during a reconnect, or published
     // by a client that predates wakes.
     private static final Duration WAKE_FALLBACK = Duration.ofSeconds(1);
-    private static final Duration ORPHAN_RESPONSE_TTL = AnycallQueues.ORPHAN_RESPONSE_TTL;
     private static final String INFLIGHT_KEY = AnycallQueues.INFLIGHT_KEY;
 
     private static final String HEARTBEAT_KEY = AnycallQueues.HEARTBEAT_KEY;
@@ -375,8 +375,6 @@ public class AnyCallServerImpl implements AnyCallServer {
             return;
         }
 
-        // TODO: This may lead to a leak in Redis. The consumer has already been answered, but the supplier will reply again,
-        // and this second reply may never get read or deleted.
         if (heartbeat.rejoined() && heartbeatRegistered) {
             log.warn("Server {} was pruned as dead (no heartbeat for over {}s); the requests it "
                 + "was processing may already have been failed back to their clients",
@@ -406,12 +404,7 @@ public class AnyCallServerImpl implements AnyCallServer {
                 if (await(heartbeatCommands.hdel(INFLIGHT_KEY, requestId)) != 1) {
                     continue;
                 }
-                String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
-                String responseJson = OBJECT_MAPPER.writeValueAsString(AnyCallResponse.serverLost(requestId, owner));
-                RedisFuture<Long> push = heartbeatCommands.lpush(responseQueue, responseJson);
-                RedisFuture<Boolean> expire = heartbeatCommands.expire(responseQueue, ORPHAN_RESPONSE_TTL.getSeconds());
-                await(push);
-                await(expire);
+                AnycallResponses.push(writeCommands, AnyCallResponse.serverLost(requestId, owner));
                 log.warn("Failed request {} back to its client: server {} is gone", requestId, owner);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -759,9 +752,7 @@ public class AnyCallServerImpl implements AnyCallServer {
      */
     private void sendResponse(AnyCallResponse response) {
         try {
-            String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
-            String responseJson = OBJECT_MAPPER.writeValueAsString(response);
-            writeCommands.lpush(responseQueue, responseJson);
+            AnycallResponses.push(writeCommands, response);
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
         }
