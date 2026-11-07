@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.6] - 2026-11-07
 
 ### Added
 - `call()` now fails fast with `NoServerAvailableError` (Java and Python) if no server has heartbeated recently, instead of queueing the request and waiting out the full timeout with nothing around to pop it. Checked against the same `anycall:servers:alive` registry and TTL the heartbeat uses, before the request is published
