@@ -58,8 +58,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * waiting out their whole timeout.
  * <p>
  * {@code BRPOPLPUSH} reads a single queue and holds its connection while it blocks, so the
- * server uses one Redis connection per method, plus one shared for response writes and
- * one dedicated to the heartbeat.
+ * server uses one Redis connection per method, plus one shared by response writes and the
+ * heartbeat.
  */
 public class AnyCallServerImpl implements AnyCallServer {
 
@@ -92,7 +92,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final RedisClient redisClient;
     private final StatefulRedisConnection<String, String> writeConnection;
     private final RedisCommands<String, String> writeCommands;
-    private final StatefulRedisConnection<String, String> heartbeatConnection;
+    // The write connection's async view, so a tick can give up after one period.
     private final RedisAsyncCommands<String, String> heartbeatCommands;
     private volatile boolean heartbeatRegistered;
 
@@ -130,8 +130,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.redisClient = RedisClient.create(redisUri);
         this.writeConnection = redisClient.connect();
         this.writeCommands = writeConnection.sync();
-        this.heartbeatConnection = redisClient.connect();
-        this.heartbeatCommands = heartbeatConnection.async();
+        this.heartbeatCommands = writeConnection.async();
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
@@ -307,8 +306,10 @@ public class AnyCallServerImpl implements AnyCallServer {
      * and external tooling can tell it's alive by reading back the members scored within
      * {@link #HEARTBEAT_TTL} of Redis's current time ({@code TIME}).
      * <p>
-     * Runs on its own thread and connection so a slow or unreachable Redis never delays
-     * the read loops. {@link #start} already ran the first tick, so this one sleeps first.
+     * Runs on its own thread so a slow or unreachable Redis never delays the read loops. It
+     * shares the write connection: a tick is one command, so at worst it waits behind a
+     * few response writes, never behind a handler. {@link #start} already ran the first
+     * tick, so this one sleeps first.
      */
     private void emitHeartbeats() {
         try {

@@ -97,9 +97,18 @@ loop for "analyze":
 - **The 2s block** bounds how long `stop` and `unregister` take to reach an
   idle loop. An idle loop costs one command per 2s.
 
-A server uses one connection per method, plus one for responses and one for the
-heartbeat (Java). Blocked connections cost Redis no CPU, only memory, about
-57 KB each.
+A server uses one connection per method, plus:
+
+- **Java:** one, shared by the responses and the heartbeat. A Lettuce
+  connection is shared by every thread, so all workers and the heartbeat write
+  on one, but a blocking command holds its connection, so each loop needs its
+  own.
+- **Python:** one more for each command running at the same time, from
+  redis-py's pool. A redis-py connection serves one command at a time, so
+  workers writing responses together, and the heartbeat, each borrow one. The
+  pool keeps them open, so a busy server ends up with about one per worker.
+
+Blocked connections cost Redis no CPU, only memory, about 57 KB each.
 
 ## Why not the alternatives
 
