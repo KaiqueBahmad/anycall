@@ -190,7 +190,7 @@ QToolTip {{
 # Item geometry at DEFAULT_FONT_SIZE, scaled proportionally with the chosen
 # size so surrounding columns grow with the text instead of leaving bigger
 # glyphs cramped inside fixed-size columns.
-METHODS_TREE_BASE_COLUMNS = {0: 340, 1: 80, 2: 90, 3: 90}
+METHODS_TREE_BASE_COLUMNS = {0: 340, 1: 80}
 SERVERS_TREE_BASE_COLUMNS = {0: 400, 1: 160}  # 400 fits a full 36-char uuid
 INFLIGHT_TREE_BASE_COLUMNS = {0: 400, 1: 400, 2: 90, 3: 300}
 TREE_BASE_INDENT = 20
@@ -206,13 +206,12 @@ INFLIGHT_VISIBLE_ROWS = 5
 # Shown under the in-flight panel and as the estimate column's tooltip: the
 # timing is a guess from what Redis shows, so the GUI says so and says how.
 REAP_ESTIMATE_NOTE = (
-    "* Estimated, not observed: part of the mechanism is a timer inside each client "
-    "process, which never reaches Redis. With a server alive, its next heartbeat "
-    "tick (every 2s) fails the request back. With none, the client still waiting "
-    "for it does, at the end of a 30s wait slice once it has gone 30s without a "
-    "sign of a live server: 8–68s after the last heartbeat this window saw. A "
-    "client that already gave up never does, and the entry stays until a server "
-    "starts."
+    "* Estimated, not observed: where a waiting client is in its wait slice never "
+    "reaches Redis. With a server alive, its next heartbeat tick (every 2s) fails "
+    "the request back. With none, the client still waiting for it does, at the end "
+    "of its current 10s wait slice: 8–18s after the dead server's last heartbeat "
+    "this window saw. A client that already gave up never does, and the entry stays "
+    "until a server starts."
 )
 
 # Custom item-data roles: KEY_ROLE holds a stable string identifying the row
@@ -313,8 +312,8 @@ class VisualizerApp(QMainWindow):
         self._methods_group = QGroupBox("Methods (request queues)")
         methods_layout = QVBoxLayout(self._methods_group)
         self._methods_tree = QTreeWidget()
-        self._methods_tree.setColumnCount(3)
-        self._methods_tree.setHeaderLabels(["method", "backlog", "listening"])
+        self._methods_tree.setColumnCount(2)
+        self._methods_tree.setHeaderLabels(["method", "backlog"])
         self._methods_tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._methods_tree.setUniformRowHeights(True)
         self._methods_tree.setAlternatingRowColors(True)
@@ -420,7 +419,6 @@ class VisualizerApp(QMainWindow):
             "method": method.name,
             "kind": method.kind,
             "backlog": method.backlog,
-            "listening": method.listeners,
         }
 
     @staticmethod
@@ -522,12 +520,11 @@ class VisualizerApp(QMainWindow):
                 [
                     f"{method.name}  [{method.kind}]",
                     str(method.backlog),
-                    str(method.listeners),
                 ]
             )
             method_item.setData(0, KEY_ROLE, method_key)
             method_item.setData(0, DATA_ROLE, self._method_to_dict(method))
-            self._set_numeric_columns(method_item, range(1, 3))
+            self._set_numeric_columns(method_item, range(1, 2))
 
             top_items.append(method_item)
 

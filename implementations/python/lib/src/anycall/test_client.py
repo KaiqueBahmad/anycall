@@ -1,6 +1,5 @@
 """Unit tests for AnyCallClient call/raw_call/register_type semantics."""
 
-import json
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import List, Optional, Tuple
@@ -11,7 +10,6 @@ from . import client as client_module
 from .client import AnyCallClientImpl
 from .config import AnycallProperties
 from .exceptions import AnyCallError, QueueFullError, ServerLostError, TimeoutError
-from .model import AnyCallRequest
 
 pytestmark = pytest.mark.unit
 
@@ -34,8 +32,8 @@ class MockRedisAdapter:
     def __init__(self, queue_depth: int = 0):
         self.queue_depth = queue_depth
 
-    def push_and_wake(self, queue_key: str, value: str, channel: str) -> None:
-        pass
+    def push(self, queue_key: str, value: str) -> int:
+        return 1
 
     def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
         return None
@@ -49,16 +47,13 @@ class MockRedisAdapter:
     def alive_count(self, key: str, ttl_seconds: int) -> int:
         return 1
 
-    def alive_members(self, key: str, ttl_seconds: int) -> set[str]:
-        return {"live-server"}
+    def stale_members(self, key: str, ttl_seconds: int) -> set[str]:
+        return set()
 
-    def inflight_owners(self, inflight_key: str) -> dict[str, str]:
-        return {}
+    def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]:
+        return []
 
-    def release_inflight(self, inflight_key: str, request_id: str) -> bool:
-        return False
-
-    def respond(self, response_queue: str, value: str, ttl_seconds: int, inflight_key: str = "", request_id: str = "") -> None:
+    def respond(self, response_queue: str, value: str, ttl_seconds: int, processing_key: str = "", item: str = "") -> None:
         pass
 
     def close(self) -> None:
@@ -66,30 +61,33 @@ class MockRedisAdapter:
 
 
 class DeadServerAdapter(MockRedisAdapter):
-    """Every request pushed is taken by a server that is already dead, and
-    nothing else is around to reap it."""
+    """Every request pushed is taken by a server that then stops
+    heartbeating, and nothing else is around to reap it."""
 
-    def __init__(self):
+    def __init__(self, dead: bool = True):
         super().__init__()
-        self.inflight: dict[str, str] = {}
+        self.dead = dead
+        self.processing: dict[str, list[str]] = {"dead-server": []}
         self.responses: dict[str, list[str]] = {}
-        self.reaps = 0
+        self.claims = 0
 
-    def push_and_wake(self, queue_key: str, value: str, channel: str) -> None:
-        self.inflight[AnyCallRequest.from_dict(json.loads(value)).request_id] = "dead-server"
+    def push(self, queue_key: str, value: str) -> int:
+        self.processing["dead-server"].append(value)
+        return 1
 
     def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
         pending = self.responses.get(queue_keys[0])
         return (queue_keys[0], pending.pop()) if pending else None
 
-    def inflight_owners(self, inflight_key: str) -> dict[str, str]:
-        self.reaps += 1
-        return dict(self.inflight)
+    def stale_members(self, key: str, ttl_seconds: int) -> set[str]:
+        return {server for server in self.processing if self.dead}
 
-    def release_inflight(self, inflight_key: str, request_id: str) -> bool:
-        return self.inflight.pop(request_id, None) is not None
+    def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]:
+        self.claims += 1
+        assert processing_key == f"anycall:processing:{server_id}"
+        return self.processing.pop(server_id, [])
 
-    def respond(self, response_queue: str, value: str, ttl_seconds: int, inflight_key: str = "", request_id: str = "") -> None:
+    def respond(self, response_queue: str, value: str, ttl_seconds: int, processing_key: str = "", item: str = "") -> None:
         self.responses.setdefault(response_queue, []).insert(0, value)
 
 
@@ -316,10 +314,10 @@ if __name__ == "__main__":
 
 
 class TestWaiterDrivenReaping:
-    """A waiting call reaps orphans itself once the client has gone quiet."""
+    """A call whose wait slice ends empty reaps dead servers itself."""
 
     def test_call_reaps_its_dead_server_and_raises_server_lost(self, monkeypatch):
-        monkeypatch.setattr(client_module, "WAITER_REAP_QUIET_SECONDS", 0)
+        monkeypatch.setattr(client_module, "WAITER_REAP_SLICE_SECONDS", 0.01)
         adapter = DeadServerAdapter()
         client = AnyCallClientImpl(adapter, AnycallProperties())
 
@@ -327,24 +325,14 @@ class TestWaiterDrivenReaping:
             client.raw_call("my-op", {})
 
         assert exc_info.value.server_id == "dead-server"
-        assert adapter.inflight == {}
+        assert "dead-server" not in adapter.processing
 
-    def test_no_reap_while_the_client_is_not_quiet(self):
-        adapter = DeadServerAdapter()
+    def test_no_claim_while_every_server_is_alive(self):
+        adapter = DeadServerAdapter(dead=False)
         client = AnyCallClientImpl(adapter, quick_props())
 
         with pytest.raises(TimeoutError):
             client.raw_call("my-op", {})
 
-        assert adapter.reaps == 0
-        assert len(adapter.inflight) == 1
-
-    def test_finding_a_live_server_before_publishing_resets_the_quiet_timer(self):
-        adapter = DeadServerAdapter()
-        client = AnyCallClientImpl(adapter, quick_props())
-        client._last_activity = 0.0  # quiet for ages
-
-        with pytest.raises(TimeoutError):
-            client.raw_call("my-op", {})
-
-        assert adapter.reaps == 0
+        assert adapter.claims == 0
+        assert len(adapter.processing["dead-server"]) == 1

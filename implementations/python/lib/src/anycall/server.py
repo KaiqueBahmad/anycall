@@ -1,33 +1,27 @@
 import inspect
 import logging
-import random
 import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
-
-from redis.exceptions import TimeoutError
+from typing import Any, Callable, Dict, Optional
 
 from . import queues
 from .config import AnycallProperties
 from .context import AnycallContext
 from .model import AnyCallRequest, AnyCallResponse
-from .reaping import reap_orphans
+from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
 
 logger = logging.getLogger(__name__)
 
-# How long the read loop waits for a wake (or a freed slot) before looking at
-# its queues anyway -- the safety net for a wake missed during a reconnect, or
-# published by a client that predates wakes.
-WAKE_FALLBACK_SECONDS = 1
-# How often the wake listener picks up registrations/unregistrations made
-# since it last (un)subscribed.
-WAKE_LISTEN_TICK_SECONDS = 0.5
+# How long a method's read loop blocks on its queue before looking again, in
+# whole seconds (BRPOPLPUSH's unit). Bounds how long `stop` and `unregister`
+# take to reach an idle loop; an idle loop costs one command per this period.
+TAKE_BLOCK_SECONDS = 2
 
 # Liveness registry. Hardcoded on purpose -- edit here to change it; there is no
 # configuration surface for these. HEARTBEAT_KEY/HEARTBEAT_TTL_SECONDS live in
@@ -35,56 +29,23 @@ WAKE_LISTEN_TICK_SECONDS = 0.5
 HEARTBEAT_KEY = queues.HEARTBEAT_KEY
 HEARTBEAT_PERIOD_SECONDS = 2  # how often a live server refreshes its entry
 HEARTBEAT_TTL_SECONDS = queues.HEARTBEAT_TTL_SECONDS
-INFLIGHT_KEY = queues.INFLIGHT_KEY
-
-
-class Doorbell:
-    """Tells the read loop to look at its queues again: a wake arrived for
-    one of its methods, a local slot freed up, or the method set changed.
-    Rings are coalesced -- the loop only needs to know "look again", not how
-    many times. A ring that lands while the loop is busy is kept, so the
-    loop's next `wait` returns straight away instead of missing it."""
-
-    def __init__(self) -> None:
-        self._rung = False
-        self._condition = threading.Condition()
-
-    def ring(self) -> None:
-        with self._condition:
-            self._rung = True
-            self._condition.notify_all()
-
-    def clear(self) -> None:
-        with self._condition:
-            self._rung = False
-
-    def wait(self, timeout: float) -> None:
-        with self._condition:
-            if not self._rung:
-                self._condition.wait(timeout)
-            self._rung = False
 
 
 class ConcurrencyLimiter:
-    """A counting semaphore that also exposes whether it has spare capacity
-    right now, via `available()`. `threading.Semaphore` doesn't expose its
-    count, but the read loop needs to peek before popping a request it might
-    have nowhere to run yet."""
+    """A counting semaphore whose `acquire` can give up after a timeout, so a
+    read loop waiting for a free slot still notices the server stopping."""
 
     def __init__(self, capacity: int):
         self._capacity = capacity
         self._in_use = 0
         self._condition = threading.Condition()
 
-    def available(self) -> bool:
+    def acquire(self, timeout: Optional[float] = None) -> bool:
         with self._condition:
-            return self._in_use < self._capacity
-
-    def acquire(self) -> None:
-        with self._condition:
-            while self._in_use >= self._capacity:
-                self._condition.wait()
+            if not self._condition.wait_for(lambda: self._in_use < self._capacity, timeout):
+                return False
             self._in_use += 1
+            return True
 
     def release(self) -> None:
         with self._condition:
@@ -133,45 +94,31 @@ class AnyCallServer(ABC):
 class AnyCallServerImpl(AnyCallServer):
     """RPC server implementation.
 
-    One read loop takes requests off every registered method's queue. Each
-    take runs ACQUIRE_SCRIPT (see `RedisQueueAdapter.acquire`), which pops
-    the request and records this server as its owner in `INFLIGHT_KEY` in
-    one atomic step, so a crash at any point leaves either the request still
-    queued or a record of who had it -- never neither. Only queues for
-    methods with spare max_concurrency capacity right now are tried (see
-    `_methods_with_capacity`), so requests for a busy method stay visible in
-    Redis (accurate backlog for `get_queue_depth`/`max_queue_depth`) instead
-    of being popped ahead of time and piling up in memory.
+    Every registered method gets a read loop of its own, which takes its
+    requests with one BRPOPLPUSH (see `RedisQueueAdapter.take`): the request
+    moves from the method's queue onto this server's processing list
+    (`anycall:processing:<server id>`) in one atomic step, so a crash at any
+    point leaves it either still queued or on the list of the server that had
+    it -- never neither. BRPOPLPUSH blocks, so an idle loop waits in Redis and
+    is handed a request the moment a client pushes one, and of several idle
+    servers, Redis hands it to exactly one.
 
-    A script can't block, so the loop doesn't either: when there's nothing
-    to take it waits on a `Doorbell`, rung by a wake message for one of its
-    methods (clients publish on `anycall:wake:<method>` after every push,
-    see `_listen_for_wakes`), by a worker freeing a slot, or after
-    WAKE_FALLBACK_SECONDS regardless. It always tries its queues before
-    waiting, so requests already queued at startup or after a busy spell are
-    picked up without needing a wake.
+    A loop only asks for its next request when its method has a free
+    max_concurrency slot, so requests for a busy method stay in their queue
+    (an accurate backlog for `get_queue_depth`/`max_queue_depth`). The
+    server-wide `max_concurrency`, if set, gates running a request rather
+    than taking it: a loop blocked in Redis can't hold a server-wide slot
+    without starving the other methods, so a request taken while every slot
+    is busy waits here for one, already safe on the processing list. That
+    overshoots the cap on taking by at most one request per method.
 
-    Every heartbeat tick also fails back the in-flight requests of servers
-    that stopped heartbeating (see `reaping.reap_orphans`): their clients get a
+    Every heartbeat tick also fails back the requests of servers that stopped
+    heartbeating (see `reaping.reap_dead_servers`): their clients get a
     ServerLostError instead of waiting out their whole timeout.
 
-    Capacity is acquired synchronously on this read-loop thread, right after
-    a request is taken and before it's dispatched to the worker pool (see
-    `_dispatch_message`) -- since `_methods_with_capacity` already filtered
-    for availability, this is normally instant; it only actually blocks the
-    loop if that pre-filter's read was stale, which is exactly when the loop
-    should wait rather than take another request the method has no room for.
-
-    Unlike the Java implementation -- which hand-splits a fixed read
-    connection from a fixed write connection because its client library
-    (Lettuce) can't issue a second command on a connection that's still
-    blocked in a first -- this uses a single shared `redis.Redis` client for
-    everything. redis-py's client is backed by a connection pool that already
-    hands out a separate physical connection per concurrent call (blocking or
-    not), so the single blocking read and any number of concurrent
-    deletes/writes never contend for the same socket. The wake listener is
-    the exception: a Pub/Sub subscription holds its connection for good, so
-    it gets its own.
+    BRPOPLPUSH reads a single queue and holds its connection while it blocks,
+    so the server uses one Redis connection per method, plus the ones redis-
+    py's pool hands out for responses and the heartbeat.
     """
 
     def __init__(
@@ -200,11 +147,12 @@ class AnyCallServerImpl(AnyCallServer):
         self._running = False
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
+        self._threads: list[threading.Thread] = []
         self._global_limiter = ConcurrencyLimiter(max_concurrency) if max_concurrency else None
         self._server_id = str(uuid.uuid4())
+        self._processing_key = queues.processing_list(self._server_id)
         self._in_flight_request_ids: set[str] = set()
         self._in_flight_lock = threading.Lock()
-        self._doorbell = Doorbell()
         self._heartbeat_registered = False
 
     def register(self, *suppliers: Any) -> "AnyCallServer":
@@ -247,13 +195,13 @@ class AnyCallServerImpl(AnyCallServer):
                 parameter_type=parameter_type,
                 max_concurrency=max_concurrency,
             )
-            self.method_handlers[method_name] = handler
-            self._method_limiters[method_name] = ConcurrencyLimiter(max_concurrency)
-            # No per-method thread or Redis setup to do here -- the read loop
-            # covers this queue on its next iteration (rung right away) and the
-            # wake listener subscribes to its channel on its next tick; a Redis
-            # List needs no setup, it comes into existence on its first LPUSH.
-            self._doorbell.ring()
+            with self._running_lock:
+                self._method_limiters[method_name] = ConcurrencyLimiter(max_concurrency)
+                # Replacing a handler makes the old one's loop exit on its next
+                # iteration; the new one gets a loop of its own.
+                self.method_handlers[method_name] = handler
+                if self._running:
+                    self._start_reader(method_name, handler)
 
     def start(self) -> "AnyCallServer":
         """Start the server."""
@@ -263,20 +211,26 @@ class AnyCallServerImpl(AnyCallServer):
 
             self._running = True
             worker_count = sum(h.max_concurrency for h in self.method_handlers.values())
-            # +1 each for the queue-reading loop, the heartbeat loop and the
-            # wake listener.
-            self._executor = ThreadPoolExecutor(max_workers=worker_count + 3)
+            self._executor = ThreadPoolExecutor(max_workers=max(worker_count, 1))
 
             logger.info(f"Starting AnyCall server {self._server_id}")
-            # Heartbeat once before taking any request: another server's
-            # cleanup treats an in-flight owner missing from the live set as
-            # dead, so this server must be in it before it owns anything.
+            # Heartbeat once before taking any request: a server missing from
+            # the live set is never looked at by reaping, so this server must be
+            # in it before its processing list holds anything.
             self._heartbeat_tick()
-            self._executor.submit(self._poll_all_queues)
-            self._executor.submit(self._emit_heartbeats)
-            self._executor.submit(self._listen_for_wakes)
+            self._start_thread(self._emit_heartbeats, "anycall-heartbeat")
+            for method_name, handler in self.method_handlers.items():
+                self._start_reader(method_name, handler)
 
         return self
+
+    def _start_thread(self, target: Callable, name: str, *args: Any) -> None:
+        thread = threading.Thread(target=target, args=args, name=name, daemon=True)
+        self._threads.append(thread)
+        thread.start()
+
+    def _start_reader(self, method_name: str, handler: MethodHandler) -> None:
+        self._start_thread(self._read_method, f"anycall-read-{method_name}", method_name, handler)
 
     @property
     def server_id(self) -> str:
@@ -294,212 +248,98 @@ class AnyCallServerImpl(AnyCallServer):
 
     def _emit_heartbeats(self) -> None:
         """Keeps this server's entry in the `HEARTBEAT_KEY` sorted set fresh, so
-        external tooling can list live servers by reading back the members scored
-        within HEARTBEAT_TTL_SECONDS of Redis's current time (`TIME`).
+        clients and external tooling can tell it's alive by reading back the
+        members scored within HEARTBEAT_TTL_SECONDS of Redis's current time
+        (`TIME`).
 
-        Runs on its own thread so a slow or unreachable Redis never delays
-        `_poll_all_queues` from draining its queues. `start` already ran the
-        first tick, so this one sleeps first.
+        Runs on its own thread so a slow or unreachable Redis never delays the
+        read loops. `start` already ran the first tick, so this one sleeps
+        first.
         """
         while self._running:
             time.sleep(HEARTBEAT_PERIOD_SECONDS)
-            self._heartbeat_tick()
+            if self._running:
+                self._heartbeat_tick()
 
     def _heartbeat_tick(self) -> None:
-        """One heartbeat (see `RedisQueueAdapter.heartbeat`, which also prunes
-        the entries that stopped being refreshed), then fail back whatever the
-        servers found dead were still processing."""
+        """One heartbeat (see `RedisQueueAdapter.heartbeat`), then fail back
+        whatever the servers it found dead were still processing."""
         try:
-            # Read before the live set, never after: an owner must heartbeat
-            # before it can take a request, so any owner in this snapshot was
-            # in the live set first, and is missing from the one read below
-            # only if it really stopped heartbeating.
-            owners = self.redis.inflight_owners(INFLIGHT_KEY)
-            rejoined, alive = self.redis.heartbeat(HEARTBEAT_KEY, self._server_id, HEARTBEAT_TTL_SECONDS)
+            rejoined, dead = self.redis.heartbeat(HEARTBEAT_KEY, self._server_id, HEARTBEAT_TTL_SECONDS)
         except Exception as e:
             logger.warning(f"Failed to write heartbeat: {e}")
             return
 
         if rejoined and self._heartbeat_registered:
             logger.warning(
-                f"Server {self._server_id} was pruned as dead (no heartbeat for over "
-                f"{HEARTBEAT_TTL_SECONDS}s); the requests it was processing may already "
-                f"have been failed back to their clients"
+                f"Server {self._server_id} was reaped as dead (no heartbeat for over "
+                f"{HEARTBEAT_TTL_SECONDS}s); the requests it was processing have been "
+                f"failed back to their clients"
             )
         self._heartbeat_registered = True
 
-        reap_orphans(self.redis, owners, alive)
+        reap_dead_servers(self.redis, dead)
 
-    def _listen_for_wakes(self) -> None:
-        """Keeps a Pub/Sub subscription to the wake channel of every
-        registered method and rings the doorbell on each message.
+    def _read_method(self, method_name: str, handler: MethodHandler) -> None:
+        """Read loop for one method's queue, until the server stops or the
+        method is unregistered (or registered again, which starts a new loop).
+        Waits for a free slot of the method before every take, so it never
+        takes a request it has no room to run."""
+        queue_key = queues.request_queue(method_name)
+        limiter = self._method_limiters[method_name]
+        logger.info(f"Started reading queue {queue_key}")
 
-        A wake is only a hint, so losing one is harmless -- the read loop
-        looks at its queues every WAKE_FALLBACK_SECONDS anyway. The doorbell
-        is also rung after every (re)subscribe, since a request could have
-        landed before the subscription existed.
-
-        Owns its Pub/Sub handle outright (redis-py's isn't thread-safe), so
-        (un)subscribing for methods registered/unregistered at runtime is
-        done here too, each tick, rather than from the registering thread.
-        """
-        pubsub = None
-        subscribed: set[str] = set()
-
-        while self._running:
+        while self._running and self.method_handlers.get(method_name) is handler:
+            if not limiter.acquire(timeout=TAKE_BLOCK_SECONDS):
+                continue
             try:
-                if pubsub is None:
-                    pubsub = self.redis.subscriber()
-                    subscribed = set()
-
-                wanted = {queues.wake_channel(name) for name in list(self.method_handlers)}
-                added = wanted - subscribed
-                removed = subscribed - wanted
-                if added:
-                    pubsub.subscribe(*added)
-                if removed:
-                    pubsub.unsubscribe(*removed)
-                subscribed = wanted
-                if added:
-                    self._doorbell.ring()
-
-                if not subscribed:
-                    time.sleep(WAKE_LISTEN_TICK_SECONDS)
-                    continue
-
-                message = pubsub.get_message(timeout=WAKE_LISTEN_TICK_SECONDS)
-                if message is not None:
-                    self._doorbell.ring()
+                item = self.redis.take(queue_key, self._processing_key, TAKE_BLOCK_SECONDS)
             except Exception as e:
+                limiter.release()
                 if self._running:
-                    logger.warning(f"Wake listener failed, resubscribing: {e}")
-                if pubsub is not None:
-                    try:
-                        pubsub.close()
-                    except Exception:
-                        pass
-                pubsub = None
-                time.sleep(WAKE_FALLBACK_SECONDS)
+                    logger.warning(f"Error reading from queue {queue_key}: {e}")
+                    time.sleep(1)
+                continue
+            if item is None:
+                limiter.release()
+                continue
 
-        if pubsub is not None:
-            pubsub.close()
-
-    def _methods_with_capacity(self, method_names) -> List[str]:
-        """Methods with a free slot right now: the server-wide cap (if any)
-        has room, and the method's own max_concurrency limiter has room. A
-        point-in-time read, not a reservation -- it can be stale by the time
-        a slot is actually acquired in `_dispatch_message`. That's fine:
-        worst case one extra request gets taken just as its method fills
-        up."""
-        if self._global_limiter is not None and not self._global_limiter.available():
-            return []
-        available = []
-        for name in method_names:
-            limiter = self._method_limiters.get(name)
-            if limiter is None or limiter.available():
-                available.append(name)
-        return available
-
-    def _poll_all_queues(self) -> None:
-        """Single read loop for every registered method's request queue."""
-        logger.info("Started polling all registered method queues")
-
-        while self._running:
+            # Waits for a server-wide slot here, not before taking: see the
+            # class docstring. The request is already on the processing list.
+            if self._global_limiter is not None:
+                self._global_limiter.acquire()
             try:
-                # Snapshot so a registration/unregistration mid-read doesn't
-                # mutate the dict this iteration is working from.
-                snapshot = dict(self.method_handlers)
-                available_methods = self._methods_with_capacity(snapshot.keys())
-                if not available_methods:
-                    # Nothing registered, or every registered method (or the
-                    # server-wide cap) is saturated: a worker finishing rings
-                    # the doorbell, so wait for that instead of busy-looping.
-                    self._doorbell.wait(WAKE_FALLBACK_SECONDS)
-                    continue
+                self._executor.submit(self._process_message, item, handler, limiter)
+            except RuntimeError:
+                # The worker pool shut down under us (`stop` joins the loops first,
+                # so this shouldn't happen). The request stays on the processing
+                # list and is failed back once this server stops heartbeating.
+                self._release_slots(limiter)
+                return
 
-                queue_keys = [queues.request_queue(name) for name in available_methods]
-                # Shuffled so the script's preference for the first queue with
-                # data doesn't starve a method that consistently sorts after a
-                # busier one.
-                random.shuffle(queue_keys)
-
-                # Cleared before looking, not after: a wake that lands while
-                # the script runs stays rung, so the wait below returns at once.
-                self._doorbell.clear()
-                acquired = self.redis.acquire(INFLIGHT_KEY, queue_keys, self._server_id)
-                if acquired is None:
-                    self._doorbell.wait(WAKE_FALLBACK_SECONDS)
-                    continue
-
-                queue_key, request_json, request_id = acquired
-                self._dispatch_message(queue_key, request_json, request_id, snapshot)
-
-            except TimeoutError:
-                pass
-            except Exception as e:
-                if self._running:
-                    logger.exception(f"Error reading from queues: {e}")
-
-    def _dispatch_message(
-        self,
-        queue_key: str,
-        request_json: str,
-        request_id: str,
-        snapshot: Dict[str, MethodHandler],
-    ) -> None:
-        """Routes one taken request to its handler. Acquires capacity on
-        this thread, before dispatching to the worker pool -- see the class
-        docstring for why that's safe and necessary. A request with no
-        handler (unregistered between being taken and being routed) is
-        dropped, along with its in-flight entry."""
-        method_name = queues.method_name_from_queue(queue_key)
-        handler = snapshot.get(method_name)
-
-        if handler is None:
-            logger.debug(f"Discarding request for unregistered method (queue {queue_key})")
-            if request_id:
-                self.redis.release_inflight(INFLIGHT_KEY, request_id)
-            return
-
-        method_limiter = self._method_limiters.get(method_name)
-        if method_limiter is not None:
-            method_limiter.acquire()
+    def _release_slots(self, method_limiter: ConcurrencyLimiter) -> None:
         if self._global_limiter is not None:
-            self._global_limiter.acquire()
+            self._global_limiter.release()
+        method_limiter.release()
 
-        self._executor.submit(self._process_message, request_json, request_id, handler, method_limiter)
-
-    def _process_message(
-        self,
-        request_json: str,
-        acquired_id: str,
-        handler: MethodHandler,
-        method_limiter: Optional[ConcurrencyLimiter],
-    ) -> None:
+    def _process_message(self, item: str, handler: MethodHandler, method_limiter: ConcurrencyLimiter) -> None:
         try:
-            self._process_request(handler, request_json, acquired_id)
+            self._process_request(handler, item)
         except Exception as e:
             logger.exception(f"Error processing request: {e}")
         finally:
-            if self._global_limiter is not None:
-                self._global_limiter.release()
-            if method_limiter is not None:
-                method_limiter.release()
-            # A slot just freed up: have the read loop look for more work now
-            # rather than on its next fallback tick.
-            self._doorbell.ring()
+            self._release_slots(method_limiter)
 
-    def _process_request(self, handler: MethodHandler, request_json: str, acquired_id: str) -> None:
+    def _process_request(self, handler: MethodHandler, item: str) -> None:
         """Process a single request and send response.
 
-        `acquired_id` is the request id ACQUIRE_SCRIPT recorded in the
-        in-flight hash ('' if it couldn't parse one); the entry is dropped
-        under that id along with sending the response, even if the request
-        fails to deserialize here.
+        `item` is the request json exactly as it was taken onto the processing
+        list; it's removed from there along with sending the response, even if
+        the request fails to deserialize here.
         """
         request_id = None
         try:
-            rpc_request = deserialize(request_json, AnyCallRequest)
+            rpc_request = deserialize(item, AnyCallRequest)
             request_id = rpc_request.request_id
             with self._in_flight_lock:
                 self._in_flight_request_ids.add(request_id)
@@ -525,17 +365,22 @@ class AnyCallServerImpl(AnyCallServer):
 
         response_queue = queues.response_queue(response.request_id)
         response_json = serialize(response)
-        self.redis.respond(response_queue, response_json, queues.RESPONSE_TTL_SECONDS, INFLIGHT_KEY, acquired_id)
+        self.redis.respond(
+            response_queue, response_json, queues.RESPONSE_TTL_SECONDS, self._processing_key, item
+        )
 
     def stop(self) -> None:
-        """Stop the server."""
+        """Stop the server. Read loops notice within TAKE_BLOCK_SECONDS; the
+        requests already taken are run to completion and answered."""
         with self._running_lock:
             if not self._running:
                 return
 
             self._running = False
+            threads, self._threads = self._threads, []
 
-        self._doorbell.ring()
+        for thread in threads:
+            thread.join()
         if self._executor:
             self._executor.shutdown(wait=True)
 
@@ -544,12 +389,9 @@ class AnyCallServerImpl(AnyCallServer):
         return self._running
 
     def unregister(self, method_name: str) -> "AnyCallServer":
-        """Unregister a method. Takes effect on the read loop's next
-        iteration and the wake listener's next tick -- there's no per-method
-        thread or connection to tear down, since the whole server shares one
-        read loop."""
-        if method_name in self.method_handlers:
-            del self.method_handlers[method_name]
-            self._method_limiters.pop(method_name, None)
-            self._doorbell.ring()
+        """Unregister a method. Its read loop exits within TAKE_BLOCK_SECONDS;
+        a request it takes in the meantime is still run and answered."""
+        with self._running_lock:
+            if method_name in self.method_handlers:
+                del self.method_handlers[method_name]
         return self

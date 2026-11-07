@@ -8,12 +8,13 @@ import io.lettuce.core.api.sync.RedisCommands;
 
 /**
  * The one way a response is written, by a server answering a request or by a reaper
- * failing one back: pushed onto its response queue together with the queue's expiry,
- * atomically and in one round trip.
+ * failing one back: pushed onto its response queue together with the queue's expiry and,
+ * for a server, the removal of its request from the server's processing list, atomically
+ * and in one round trip.
  * <p>
  * A waiting client pops the response within milliseconds and deletes the queue; the
  * expiry only matters when nobody reads it (the client timed out or died, or a server
- * pruned as dead answered late), so it doesn't sit in Redis forever.
+ * reaped as dead answered late), so it doesn't sit in Redis forever.
  */
 public final class AnycallResponses {
 
@@ -25,14 +26,45 @@ public final class AnycallResponses {
         + "redis.call('EXPIRE', KEYS[1], ARGV[2])\n"
         + "return 1";
 
+    // KEYS[1] = response queue, KEYS[2] = processing list, ARGV[1] = response json,
+    // ARGV[2] = ttl seconds, ARGV[3] = the request json exactly as it was taken.
+    // The push goes first: if it never runs, neither does the LREM, and the request is
+    // still on the list to be failed back.
+    private static final String PUSH_AND_RELEASE_SCRIPT =
+        "redis.call('LPUSH', KEYS[1], ARGV[1])\n"
+        + "redis.call('EXPIRE', KEYS[1], ARGV[2])\n"
+        + "redis.call('LREM', KEYS[2], 1, ARGV[3])\n"
+        + "return 1";
+
     private AnycallResponses() {
     }
 
+    /**
+     * Writes a response nobody has to release, i.e. a reaper's: its claim already emptied
+     * the dead server's processing list.
+     */
     public static void push(RedisCommands<String, String> commands, AnyCallResponse response)
             throws JsonProcessingException {
-        String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
-        commands.eval(PUSH_SCRIPT, ScriptOutputType.INTEGER, new String[] {responseQueue},
+        commands.eval(PUSH_SCRIPT, ScriptOutputType.INTEGER, new String[] {responseQueue(response)},
             OBJECT_MAPPER.writeValueAsString(response),
             String.valueOf(AnycallQueues.RESPONSE_TTL.getSeconds()));
+    }
+
+    /**
+     * Writes a server's response and drops its request from the server's processing list.
+     *
+     * @param processingKey the processing list the request was taken onto
+     * @param item the request json exactly as it was taken
+     */
+    public static void pushAndRelease(RedisCommands<String, String> commands, AnyCallResponse response,
+                                      String processingKey, String item) throws JsonProcessingException {
+        commands.eval(PUSH_AND_RELEASE_SCRIPT, ScriptOutputType.INTEGER,
+            new String[] {responseQueue(response), processingKey},
+            OBJECT_MAPPER.writeValueAsString(response),
+            String.valueOf(AnycallQueues.RESPONSE_TTL.getSeconds()), item);
+    }
+
+    private static String responseQueue(AnyCallResponse response) {
+        return AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
     }
 }

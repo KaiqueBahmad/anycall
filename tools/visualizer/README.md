@@ -11,10 +11,10 @@ right way, so both kinds show up side by side, tagged `[list]`/`[stream]`
 in the Methods panel.
 
 It only ever issues non-destructive Redis commands (`SCAN`, `TYPE`, `LLEN`,
-`LRANGE`, `XLEN`, `XRANGE`, `ZRANGEBYSCORE`, `HGETALL`, `PUBSUB NUMSUB`,
-`TIME`, `INFO`) — it never pushes or pops a queue entry, acknowledges/deletes
-messages, writes or prunes the heartbeat set or the in-flight hash, publishes
-or subscribes to a wake channel, or changes Redis config. It has no effect on real
+`LRANGE`, `XLEN`, `XRANGE`, `ZRANGEBYSCORE`, `TIME`, `INFO`) — it never
+pushes or pops a queue entry, acknowledges/deletes messages, writes or prunes
+the heartbeat set or a processing list, runs the AnyCall scripts, or changes
+Redis config. It has no effect on real
 client/server traffic and provides no actions of its own.
 
 Works against any AnyCall implementation (Java, Python, ...) since they all
@@ -46,22 +46,20 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   `[list]` or `[stream]`, with backlog (not-yet-popped requests). A
   request simply disappears from the backlog the instant a worker pops
   it, for both kinds.
-  The **listening** column counts servers subscribed to the method's wake
-  channel.
-- **In flight**: requests a server has taken and not yet answered, with the
-  owning server and whether it's still alive. A row whose server is *gone*
+- **In flight**: requests a server has taken and not yet answered (every
+  entry of every `anycall:processing:<server id>` list), with the owning
+  server and whether it's still alive. A row whose server is *gone*
   is an orphan, and the **failed back \*** column estimates when it will be
   failed back to its client and by whom. It's an estimate, not an
-  observation: part of the mechanism is a timer inside each client process,
-  which never reaches Redis.
+  observation: where a waiting client is in its wait slice never reaches
+  Redis.
   - With any server alive, that server's next heartbeat tick does it: within
     ~2s.
   - With none, the client still waiting for the request does it, at the end
-    of a 30s wait slice once it has gone 30s without a sign of a live server.
-    Counted from the last heartbeat the dashboard saw (D), that's between
-    D + 8s (the TTL, before which the server doesn't count as dead) and
-    D + 68s (8s TTL + 30s quiet + up to a 30s slice). Unknown until the
-    dashboard has seen at least one heartbeat.
+    of its current 10s wait slice. Counted from the dead server's last
+    heartbeat the dashboard saw (D), that's between D + 8s (the TTL, before
+    which the server doesn't count as dead) and D + 18s (8s TTL + up to a
+    10s slice). Unknown until the dashboard has seen a heartbeat of it.
   - A client that already gave up (its own timeout) never does it; the entry
     stays until a server starts again. The column then shows *overdue*.
 - **Activity log**: servers coming and going, method discovery, backlog

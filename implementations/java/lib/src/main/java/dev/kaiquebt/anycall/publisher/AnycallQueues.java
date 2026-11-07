@@ -21,27 +21,23 @@ public class AnycallQueues {
     public static String RESPONSE_QUEUE_PREFIX = "anycall:responses:";
 
     /**
-     * Prefix for wake channels. Method name is appended to create the full channel name.
-     * Format: {@code anycall:wake:<method-name>}
+     * Prefix for processing lists. Server id is appended to create the full key.
+     * Format: {@code anycall:processing:<server-id>}
      * <p>
-     * A client publishes here right after pushing a request, so idle servers for that
-     * method go look at the queue instead of waiting out their fallback poll. Carries no
-     * data — it only means "there may be something new".
+     * One List per server, holding the requests it is processing. A server moves a request
+     * here from its method's queue with one {@code BRPOPLPUSH}, so a request is always in its
+     * queue or in exactly one of these: the key name is the record of who has it. The server
+     * removes it once the response is written; whoever finds the server dead fails back
+     * whatever is left (see {@link AnycallReaping}).
      */
-    public static final String WAKE_CHANNEL_PREFIX = "anycall:wake:";
-
-    /**
-     * Hash of request id → id of the server processing it. A server writes the entry in
-     * the same script that pops the request, and removes it once the response is sent;
-     * entries whose owner stopped heartbeating are failed back to their client by
-     * whichever live server notices first.
-     */
-    public static final String INFLIGHT_KEY = "anycall:inflight";
+    public static final String PROCESSING_PREFIX = "anycall:processing:";
 
     /**
      * Sorted set of server ids heartbeating, scored by Redis's own {@code TIME}. Written by
      * {@link dev.kaiquebt.anycall.server.AnyCallServerImpl}, read by clients to tell whether
-     * any server is currently alive before publishing a request.
+     * any server is currently alive before publishing a request. Members are never pruned
+     * by age alone: a dead server leaves only when it is reaped (see {@link AnycallReaping}),
+     * so its entry is how its processing list gets found.
      */
     public static final String HEARTBEAT_KEY = "anycall:servers:alive";
 

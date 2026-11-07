@@ -6,26 +6,22 @@ migration) -- this module checks each key's TYPE at poll time and issues the
 right read-only commands for it, so both kinds show up side by side.
 
 Live servers come from the same sorted set the servers heartbeat into
-(`anycall:servers:alive`), read back the same way a server would prune it:
-members scored within HEARTBEAT_TTL_SECONDS of now are alive, older ones are
-dead but not yet swept.
+(`anycall:servers:alive`): members scored within HEARTBEAT_TTL_SECONDS of now
+are alive, older ones are dead but not reaped yet.
 
-Requests being processed come from the in-flight hash (`anycall:inflight`,
-request id -> owning server id) that servers write in the same step as taking
-a request off its queue. An entry whose owner isn't among the live servers is
-an orphan: a live server's heartbeat fails it back to its client, or with none
-left, the client that's still waiting for it does. When that happens is only
-estimated here (see `estimate_reaping`): the client's side of it runs on a
-timer kept in the client process, which never reaches Redis.
-
-How many servers listen on each method's wake channel (`anycall:wake:<method>`)
-comes from PUBSUB NUMSUB -- it counts subscriptions without joining them.
+Requests being processed come from each server's processing list
+(`anycall:processing:<server id>`), which a server moves a request onto in
+the same step as taking it off its queue. A request on the list of a server
+that isn't among the live ones is an orphan: a live server's heartbeat fails
+it back to its client, or with none left, the client that's still waiting for
+it does, at the end of its current wait slice. When that happens is only
+estimated here (see `estimate_reaping`): where a client is in its slice never
+reaches Redis.
 
 Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE, XLEN,
-XRANGE, ZRANGEBYSCORE, HGETALL, PUBSUB NUMSUB, TIME, INFO) -- never
-BRPOP/RPOP/LPUSH/HDEL/PUBLISH/SUBSCRIBE/XREADGROUP/XACK/XDEL/ZADD/ZREM/
-ZREMRANGEBYSCORE/CONFIG SET. This process must never be able to steal or
-alter real RPC traffic; it only observes it.
+XRANGE, ZRANGEBYSCORE, TIME, INFO) -- never BRPOP/BRPOPLPUSH/RPOP/LPUSH/LREM/
+XREADGROUP/XACK/XDEL/ZADD/ZREM/CONFIG SET or the AnyCall scripts. This process
+must never be able to steal or alter real RPC traffic; it only observes it.
 """
 from __future__ import annotations
 
@@ -39,12 +35,13 @@ import redis
 import redis.exceptions
 from anycall import queues as anycall_queues
 from anycall.model import AnyCallRequest
-from anycall.client import WAITER_REAP_QUIET_SECONDS, WAITER_REAP_SLICE_SECONDS
+from anycall.client import WAITER_REAP_SLICE_SECONDS
 from anycall.server import HEARTBEAT_KEY, HEARTBEAT_PERIOD_SECONDS, HEARTBEAT_TTL_SECONDS
 from PyQt6.QtCore import QThread, pyqtSignal
 
 RESPONSE_QUEUE_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
 REQUEST_QUEUE_PATTERN = f"{anycall_queues.REQUEST_QUEUE_PREFIX}*"
+PROCESSING_LIST_PATTERN = f"{anycall_queues.PROCESSING_PREFIX}*"
 ENTRY_PEEK_COUNT = 20
 PREVIEW_MAX_LEN = 60
 
@@ -55,7 +52,6 @@ class MethodInfo:
     backlog: int
     kind: str = "stream"  # "list" (Java) or "stream" (Python), from the key's TYPE
     entries: dict[str, str] = field(default_factory=dict)  # entry id -> preview
-    listeners: int = 0  # servers subscribed to the method's wake channel
 
 
 @dataclass
@@ -206,53 +202,42 @@ def _collect_servers(client: redis.Redis, last_seen: dict[str, float]) -> tuple[
 
 
 def _collect_inflight(client: redis.Redis, alive: set[str]) -> list[InflightInfo]:
-    """Requests some server took off a queue and hasn't answered yet."""
-    owners = client.hgetall(anycall_queues.INFLIGHT_KEY) or {}
-    inflight = [
-        InflightInfo(request_id=request_id, owner=owner, owner_alive=owner in alive)
-        for request_id, owner in owners.items()
-    ]
+    """Requests some server took off a queue and hasn't answered yet: every
+    entry of every server's processing list."""
+    inflight = []
+    for processing_key in client.scan_iter(match=PROCESSING_LIST_PATTERN, count=200):
+        owner = processing_key[len(anycall_queues.PROCESSING_PREFIX):]
+        for raw in client.lrange(processing_key, 0, -1) or []:
+            inflight.append(InflightInfo(request_id=_entry_key(raw), owner=owner, owner_alive=owner in alive))
     inflight.sort(key=lambda entry: (entry.owner, entry.request_id))
     return inflight
 
 
-def estimate_reaping(any_alive: bool, last_seen: dict[str, float], now: float) -> ReapEstimate:
+def estimate_reaping(any_alive: bool, owner_last_seen: Optional[float], now: float) -> ReapEstimate:
     """Estimate when an orphaned request gets failed back, from what Redis
-    shows -- a guess, since part of the mechanism lives in client memory:
+    shows -- a guess, since where a waiting client is in its wait slice never
+    reaches Redis:
 
-    - Some server alive: its next heartbeat tick reaps every orphan, so
+    - Some server alive: its next heartbeat tick reaps every dead server, so
       within HEARTBEAT_PERIOD_SECONDS.
-    - None alive: the client waiting for the request reaps it, at the end of
-      a WAITER_REAP_SLICE_SECONDS wait slice, once it has gone
-      WAITER_REAP_QUIET_SECONDS without a sign of a live server. Counted from
-      the last heartbeat ever seen here (D): no earlier than D +
-      HEARTBEAT_TTL_SECONDS (until then the owner doesn't count as dead), no
-      later than D + TTL + QUIET + SLICE (a call starting just before the TTL
-      ran out still saw a live server, then the quiet period, then up to a
-      whole slice). Unknown if no heartbeat was ever seen since startup.
+    - None alive: the client waiting for the request reaps at the end of its
+      current WAITER_REAP_SLICE_SECONDS wait slice. Counted from the dead
+      server's last heartbeat seen here (D): no earlier than D +
+      HEARTBEAT_TTL_SECONDS (until then it doesn't count as dead), no later
+      than D + TTL + SLICE. Unknown if no heartbeat of it was ever seen.
 
     Assumes the waiting client is still waiting: one that gave up (its own
     timeout) never reaps, and the entry stays until a server starts again.
     """
     if any_alive:
         return ReapEstimate(by="server", earliest=0.0, latest=float(HEARTBEAT_PERIOD_SECONDS))
-    if not last_seen:
+    if owner_last_seen is None:
         return ReapEstimate(by="client")
-    last = max(last_seen.values())
     return ReapEstimate(
         by="client",
-        earliest=last + HEARTBEAT_TTL_SECONDS - now,
-        latest=last + HEARTBEAT_TTL_SECONDS + WAITER_REAP_QUIET_SECONDS + WAITER_REAP_SLICE_SECONDS - now,
+        earliest=owner_last_seen + HEARTBEAT_TTL_SECONDS - now,
+        latest=owner_last_seen + HEARTBEAT_TTL_SECONDS + WAITER_REAP_SLICE_SECONDS - now,
     )
-
-
-def _collect_listeners(client: redis.Redis, methods: list[MethodInfo]) -> None:
-    """Fill in how many servers are subscribed to each method's wake channel."""
-    if not methods:
-        return
-    counts = dict(client.pubsub_numsub(*(anycall_queues.wake_channel(m.name) for m in methods)))
-    for method in methods:
-        method.listeners = int(counts.get(anycall_queues.wake_channel(method.name), 0))
 
 
 def collect_snapshot(client: redis.Redis, redis_uri: str, last_seen: dict[str, float]) -> Snapshot:
@@ -266,17 +251,14 @@ def collect_snapshot(client: redis.Redis, redis_uri: str, last_seen: dict[str, f
         )
         if method is not None
     ]
-    _collect_listeners(client, methods)
     inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
 
     taken_at = time.time()
     servers, now = _collect_servers(client, last_seen)
     inflight = _collect_inflight(client, {server.server_id for server in servers})
     orphans = [entry for entry in inflight if not entry.owner_alive]
-    if orphans:
-        estimate = estimate_reaping(bool(servers), last_seen, now)
-        for entry in orphans:
-            entry.reap = estimate
+    for entry in orphans:
+        entry.reap = estimate_reaping(bool(servers), last_seen.get(entry.owner), now)
 
     return Snapshot(
         connected=True,

@@ -1,37 +1,56 @@
+import json
 import logging
-from typing import Dict
+from typing import Iterable
 
 from . import queues
-from .model import AnyCallResponse
+from .model import AnyCallRequest, AnyCallResponse
 from .serialization import serialize
 
 logger = logging.getLogger(__name__)
 
 
-def reap_orphans(redis, owners: Dict[str, str], alive: set[str]) -> None:
-    """For each in-flight request whose owner isn't alive anymore, push a
-    server-lost error to its response queue so the client stops waiting.
+def reap_dead_servers(redis, dead: Iterable[str]) -> None:
+    """For each server that stopped heartbeating, push a server-lost error to
+    the response queue of every request still on its processing list, so
+    their clients stop waiting.
 
-    Run by servers on every heartbeat tick (heartbeat reaping) and by a client
-    whose calls have gone quiet (waiter-driven reaping). Several of them can
-    notice the same dead owner at once; the HDEL is the claim -- only the one
-    that actually removes the entry writes the error, so the client never gets
-    two.
+    Run by servers on every heartbeat tick and by clients whenever a wait for
+    a response ends empty -- the same code either way. Several of them can
+    find the same dead server at once; `claim_dead` is the claim -- it hands
+    the server's requests to exactly one of them, and only that one writes
+    the errors, so a client never gets two.
 
-    `owners` must be read before `alive`: the other way around, a server that
-    starts and takes a request in between would look dead.
+    `dead` is only a hint (members whose heartbeat looked old when it was
+    read): `claim_dead` checks again, atomically, so a server that heartbeated
+    in between is left alone.
     """
-    for request_id, owner in owners.items():
-        if owner in alive:
-            continue
+    for server_id in dead:
         try:
-            if not redis.release_inflight(queues.INFLIGHT_KEY, request_id):
-                continue
-            redis.respond(
-                queues.response_queue(request_id),
-                serialize(AnyCallResponse.server_lost(request_id, owner)),
-                queues.RESPONSE_TTL_SECONDS,
+            items = redis.claim_dead(
+                queues.HEARTBEAT_KEY,
+                queues.processing_list(server_id),
+                server_id,
+                queues.HEARTBEAT_TTL_SECONDS,
             )
-            logger.warning(f"Failed request {request_id} back to its client: server {owner} is gone")
         except Exception as e:
-            logger.warning(f"Failed to fail back request {request_id} of dead server {owner}: {e}")
+            logger.warning(f"Failed to reap dead server {server_id}: {e}")
+            continue
+        for item in items:
+            _fail_back(redis, item, server_id)
+
+
+def _fail_back(redis, item: str, server_id: str) -> None:
+    try:
+        request_id = AnyCallRequest.from_dict(json.loads(item)).request_id
+    except Exception:
+        logger.warning(f"Dropped an unparseable request of dead server {server_id}")
+        return
+    try:
+        redis.respond(
+            queues.response_queue(request_id),
+            serialize(AnyCallResponse.server_lost(request_id, server_id)),
+            queues.RESPONSE_TTL_SECONDS,
+        )
+        logger.warning(f"Failed request {request_id} back to its client: server {server_id} is gone")
+    except Exception as e:
+        logger.warning(f"Failed to fail back request {request_id} of dead server {server_id}: {e}")

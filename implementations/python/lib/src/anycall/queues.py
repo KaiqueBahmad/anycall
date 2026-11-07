@@ -1,20 +1,18 @@
 REQUEST_QUEUE_PREFIX = "anycall:requests:"
 RESPONSE_QUEUE_PREFIX = "anycall:responses:"
 
-# Pub/Sub channel a client publishes to right after pushing a request, so idle
-# servers for that method go look at the queue instead of waiting out their
-# fallback poll. Carries no data -- it only means "there may be something new".
-WAKE_CHANNEL_PREFIX = "anycall:wake:"
-
-# Hash of request id -> id of the server processing it. A server writes the
-# entry in the same script that pops the request, and removes it once the
-# response is sent; entries whose owner stopped heartbeating are failed back
-# to their client by whichever live server notices first.
-INFLIGHT_KEY = "anycall:inflight"
+# One List per server, holding the requests it is processing. A server moves
+# a request here from its method's queue with one BRPOPLPUSH, so a request is
+# always in its queue or in exactly one of these -- the key name is the record
+# of who has it. The server removes it once the response is written; whoever
+# finds the server dead fails back whatever is left (see `reaping`).
+PROCESSING_PREFIX = "anycall:processing:"
 
 # Sorted set of server ids heartbeating, scored by Redis's own TIME. Written by
 # AnyCallServerImpl, read by clients to tell whether any server is currently
-# alive before publishing a request.
+# alive before publishing a request. Members are never pruned by age alone: a
+# dead server leaves only when it is reaped (see `reaping`), so its entry is
+# how its processing list gets found.
 HEARTBEAT_KEY = "anycall:servers:alive"
 
 # How long a heartbeat entry is considered live. Must match the ttl_seconds
@@ -39,9 +37,9 @@ def method_name_from_queue(queue_key: str) -> str:
     return queue_key[len(REQUEST_QUEUE_PREFIX):]
 
 
-def wake_channel(method_name: str) -> str:
-    """Generate the wake channel for a method."""
-    return f"{WAKE_CHANNEL_PREFIX}{method_name}"
+def processing_list(server_id: str) -> str:
+    """Generate the processing list key for a server."""
+    return f"{PROCESSING_PREFIX}{server_id}"
 
 
 def response_queue(request_id: str) -> str:
