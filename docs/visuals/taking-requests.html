@@ -115,7 +115,7 @@ svg .muted { fill: var(--muted); }
 .log .t { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* cards */
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .card h3 { margin: 0; font-family: var(--font-mono); font-size: 15px; }
 .card p { font-size: 14.5px; color: var(--muted); }
@@ -125,7 +125,7 @@ svg .muted { fill: var(--muted); }
 .card.bad { border-top: 4px solid var(--dead); }
 .card.meh { border-top: 4px solid var(--orphan); }
 .card.good { border-top: 4px solid var(--alive); }
-.card.wake { border-top: 4px solid var(--client); }
+.card.loop { border-top: 4px solid var(--client); }
 footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
 </style>
 </head>
@@ -134,13 +134,13 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <header>
     <span class="eyebrow">AnyCall · taking requests</span>
     <h1>How a server takes a request</h1>
-    <p class="lede">Taking a request off its queue and writing down who has it happen in one step, so a crash can never lose it. That step can't block, so clients ring a doorbell after every push.</p>
+    <p class="lede">A server moves a request off its queue and onto a list of its own in one blocking command, so a crash can never lose it, and an idle server is handed a new request the moment a client pushes it.</p>
   </header>
 
   <section aria-labelledby="map-title">
     <h2 id="map-title">The pieces</h2>
     <div class="figure">
-      <svg viewBox="0 0 900 300" role="img" aria-label="The client pushes the request onto anycall:requests:method and publishes on anycall:wake:method. The server, subscribed to the wake channel, runs one script that pops the request and records it in anycall:inflight.">
+      <svg viewBox="0 0 900 300" role="img" aria-label="The client pushes the request onto anycall:requests:method. The server, blocked in BRPOPLPUSH, is handed it and it moves onto anycall:processing:server in the same step. When done, the server pushes the response onto anycall:responses:id and removes the request from its processing list.">
         <defs>
           <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
           <marker id="ar-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--client)"/></marker>
@@ -148,7 +148,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         </defs>
         <rect x="20" y="90" width="160" height="120" rx="14" fill="var(--client-soft)" stroke="var(--client)" stroke-width="1.5"/>
         <text x="100" y="140" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--client)">Client</text>
-        <text x="100" y="165" text-anchor="middle" font-size="13" class="muted">pushes, then rings</text>
+        <text x="100" y="165" text-anchor="middle" font-size="13" class="muted">pushes, then waits</text>
 
         <rect x="270" y="20" width="360" height="260" rx="16" fill="var(--redis-soft)" stroke="var(--redis)" stroke-width="1.5"/>
         <text x="450" y="50" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--redis)">Redis</text>
@@ -156,39 +156,34 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
           <rect x="295" y="68" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
           <text x="310" y="91" class="mono" font-weight="600" style="fill:var(--redis)">anycall:requests:&lt;method&gt;</text>
           <text x="310" y="111" class="muted">the queue: requests nobody took yet</text>
-          <rect x="295" y="134" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--client)" stroke-width="1.5" stroke-dasharray="6 4"/>
-          <text x="310" y="157" class="mono" font-weight="600" style="fill:var(--redis)">anycall:wake:&lt;method&gt;</text>
-          <text x="310" y="177" class="muted">pub/sub channel, no data: "look now"</text>
+          <rect x="295" y="134" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--alive)" stroke-width="1.5"/>
+          <text x="310" y="157" class="mono" font-weight="600" style="fill:var(--redis)">anycall:processing:&lt;server&gt;</text>
+          <text x="310" y="177" class="muted">what that server is processing, whole</text>
           <rect x="295" y="200" width="310" height="56" rx="9" fill="var(--surface)" stroke="var(--line)"/>
-          <text x="310" y="223" class="mono" font-weight="600" style="fill:var(--redis)">anycall:inflight</text>
-          <text x="310" y="243" class="muted">request id → server id, while processing</text>
+          <text x="310" y="223" class="mono" font-weight="600" style="fill:var(--redis)">anycall:responses:&lt;id&gt;</text>
+          <text x="310" y="243" class="muted">the answer the client waits on</text>
         </g>
 
-        <rect x="720" y="90" width="160" height="120" rx="14" fill="var(--alive-soft)" stroke="var(--alive)" stroke-width="1.5"/>
-        <text x="800" y="140" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--alive)">Server</text>
-        <text x="800" y="165" text-anchor="middle" font-size="13" class="muted">waits on its doorbell</text>
+        <rect x="750" y="90" width="130" height="120" rx="14" fill="var(--alive-soft)" stroke="var(--alive)" stroke-width="1.5"/>
+        <text x="815" y="140" text-anchor="middle" font-weight="600" font-size="17" style="fill:var(--alive)">Server</text>
+        <text x="815" y="165" text-anchor="middle" font-size="13" class="muted">blocked in Redis</text>
 
         <g stroke="var(--muted)" stroke-width="1.5" fill="none">
           <path d="M180 120 C 220 110, 250 98, 292 96" marker-end="url(#ar)"/>
-        </g>
-        <g stroke="var(--client)" stroke-width="2" fill="none" stroke-dasharray="6 4">
-          <path d="M180 165 L292 162" marker-end="url(#ar-c)"/>
-          <path d="M606 162 L718 150" marker-end="url(#ar-c)"/>
+          <path d="M292 228 C 250 228, 220 200, 182 185" marker-end="url(#ar)"/>
         </g>
         <g stroke="var(--alive)" stroke-width="2" fill="none">
-          <path d="M720 120 C 680 110, 650 100, 608 96" marker-end="url(#ar-g)"/>
-          <path d="M720 190 C 680 205, 650 222, 608 226" marker-end="url(#ar-g)"/>
+          <path d="M606 96 C 630 110, 630 140, 608 158" marker-end="url(#ar-g)"/>
+          <path d="M750 190 C 700 205, 660 222, 608 226" marker-end="url(#ar-g)"/>
         </g>
         <g font-size="12" class="muted">
           <text x="198" y="100">1 · LPUSH</text>
-        </g>
-        <g font-size="12" font-weight="600" style="fill:var(--client)">
-          <text x="194" y="186">2 · PUBLISH</text>
-          <text x="626" y="146">3 · rings</text>
+          <text x="190" y="232">4 · BRPOP</text>
         </g>
         <g font-size="12" font-weight="600" style="fill:var(--alive)">
-          <text x="636" y="84">4 · one script:</text>
-          <text x="636" y="250">RPOP + HSET</text>
+          <text x="638" y="104">2 · BRPOPLPUSH</text>
+          <text x="638" y="122" font-weight="400" class="muted">one atomic move</text>
+          <text x="636" y="252">3 · LPUSH + LREM</text>
         </g>
       </svg>
     </div>
@@ -196,14 +191,14 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
   <section aria-labelledby="sim-title">
     <h2 id="sim-title">Step through it</h2>
-    <p>Pick a scenario and press Next, or click a line in the log. The first two compare a crash with and without the single step; the last two show the doorbell.</p>
+    <p>Pick a scenario and press Next, or click a line in the log. The first two compare a crash with and without the single step; the last two show who gets woken and when a busy method takes again.</p>
     <div class="sim">
       <div class="sim-top">
         <div class="tabs" role="tablist" aria-label="Scenario">
           <button class="tab" role="tab" data-s="split" aria-selected="true">Two steps (the gap)</button>
-          <button class="tab" role="tab" data-s="atomic" aria-selected="false">One script</button>
-          <button class="tab" role="tab" data-s="heard" aria-selected="false">Wake heard</button>
-          <button class="tab" role="tab" data-s="missed" aria-selected="false">Wake missed</button>
+          <button class="tab" role="tab" data-s="atomic" aria-selected="false">One BRPOPLPUSH</button>
+          <button class="tab" role="tab" data-s="idle" aria-selected="false">Two idle servers</button>
+          <button class="tab" role="tab" data-s="busy" aria-selected="false">Busy method</button>
         </div>
         <div class="clock"><span id="clock">0 ms</span><small id="clock-note">after the push</small></div>
       </div>
@@ -217,8 +212,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         <div class="col">
           <span class="col-title">Redis</span>
           <div class="box redis" id="b-queue"><span class="key">anycall:requests:analyze</span><div id="k-queue" class="col"></div></div>
-          <div class="box redis" id="b-wake"><span class="key">anycall:wake:analyze<small>pub/sub</small></span><div id="k-wake"></div></div>
-          <div class="box redis" id="b-inflight"><span class="key">anycall:inflight</span><div id="k-inflight"></div></div>
+          <div class="box redis" id="b-procA"><span class="key">anycall:processing:A</span><div id="k-procA" class="col"></div></div>
+          <div class="box redis" id="b-procB"><span class="key">anycall:processing:B</span><div id="k-procB" class="col"></div></div>
           <div class="box redis" id="b-resp"><span class="key">anycall:responses:r1</span><div id="k-resp"></div></div>
         </div>
         <div class="col">
@@ -241,11 +236,11 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   </section>
 
   <section aria-labelledby="why-title">
-    <h2 id="why-title">Why a script and a doorbell?</h2>
-    <p>Three ways a server could take a request. Only the last gets every property at once.</p>
+    <h2 id="why-title">Why BRPOPLPUSH?</h2>
+    <p>Three ways a server could take a request. The last one closes the gap and still blocks; what it gives up is reading every queue on one connection.</p>
     <div class="grid">
       <div class="card bad">
-        <h3>BRPOP, then HSET</h3>
+        <h3>BRPOP, then record the owner</h3>
         <ul>
           <li><span class="yes">Blocks</span> until a request arrives</li>
           <li><span class="yes">Many queues</span> on one connection</li>
@@ -253,36 +248,36 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         </ul>
       </div>
       <div class="card meh">
-        <h3>BLMOVE</h3>
-        <ul>
-          <li><span class="yes">Blocks</span> and moves the request atomically</li>
-          <li><span class="no">One queue</span> per call: a server with 10 methods needs 10 blocked connections</li>
-          <li>Moves it into a list, not the id → server hash reaping reads</li>
-        </ul>
-      </div>
-      <div class="card good">
-        <h3>Script + wake (AnyCall)</h3>
+        <h3>Script + wake (before this)</h3>
         <ul>
           <li><span class="yes">No gap</span>: RPOP and HSET in one atomic script</li>
           <li><span class="yes">Many queues</span>, one connection for all of them</li>
-          <li><span class="no">Can't block</span>, so it needs the wake channel, with a 1s fallback</li>
+          <li><span class="no">Can't block</span>: a pub/sub wake woke every idle server, each ran the script, plus a 1s fallback. 14 commands per call with 1 server, 24 with 6</li>
+        </ul>
+      </div>
+      <div class="card good">
+        <h3>BRPOPLPUSH (AnyCall)</h3>
+        <ul>
+          <li><span class="yes">No gap</span>: the move onto the processing list is one command</li>
+          <li><span class="yes">Blocks</span>, and Redis wakes exactly one server per push. 9 commands per call, however many servers</li>
+          <li><span class="no">One queue</span> per call: one connection per method the server serves</li>
         </ul>
       </div>
     </div>
   </section>
 
-  <section aria-labelledby="ring-title">
-    <h2 id="ring-title">What rings the doorbell</h2>
-    <p>The read loop always tries its queues first and only then waits. Any of these ends the wait:</p>
+  <section aria-labelledby="loop-title">
+    <h2 id="loop-title">One loop per method</h2>
+    <p>Each method a server serves gets its own read loop, on its own connection, that repeats: wait for a free slot, then <code>BRPOPLPUSH</code> for up to 2s.</p>
     <div class="grid">
-      <div class="card wake"><h3>A wake message</h3><p>A client pushed a request for one of its methods. Which method doesn't matter; the loop tries all of them.</p></div>
-      <div class="card wake"><h3>A freed slot</h3><p>A worker finished, so a method that was at its concurrency limit can take again.</p></div>
-      <div class="card wake"><h3>A new subscription</h3><p>A method was registered. A request may have landed before the server was listening for it.</p></div>
-      <div class="card wake"><h3>1s with nothing</h3><p>The fallback. A missed wake costs at most this much, never a lost request.</p></div>
+      <div class="card loop"><h3>A free slot first</h3><p>The loop asks for the next request only when its method is under its max_concurrency, so a busy method's requests stay in the queue and its backlog stays accurate.</p></div>
+      <div class="card loop"><h3>The server-wide cap</h3><p>Gates running, not taking: a request taken while every server slot is busy waits in the server, already on its processing list. Taking overshoots by at most one per method.</p></div>
+      <div class="card loop"><h3>The 2s block</h3><p>How long stop and unregister take to reach an idle loop, at one command per 2s while idle. It doesn't delay requests: a push ends the block at once.</p></div>
+      <div class="card loop"><h3>One connection each</h3><p>A blocked command holds its connection. It costs Redis no CPU, only memory, about 57 KB per connection.</p></div>
     </div>
   </section>
 
-  <footer>Latency with the wake: p50 about 2ms (Python) and 5ms (Java) against a local Redis 7.4. Without it, a request would wait for the server's next 1s look. The steps follow the rules in the code.</footer>
+  <footer>Measured with the Python library against a local Redis 6.0.16: 9 commands per call with 1, 3 or 6 servers, about 0.6–0.9ms per sequential call (Java about 2ms), and 2.5 commands/s per idle server. The steps follow the rules in the code.</footer>
 </main>
 
 <script>
@@ -290,52 +285,48 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   "use strict";
 
   // Each step is the full state after it happened. Servers: [id, state, alive, memory].
-  // queue: request ids waiting. wake: who received the publish. inflight / resp: [text, chip class].
+  // queue: request ids waiting. procA / procB: [text, chip class, note] or null. resp: [text, chip class, note].
   var SCEN = {
     split: {
-      unit: "ms", note: "after the push",
-      blurb: "What it would look like if a server took a request with BRPOP and then recorded it with HSET, as two commands.",
+      blurb: "What it would look like if a server took a request with BRPOP and then recorded it as a second command.",
       steps: [
         { t: 0, m: "Client pushes r1", servers: [["A", "waiting on BRPOP", true], ["B", "busy with other work", true]], queue: ["r1"], client: "waiting for r1", changed: ["queue"] },
-        { t: 1, m: "Server A's BRPOP returns r1: it left the queue and exists only in A's memory", servers: [["A", "about to HSET", true, "holds r1"], ["B", "busy with other work", true]], queue: [], client: "waiting for r1", changed: ["queue"] },
-        { t: 1.2, m: "kill -9 on server A, before its HSET reached Redis", servers: [["A", "dead", false], ["B", "busy with other work", true]], queue: [], lostChip: true, client: "waiting for r1", changed: [] },
-        { t: 10000, m: "B's heartbeat sees A is dead, but anycall:inflight is empty: nothing to reap", servers: [["A", "dead", false], ["B", "reaping: found nothing", true]], queue: [], lostChip: true, client: "waiting for r1", changed: ["inflight"] },
+        { t: 1, m: "Server A's BRPOP returns r1: it left the queue and exists only in A's memory", servers: [["A", "about to record it", true, "holds r1"], ["B", "busy with other work", true]], queue: [], client: "waiting for r1", changed: ["queue"] },
+        { t: 1.2, m: "kill -9 on server A, before its record reached Redis", servers: [["A", "dead", false], ["B", "busy with other work", true]], queue: [], lostChip: true, client: "waiting for r1", changed: [] },
+        { t: 10000, m: "B's heartbeat finds A dead, but no list holds anything of A's: nothing to fail back", servers: [["A", "dead", false], ["B", "reaping: found nothing", true]], queue: [], lostChip: true, client: "waiting for r1", changed: ["procA"] },
         { t: 60000, m: "No one has r1 and no one knows it existed. With no timeout, the client waits forever", servers: [["A", "dead", false], ["B", "idle", true]], queue: [], lostChip: true, client: "still waiting", result: ["stuck", "Never answered"], changed: ["client"] }
       ]
     },
     atomic: {
-      unit: "ms", note: "after the push",
-      blurb: "What AnyCall does: one Lua script pops the request and records its owner. A crash falls before it or after it, never in the middle.",
+      blurb: "What AnyCall does: one BRPOPLPUSH moves the request onto the server's own list. A crash falls before it or after it, never in the middle.",
       steps: [
-        { t: 0, m: "Client pushes r1 and publishes a wake", servers: [["A", "waiting on doorbell", true], ["B", "busy with other work", true]], queue: ["r1"], wake: "A", client: "waiting for r1", changed: ["queue", "wake"] },
-        { t: 1, m: "Server A runs ACQUIRE_SCRIPT: r1 leaves the queue and lands in anycall:inflight in the same step", servers: [["A", "processing r1", true, "holds r1"], ["B", "busy with other work", true]], queue: [], inflight: ["r1 → A", "ok", "owner alive"], client: "waiting for r1", changed: ["queue", "inflight"] },
-        { t: 1.2, m: "kill -9 on server A. r1 is still written down as A's", servers: [["A", "dead", false], ["B", "busy with other work", true]], queue: [], inflight: ["r1 → A", "ok", "owner alive"], client: "waiting for r1", changed: [] },
-        { t: 8000, m: "A is 8s past its last heartbeat: r1 is now an orphan", servers: [["A", "dead", false], ["B", "busy with other work", true]], queue: [], inflight: ["r1 → A", "orphan", "orphan"], client: "waiting for r1", changed: ["inflight"] },
-        { t: 9000, m: "B's heartbeat claims r1 (HDEL) and pushes ServerLostError", servers: [["A", "dead", false], ["B", "reaped r1", true]], queue: [], resp: ["ServerLostError", "err", "server A"], client: "waiting for r1", changed: ["inflight", "resp"] },
-        { t: 9001, m: "Client gets ServerLostError. Had A died before the script, r1 would still be queued and B would take it", servers: [["A", "dead", false], ["B", "idle", true]], queue: [], client: "call finished", result: ["err", "ServerLostError · server A"], changed: ["resp", "client"] }
+        { t: 0, m: "Client pushes r1. Server A is blocked in BRPOPLPUSH on the queue", servers: [["A", "blocked in BRPOPLPUSH", true], ["B", "busy with other work", true]], queue: ["r1"], client: "waiting for r1", changed: ["queue"] },
+        { t: 0.3, m: "Redis hands r1 to A: it leaves the queue and lands on anycall:processing:A in the same step", servers: [["A", "processing r1", true, "holds r1"], ["B", "busy with other work", true]], queue: [], procA: ["r1", "ok", "owner alive"], client: "waiting for r1", changed: ["queue", "procA"] },
+        { t: 1.2, m: "kill -9 on server A. r1 is still on A's list", servers: [["A", "dead", false], ["B", "busy with other work", true]], queue: [], procA: ["r1", "ok", "owner alive"], client: "waiting for r1", changed: [] },
+        { t: 8000, m: "A is 8s past its last heartbeat: everything on its list is an orphan", servers: [["A", "dead", false], ["B", "busy with other work", true]], queue: [], procA: ["r1", "orphan", "orphan"], client: "waiting for r1", changed: ["procA"] },
+        { t: 9000, m: "B's heartbeat claims A (one script: drop A, empty its list) and pushes ServerLostError", servers: [["A", "dead", false], ["B", "reaped A", true]], queue: [], resp: ["ServerLostError", "err", "server A"], client: "waiting for r1", changed: ["procA", "resp"] },
+        { t: 9001, m: "Client gets ServerLostError. Had A died before the move, r1 would still be queued and B would take it", servers: [["A", "dead", false], ["B", "idle", true]], queue: [], client: "call finished", result: ["err", "ServerLostError · server A"], changed: ["resp", "client"] }
       ]
     },
-    heard: {
-      unit: "ms", note: "after the push",
-      blurb: "The usual path. The server isn't polling the queue, so the wake is what makes it look.",
+    idle: {
+      blurb: "The usual path. Idle servers wait inside Redis, and each push wakes exactly one of them.",
       steps: [
-        { t: -500, m: "Server A tried its queues, found nothing, and waits on its doorbell (up to 1s)", servers: [["A", "waiting on doorbell", true]], queue: [], client: "about to call", changed: [] },
-        { t: 0, m: "Client pushes r1, then publishes \"1\" on anycall:wake:analyze", servers: [["A", "waiting on doorbell", true]], queue: ["r1"], wake: "A", client: "waiting for r1", changed: ["queue", "wake"] },
-        { t: 0.5, m: "A's subscription gets the message and rings the doorbell", servers: [["A", "woken", true]], queue: ["r1"], client: "waiting for r1", changed: ["wake"] },
-        { t: 1, m: "A runs ACQUIRE_SCRIPT and takes r1", servers: [["A", "processing r1", true, "holds r1"]], queue: [], inflight: ["r1 → A", "ok", "owner alive"], client: "waiting for r1", changed: ["queue", "inflight"] },
-        { t: 2, m: "A responds: pushes the result and drops r1 from anycall:inflight", servers: [["A", "idle", true]], queue: [], resp: ["result", "ok", "60s expiry"], client: "waiting for r1", changed: ["inflight", "resp"] },
-        { t: 2.1, m: "Client gets the result, about 2ms after the push", servers: [["A", "waiting on doorbell", true]], queue: [], client: "call finished", result: ["ok", "Result"], changed: ["resp", "client"] }
+        { t: -500, m: "Servers A and B are idle, both blocked in BRPOPLPUSH on the same queue", servers: [["A", "blocked in BRPOPLPUSH", true], ["B", "blocked in BRPOPLPUSH", true]], queue: [], client: "about to call", changed: [] },
+        { t: 0, m: "Client pushes r1", servers: [["A", "blocked in BRPOPLPUSH", true], ["B", "blocked in BRPOPLPUSH", true]], queue: ["r1"], client: "waiting for r1", changed: ["queue"] },
+        { t: 0.3, m: "Redis hands r1 to A, onto anycall:processing:A. B stays blocked and never hears of it", servers: [["A", "processing r1", true, "holds r1"], ["B", "blocked in BRPOPLPUSH", true]], queue: [], procA: ["r1", "ok", "owner alive"], client: "waiting for r1", changed: ["queue", "procA"] },
+        { t: 0.8, m: "A responds in one round trip: pushes the result with its 60s expiry, then removes r1 from its list", servers: [["A", "back in BRPOPLPUSH", true], ["B", "blocked in BRPOPLPUSH", true]], queue: [], resp: ["result", "ok", "60s expiry"], client: "waiting for r1", changed: ["procA", "resp"] },
+        { t: 0.9, m: "Client's BRPOP returns the result, under 1ms after the push", servers: [["A", "blocked in BRPOPLPUSH", true], ["B", "blocked in BRPOPLPUSH", true]], queue: [], client: "call finished", result: ["ok", "Result"], changed: ["resp", "client"] }
       ]
     },
-    missed: {
-      unit: "ms", note: "after the push",
-      blurb: "Pub/sub keeps no messages: if nobody is listening at that instant, the wake is gone. The request isn't.",
+    busy: {
+      blurb: "A method at its max_concurrency doesn't take. Its next request stays in the queue until a slot frees up, then it's taken at once.",
       steps: [
-        { t: -300, m: "Server A waits on its doorbell. Its subscription connection is reconnecting", servers: [["A", "waiting on doorbell", true]], queue: [], client: "about to call", changed: [] },
-        { t: 0, m: "Client pushes r1 and publishes a wake. Nobody receives it", servers: [["A", "waiting on doorbell", true]], queue: ["r1"], wake: null, client: "waiting for r1", changed: ["queue", "wake"] },
-        { t: 400, m: "r1 sits in the queue, safe. Nothing rang", servers: [["A", "waiting on doorbell", true]], queue: ["r1"], client: "waiting for r1", changed: [] },
-        { t: 700, m: "A's wait hits the 1s fallback: it tries its queues and takes r1", servers: [["A", "processing r1", true, "holds r1"]], queue: [], inflight: ["r1 → A", "ok", "owner alive"], client: "waiting for r1", changed: ["queue", "inflight"] },
-        { t: 702, m: "Client gets the result, about 0.7s late instead of never", servers: [["A", "waiting on doorbell", true]], queue: [], client: "call finished", result: ["ok", "Result"], changed: ["client"] }
+        { t: -200, m: "Server A runs analyze with max_concurrency 1 and is busy with r0. Its loop waits for the slot, not in Redis", servers: [["A", "busy: r0 (1 of 1)", true]], queue: [], procA: ["r0", "ok", "owner alive"], client: "about to call", changed: [] },
+        { t: 0, m: "Client pushes r1. Nobody is blocked on the queue, so it stays there", servers: [["A", "busy: r0 (1 of 1)", true]], queue: ["r1"], procA: ["r0", "ok", "owner alive"], client: "waiting for r1", changed: ["queue"] },
+        { t: 300, m: "r1 waits in the queue, counted in the method's backlog, where any other server could take it", servers: [["A", "busy: r0 (1 of 1)", true]], queue: ["r1"], procA: ["r0", "ok", "owner alive"], client: "waiting for r1", changed: [] },
+        { t: 500, m: "r0 finishes: its response is pushed and r0 leaves A's list. The slot is free", servers: [["A", "slot free", true]], queue: ["r1"], client: "waiting for r1", changed: ["procA"] },
+        { t: 500.3, m: "The loop's BRPOPLPUSH returns r1 straight away, onto anycall:processing:A", servers: [["A", "processing r1", true, "holds r1"]], queue: [], procA: ["r1", "ok", "owner alive"], client: "waiting for r1", changed: ["queue", "procA"] },
+        { t: 900, m: "A answers r1. Client gets the result", servers: [["A", "blocked in BRPOPLPUSH", true]], queue: [], client: "call finished", result: ["ok", "Result"], changed: ["procA", "resp", "client"] }
       ]
     }
   };
@@ -364,19 +355,14 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       ? s.queue.map(function (id) { return '<div class="chip req"><span>' + id + "</span><span>waiting to be taken</span></div>"; }).join("")
       : s.lostChip ? '<div class="chip lost"><span>r1</span><span>gone from Redis</span></div>' : '<span class="empty">empty</span>';
 
-    var pushed = s.changed.indexOf("wake") >= 0 && s.wake !== undefined;
-    $("k-wake").innerHTML = !pushed ? '<span class="empty">quiet</span>'
-      : s.wake ? '<div class="chip req"><span>"1"</span><span>→ server ' + s.wake + "</span></div>"
-      : '<div class="chip lost"><span>"1"</span><span>→ nobody listening</span></div>';
-    if (s.changed.indexOf("wake") >= 0 && s.wake === undefined) $("k-wake").innerHTML = '<div class="chip ok"><span>"1"</span><span>delivered</span></div>';
-
-    $("k-inflight").innerHTML = s.inflight ? chip(s.inflight) : '<span class="empty">empty</span>';
+    $("k-procA").innerHTML = s.procA ? chip(s.procA) : '<span class="empty">empty</span>';
+    $("k-procB").innerHTML = s.procB ? chip(s.procB) : '<span class="empty">empty</span>';
     $("k-resp").innerHTML = s.resp ? chip(s.resp) : '<span class="empty">' + (s.result && s.result[0] !== "stuck" ? "read by the client" : "empty") + "</span>";
 
     $("c-state").textContent = s.client;
     $("c-result").innerHTML = s.result ? '<div class="result ' + s.result[0] + '">' + s.result[1] + "</div>" : "";
 
-    ["queue", "wake", "inflight", "resp", "client"].forEach(function (k) {
+    ["queue", "procA", "procB", "resp", "client"].forEach(function (k) {
       $("b-" + k).classList.toggle("changed", s.changed.indexOf(k) >= 0);
     });
 

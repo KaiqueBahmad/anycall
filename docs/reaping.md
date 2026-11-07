@@ -1,23 +1,22 @@
 # Reaping
 
 When a server dies in the middle of a request, someone has to tell the client
-its response is never coming. That's reaping. Either a live server does it, or
-the client that's waiting does it on its own.
-
-To watch it step by step, open [visuals/reaping.html](visuals/reaping.html) in
-a browser.
+its response is never coming. That's reaping. Live servers do it on every
+heartbeat, and waiting clients do it whenever a wait slice ends empty, with the
+same code.
 
 ## The pieces
 
 | Redis key | Written by | Holds |
 |---|---|---|
-| `anycall:inflight` | servers | request id → id of the server processing it |
+| `anycall:processing:<server>` | servers | the requests that server is processing (see [taking-requests.md](taking-requests.md)) |
 | `anycall:servers:alive` | servers | every server's last heartbeat (every 2s), by Redis's clock; alive if under 8s old |
 | `anycall:responses:<id>` | servers, reapers | the response a client waits on with `BRPOP` |
 
-None of them hold the method name, so any server can reap any other server's
-requests, whatever methods each one serves. Reaping never runs the request
-again. It only fails it back to its client.
+A dead server stays in `anycall:servers:alive` until it's reaped. Nothing prunes
+it by age alone, because its entry is how its processing list gets found.
+
+Reaping never runs the request again. It only fails it back to its client.
 
 ## How a request becomes an orphan
 
@@ -27,15 +26,29 @@ sequenceDiagram
     participant R as Redis
     participant A as Server A
     C->>R: LPUSH request
-    A->>R: RPOP request + HSET inflight id → A (one Lua script)
+    A->>R: BRPOPLPUSH: the request moves onto processing:A
     Note over A: kill -9
-    Note over R: 8s with no heartbeat from A:<br/>the inflight entry is an orphan
+    Note over R: 8s with no heartbeat from A:<br/>everything on processing:A is an orphan
 ```
 
-A server takes a request and records it in `anycall:inflight` in one atomic
-step (see [taking-requests.md](taking-requests.md)). When it's done, it pushes the response first and only then removes the
-entry. If it dies between the two, the entry gets reaped, but the client still
-reads the real response first, because `BRPOP` takes the oldest item.
+## The claim
+
+Anyone who finds a server's heartbeat older than 8s runs one Lua script on it.
+If the heartbeat is still that old, the script, atomically:
+
+1. removes the server from `anycall:servers:alive`;
+2. reads its whole processing list and deletes it;
+3. returns what was on it.
+
+The caller then pushes a server-lost error, with a 60s expiry, to the response
+queue of each request it got back.
+
+Several servers and clients can find the same dead server at once. The script
+runs once per caller, but only the first finds the server still there, so only
+that one gets its requests and writes the errors. A client never gets two.
+
+The script checks the age again, inside the same atomic step, so a server that
+heartbeated between being listed as dead and the claim is left alone.
 
 ## Who reaps it
 
@@ -44,51 +57,36 @@ flowchart LR
     O["Orphan<br/>(server silent > 8s)"] --> Q1{"Another server<br/>alive?"}
     Q1 -- yes --> S["That server, on its next heartbeat<br/>8–10s after the death"]
     Q1 -- no --> Q2{"Client still<br/>waiting?"}
-    Q2 -- yes --> W["The client<br/>30–60s after"]
+    Q2 -- yes --> W["The client, at the end of its wait slice<br/>8–18s after"]
     Q2 -- no --> N["Nobody, until a server starts"]
 ```
 
-### Heartbeat reaping (servers)
+Whoever gets there first does it.
 
-Every 2s, each live server:
+### On the heartbeat (servers)
 
-1. reads `anycall:inflight`;
-2. runs its heartbeat script, which refreshes its own entry, prunes servers
-   older than 8s and returns the ones still alive;
-3. for each entry whose owner isn't alive, removes it with `HDEL` and, if that
-   call removed it, pushes a server-lost error to the response queue with a 60s
-   expiry.
+Every 2s, each live server runs its heartbeat script, which refreshes its own
+entry and returns the servers whose heartbeat is older than 8s. When none is,
+that's the whole cost. For each one it returns, the server runs the claim.
 
-It reads the owners before the live servers. In the other order, a server that
-started and took a request between the two reads would look dead.
+### On the wait (clients)
 
-### Waiter-driven reaping (clients)
+A call waits on `BRPOP` in slices of up to 10s instead of one long wait. When a
+slice ends empty, it lists the servers whose heartbeat is older than 8s (one
+script call) and runs the claim on each. If its own request was among them, the
+error is in its queue when it goes back to `BRPOP`.
 
-With no other server alive, nobody would reap, and since calls wait with no
-limit by default, the client would wait forever. So the waiting call does it:
+This is what covers a request whose server died with no other server alive. The
+Java client runs it on a second connection, opened the first time a slice ends
+empty, since its main connection may be blocked in another thread's `BRPOP`.
 
-1. It waits on `BRPOP` in slices of up to 30s instead of one long wait.
-2. When a slice ends empty, it checks a timer shared by every call of that
-   client. If there's been no sign of a live server for 30s, it takes a lock
-   (`tryLock`) and does the same work a server would. Other calls see the lock
-   taken and go back to waiting.
-3. If the orphan was its own request, the error is already in its queue when it
-   goes back to `BRPOP`.
+## A server reaped while still alive
 
-The timer resets when:
-- any call of the client gets a response;
-- a call finds a live server in its check before publishing;
-- a reaping run ends, so calls with offset slices don't each reap every 30s.
-
-The first two count because any live server reaps every orphan, so one is
-enough. In Java, reaping opens a short-lived connection of its own, since the
-client's only connection may be blocked in another thread's `BRPOP`.
-
-### The claim
-
-Several servers, and a client, can notice the same orphan at once. `HDEL`
-removes the entry for exactly one of them, and only that one writes the error.
-The caller never gets two.
+A server that misses heartbeats for 8s, say during a long GC pause, is reaped
+like a dead one: its requests are failed back. When it comes back, its next
+heartbeat re-registers it and logs a warning, and the responses it still writes
+land in their queues after the error, where the client never reads them and the
+60s expiry removes them.
 
 ## What the caller sees
 
@@ -102,12 +100,15 @@ a lost server apart from the method's own error (`RemoteException`).
 
 ## Not covered
 
-- **A request still in its queue.** It isn't in `anycall:inflight`, so it isn't
-  an orphan. With no server alive, or none serving its method, it waits out the
-  timeout.
+- **A request still in its queue.** It isn't on any processing list, so it
+  isn't an orphan. With no server alive, or none serving its method, it waits
+  out the timeout.
 - **A client that already gave up, with no server alive.** Nobody is waiting,
-  so nobody reaps. The entry stays until a server starts, and that server's
+  so nobody reaps. The list stays until a server starts, and that server's
   heartbeat reaps it.
+- **A reaper that dies between the claim and writing the errors.** The claim
+  already removed the requests, so their clients wait out their timeout. The
+  window is one round trip, during a reap.
 
 ## Timings
 
@@ -115,13 +116,18 @@ a lost server apart from the method's own error (`RemoteException`).
 |---|---|
 | Heartbeat period | 2s |
 | Heartbeat TTL (a server counts as dead after) | 8s |
-| Client wait slice | 30s |
-| Client quiet period before it reaps | 30s |
+| Client wait slice | 10s |
 | Expiry on every response (a server's or a reaper's) | 60s |
-| Heartbeat reaping, after a `kill -9` | 8–10s (measured 7.6–7.9s) |
-| Waiter-driven reaping, after a `kill -9` | 30–60s (measured 30.0–30.4s) |
+| Reaped by another server, after a `kill -9` | 8–10s |
+| Reaped by the waiting client, after a `kill -9` | 8–18s |
+
+Measured with `kill -9` on a server holding a request, Python and Java: failed
+back 7–8s after the kill with another server alive, and about 8s with none, by
+the client. The kill came 0–2s after the server's last heartbeat, and each
+client's slice happened to end soon after the 8s, so a slower case takes up to
+the bounds above.
 
 The visualizer estimates when each orphan will be reaped: within ~2s with a
-server alive, otherwise 8–68s after the last heartbeat it saw. It's an estimate
-because the client's timer lives in the client process and never reaches
+server alive, otherwise 8–18s after the dead server's last heartbeat it saw.
+It's an estimate because where a client is in its wait slice never reaches
 Redis.

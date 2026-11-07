@@ -1,9 +1,9 @@
 # Taking requests
 
-A server takes a request off its queue and writes down that it has it in one
-atomic step, so a crash can never lose a request without a trace. That step
-can't block, so clients ring a doorbell after every push to tell idle servers
-to look.
+A server takes a request off its queue and onto a list of its own in one
+atomic command, so a crash can never lose a request without a trace. The
+command blocks, so an idle server is handed a new request the moment a client
+pushes it.
 
 To watch it step by step, open
 [visuals/taking-requests.html](visuals/taking-requests.html) in a browser.
@@ -13,14 +13,13 @@ To watch it step by step, open
 | Redis key | Written by | Holds |
 |---|---|---|
 | `anycall:requests:<method>` | clients | requests nobody has taken yet |
-| `anycall:wake:<method>` | clients | a pub/sub channel, no data: "there may be something new" |
-| `anycall:inflight` | servers | request id → id of the server processing it |
+| `anycall:processing:<server>` | servers | the requests that server is processing, whole |
 
 ## The gap a crash could fall into
 
 Servers used to take requests with a plain `BRPOP` and record nothing in Redis
-(see [taking-requests-legacy.md](taking-requests-legacy.md)). Adding an `HSET`
-after it would still be two commands:
+(see [taking-requests-legacy.md](taking-requests-legacy.md)). Recording the
+owner afterwards would still be two commands:
 
 ```mermaid
 sequenceDiagram
@@ -29,85 +28,108 @@ sequenceDiagram
     participant A as Server A
     C->>R: LPUSH request
     A->>R: BRPOP request
-    Note over A: kill -9, before the HSET
-    Note over R: the request is in no queue and in no inflight entry
+    Note over A: kill -9, before the record
+    Note over R: the request is in no queue and in no record
 ```
 
 Between the two, the request exists only in the server's memory. If the server
 dies there, no other server can take it, because it's gone from the queue, and
-reaping can't fail it back, because it never reached `anycall:inflight`. Calls
-wait with no limit by default, so the client would wait forever. The window is
-one round trip, so it's rare, but when it happens nothing reports it.
+[reaping](reaping.md) can't fail it back, because nothing says who had it.
+Calls wait with no limit by default, so the client would wait forever.
 
-## One step instead
+## One command instead
 
-`ACQUIRE_SCRIPT` is a Lua script that does the `RPOP` and the `HSET` together.
-Redis runs a script without interleaving anything else, so a crash falls before
-it or after it:
+`BRPOPLPUSH anycall:requests:<method> anycall:processing:<server>` pops the
+request and pushes it onto the server's processing list in one step. A crash
+falls before it or after it:
 
 - **before:** the request is still in its queue, and another server takes it;
-- **after:** it's in `anycall:inflight` under the dead server's id, and
+- **after:** it's on the list of the server that died, and
   [reaping](reaping.md) fails it back with `ServerLostError`.
 
-The script takes a list of queues and pops from the first one with an entry,
-so one call covers every method the server serves.
-
-## Why it needs a doorbell
-
-A script can't block the way `BRPOP` does: it returns straight away, empty if
-every queue is empty. So the server's read loop tries its queues and, finding
-nothing, waits on a local doorbell instead:
+The key name is the record of who has the request, so there's no separate
+owner record to keep in step with it.
 
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant R as Redis
     participant A as Server A
-    A->>R: ACQUIRE_SCRIPT (all queues empty)
-    Note over A: waits on its doorbell, up to 1s
-    C->>R: LPUSH anycall:requests:analyze
-    C->>R: PUBLISH anycall:wake:analyze "1"
-    R-->>A: wake message: rings the doorbell
-    A->>R: ACQUIRE_SCRIPT takes the request
+    participant B as Server B
+    A->>R: BRPOPLPUSH requests:analyze processing:A (waiting)
+    B->>R: BRPOPLPUSH requests:analyze processing:B (waiting)
+    C->>R: LPUSH requests:analyze
+    R-->>A: the request, now on processing:A (one step)
+    Note over B: stays blocked, never woken
+    A->>R: LPUSH response, EXPIRE, LREM processing:A (one round trip)
 ```
 
-Each server subscribes to `anycall:wake:<method>` for every method it serves.
-In Python the client sends the push and the publish in one pipelined round
-trip. In Java they're two commands.
+Redis hands each push to exactly one blocked server. The others stay blocked,
+so idle servers add nothing to the cost of a call.
 
-The wake is only a hint. Pub/sub keeps no messages, so a server that isn't
-listening at that instant (say, its subscription is reconnecting) misses it.
-The request is still in its queue, and the server finds it on its next look,
-at most 1s later. That's also why the push and the publish don't need to be
-atomic.
+When it's done, the server pushes the response, sets its expiry and removes
+the request from its processing list, in one round trip, response first. If
+the process dies before the removal, the request is failed back as a crash,
+but the client pops the real response before that error, because `BRPOP`
+takes the oldest.
 
-The doorbell rings on:
+## One loop, and one connection, per method
 
-- a wake message for any of the server's methods;
-- a worker finishing, since a method at its concurrency limit can take again;
-- a new subscription, since a request may have landed before the server was
-  listening;
-- 1s with nothing, as the fallback.
+`BRPOPLPUSH` reads a single queue, and a blocked command holds its connection
+until it returns. So a server runs one read loop per method it serves, each on
+its own connection:
 
-## Why not BLMOVE
+```
+loop for "analyze":
+    wait for a free slot (the method's max_concurrency)
+    BRPOPLPUSH requests:analyze processing:A, up to 2s
+    hand the request to a worker
+```
 
-`BLMOVE` blocks and moves a request into another list atomically, so it also
-closes the gap. But it reads from one queue per call: a server with 10 methods
-would need 10 connections blocked at once. It also moves into a list, not into
-the id → server hash that reaping reads. With the script and the wake, one
-connection takes requests for every method, and the whole server uses four
-connections however many methods it serves.
+- **Per-method concurrency** is the loop not asking for the next request until
+  a slot frees up. Requests for a busy method stay in their queue, so its
+  backlog stays accurate.
+- **The server-wide cap** (`max_concurrency` on the server) gates running a
+  request, not taking it. A loop blocked in Redis can't hold a server-wide slot
+  without starving the other methods, so a request taken while every slot is
+  busy waits in the server for one, already safe on the processing list. Taking
+  overshoots the cap by at most one request per method.
+- **The 2s block** bounds how long `stop` and `unregister` take to reach an
+  idle loop. An idle loop costs one command per 2s.
+
+A server uses one connection per method, plus one for responses and one for the
+heartbeat (Java). Blocked connections cost Redis no CPU, only memory, about
+57 KB each.
+
+## Why not the alternatives
 
 | | Blocks | Many queues on one connection | No gap on a crash |
 |---|---|---|---|
-| `BRPOP`, then `HSET` | yes | yes | no |
-| `BLMOVE` | yes | no | yes |
-| Script + wake (AnyCall) | no, the wake makes up for it | yes | yes |
+| `BRPOP`, then record the owner | yes | yes | no |
+| Lua script + wake channel (before this) | no, a pub/sub wake makes up for it | yes | yes |
+| `XREADGROUP` on Streams ([candidate](streams-candidate.md)) | yes | yes | yes |
+| `BRPOPLPUSH` (AnyCall) | yes | no, one connection per method | yes |
 
-## Timings
+Before this, servers took requests with a Lua script that popped the request
+and recorded the owner in an `anycall:inflight` hash. A script can't block, so
+clients published on an `anycall:wake:<method>` channel after every push, every
+idle server for the method woke and ran the script, and a 1s fallback covered
+missed wakes. That cost 14 commands per call with 1 server and 24 with 6, since
+every idle server added its own. `BRPOPLPUSH` trades it for a connection per
+method.
+
+## Timings and costs
+
+Measured with the Python library against a local Redis 6.0.16, 300 sequential
+calls, `INFO commandstats` minus idle traffic:
 
 | | Value |
 |---|---|
-| Fallback look at the queues, with no wake | every 1s |
-| Latency with the wake, p50 (local Redis) | ~2ms Python, ~5ms Java |
-| Extra wait after a missed wake | up to 1s |
+| Commands per call, 1, 3 or 6 servers | 9 |
+| Idle commands per server | 2.5/s (heartbeat script and its inner commands, one take per 2s) |
+| Latency per sequential call, local Redis | ~0.6–0.9ms Python, ~2ms Java |
+| Longest an idle loop takes to notice `stop` | 2s |
+
+The 9 are the client's liveness check (`TIME`, `ZCOUNT`), `LPUSH`, `BRPOP` and
+`DEL` of its response queue, and the server's `BRPOPLPUSH`, `LPUSH`, `EXPIRE`
+and `LREM`.
