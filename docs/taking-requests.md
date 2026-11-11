@@ -17,9 +17,8 @@ To watch it step by step, open
 
 ## The gap a crash could fall into
 
-Servers used to take requests with a plain `BRPOP` and record nothing in Redis
-(see [taking-requests-legacy.md](taking-requests-legacy.md)). Recording the
-owner afterwards would still be two commands:
+A plain `BRPOP` takes a request and records nothing in Redis about who has
+it. Recording the owner afterwards makes it two commands:
 
 ```mermaid
 sequenceDiagram
@@ -112,20 +111,14 @@ Blocked connections cost Redis no CPU, only memory, about 57 KB each.
 
 ## Why not the alternatives
 
-| | Blocks | Many queues on one connection | No gap on a crash |
-|---|---|---|---|
-| `BRPOP`, then record the owner | yes | yes | no |
-| Lua script + wake channel (before this) | no, a pub/sub wake makes up for it | yes | yes |
-| `XREADGROUP` on Streams ([candidate](streams-candidate.md)) | yes | yes | yes |
-| `BRPOPLPUSH` (AnyCall) | yes | no, one connection per method | yes |
+| | Many queues on one connection | No gap on a crash |
+|---|---|---|
+| `BRPOP`, then record the owner | yes | no |
+| `XREADGROUP` on Streams | yes | yes |
+| `BRPOPLPUSH` (AnyCall) | no, one connection per method | yes |
 
-Before this, servers took requests with a Lua script that popped the request
-and recorded the owner in an `anycall:inflight` hash. A script can't block, so
-clients published on an `anycall:wake:<method>` channel after every push, every
-idle server for the method woke and ran the script, and a 1s fallback covered
-missed wakes. That cost 14 commands per call with 1 server and 24 with 6, since
-every idle server added its own. `BRPOPLPUSH` trades it for a connection per
-method.
+All three block, so an idle server costs nothing per call. `BRPOPLPUSH` closes
+the gap at the price of a connection per method.
 
 ## Timings and costs
 

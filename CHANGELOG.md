@@ -9,25 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6] - 2026-11-07
 
+This release replaces the library's internals: how servers take requests,
+how they track the ones they are processing, and how a crashed server is
+detected and its requests failed back.
+
 ### Added
-- `call()` now fails fast with `NoServerAvailableError` (Java and Python) if no server has heartbeated recently, instead of queueing the request and waiting out the full timeout with nothing around to pop it. Checked against the same `anycall:servers:alive` registry and TTL the heartbeat uses, before the request is published
-- A request whose server dies mid-processing is failed back to its client with a new `ServerLostError` (a `PublishError`, carrying the lost server's id) about 8–10s after the crash, instead of waiting out the whole timeout. Each server keeps the requests it is processing on its own `anycall:processing:<server id>` list, and any other live server, on its heartbeat, claims a dead server's list with one atomic script and fails back what's on it. The error response carries a `lostServer` field, only on these responses; clients from before this release can't parse it
-- With no other server alive to notice, a waiting client fails back its dead server's requests itself, 8–18s after the crash: calls wait for their response in 10s slices, and every slice that ends empty runs the same claim a server would. The Java client opens one extra connection for it, the first time a slice ends empty
-- Visualizer: "In flight" panel, read from the servers' processing lists
-- Visualizer: for an in-flight request whose server is gone, an estimate of when it will be failed back and by whom (a live server's heartbeat, or its waiting client), marked as an estimate and explained under the panel
+- `call()` fails right away with `NoServerAvailableError` when no server is alive, instead of waiting out its timeout
+- When a server dies while processing a request, the client gets a `ServerLostError` within about 10s (up to 18s if no other server is alive), instead of waiting out its timeout
+- Visualizer: "In flight" panel, with an estimate of when a dead server's requests will be failed back
 
 ### Changed
-- Servers take requests with `BRPOPLPUSH` onto their own processing list instead of `BRPOP`, so a crash between taking a request and recording it can no longer lose it. It reads one queue per call, so every method gets its own read loop and Redis connection: a server holds one connection per method, plus, in Java, one shared by responses and the heartbeat, and in Python one more for each command it runs at the same time (responses, the heartbeat), from redis-py's pool. Idle servers stay blocked in Redis, and only the one handed a request wakes, so a call costs 9 Redis commands however many servers there are
-- A server's `max_concurrency` (the server-wide cap) now gates running requests, not taking them: a request taken while every slot is busy waits in the server, already on its processing list. Taking can overshoot the cap by one request per method
-- A saturated method takes its next request as soon as a slot frees up, instead of sleeping a fixed 1s
-- Calls now wait for their response with no limit by default (Java and Python), instead of 30s
-- The liveness heartbeat now runs as a Lua script that reads Redis's own clock (`TIME`) for the `ZADD` score and for telling which servers are dead, instead of each host's clock — clock skew between servers can no longer make a live server look dead or a dead one alive. Still one round trip per tick, one key. The visualizer also reads `TIME` to compute each server's age
-- `anycall:servers:alive` is no longer pruned by age and no longer expires: a dead server stays in it until it is reaped, since its entry is how its processing list gets found
+- A server crash can no longer lose a request it had just taken
+- Servers open one Redis connection per method
+- `max_concurrency` limits requests running at the same time, not requests taken; it can be exceeded by one waiting request per method
+- A busy method takes its next request as soon as a slot frees, instead of after a fixed 1s sleep
+- Calls wait for their response with no limit by default, instead of 30s
+- Liveness uses Redis's clock instead of each host's, so clock differences between machines no longer make a live server look dead (or a dead one alive)
 
 ### Fixed
-- Responses nobody reads (the client timed out or died, or a server reaped as dead answered late) no longer stay in Redis forever: every response, a server's or a reaper's, is written through one path that also sets a 60s expiry on its queue (Java and Python)
-- Python client calls longer than 5s no longer fail with `TimeoutError` regardless of the configured timeout (redis-py 8's new 5s default socket timeout)
-- Java client calls longer than 60s no longer fail with `TimeoutError` regardless of the configured timeout (Lettuce's default command timeout), and sub-second timeouts no longer round down to waiting forever
+- Responses nobody reads now expire after 60s instead of staying in Redis forever
+- Python: calls longer than 5s no longer fail with `TimeoutError` regardless of the configured timeout
+- Java: calls longer than 60s no longer fail with `TimeoutError` regardless of the configured timeout, and timeouts under 1s no longer turn into waiting forever
+
+### Breaking
+- `ServerLostError` responses carry a new `lostServer` field that clients older than 0.6 can't parse
 
 ## [0.5] - 2026-09-26
 
