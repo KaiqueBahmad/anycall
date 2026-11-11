@@ -13,12 +13,7 @@ run it, and return the result. Calls can be **synchronous** (block until the
 response) or **detached** — fire the call, get back an id, and attach to it
 later (even from a different client) to collect the result.
 
-Because the broker sits in the middle — unlike point-to-point RPC such as
-gRPC — you get automatic load balancing, horizontal scaling, and loose
-coupling between services, with one consistent API across languages.
-
-**Status:** Java and Python are under active development. The examples below
-reflect the current target API.
+Because the broker sits in the middle, unlike other point-to-point RPC alternatives, you get automatic load balancing with one consistent API across languages.
 
 ## Installation
 
@@ -36,7 +31,7 @@ Install AnyCall for your language:
 **Server**
 ```java
 public class SentimentAnalyzer {
-    @Supply(methodName = "analyze-sentiment", maxConcurrency = 4) // optional, default: 1
+    @Supply(methodName = "analyze-sentiment", maxConcurrency = 4) // maxConcurrency is optional, default: 1
     public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
@@ -105,7 +100,7 @@ class Sentiment:
     label: str
 
 class SentimentAnalyzer:
-    @supply("analyze-sentiment", max_concurrency=4)  # optional, default: 1
+    @supply("analyze-sentiment", max_concurrency=4)  # maxConcurrency is optional, default: 1
     def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 
@@ -152,31 +147,39 @@ anycall fits when you have services in **different languages** that need to
 call each other, and you'd rather not stand up a full RPC stack to do it.
 
 - **Polyglot backends.** A Java service needs a function that lives in a
-  Python service (or vice-versa). No shared `.proto`, no codegen step — register
+  Python service (or vice-versa). No shared `.proto`, no mandatory codegen step. Register
   the function on one side, call it by name from the other.
 
 - **Heterogeneous AI / inference workloads.** Orchestrate from a typed backend
   while the heavy work runs elsewhere: a Java or Node service calls a Python
   inference worker, and the broker spreads requests across however many workers
-  are running. Add GPU workers and they start receiving traffic automatically —
-  no client changes.
+  are running. Add GPU workers and they start receiving traffic automatically.
 
 - **You already run Redis.** If Redis is already in your stack, anycall needs
   no new infrastructure. No message broker to provision, no service mesh, no
   ports to expose between services.
 
-- **Scaling workers should be trivial.** Because the broker sits in the middle,
-  running N copies of a server load-balances for free — Redis hands each request
-  to exactly one available worker. Scale down to zero and back up; clients don't
-  notice.
+## When not to use anycall
 
-## How it compares
+- **You need the lowest latency or very high throughput.** Every call makes a
+  round trip through Redis. A point-to-point RPC skips the hop.
 
-|                         | anycall            | gRPC              | Raw Redis / broker | Celery            |
-|-------------------------|--------------------|-------------------|--------------------|-------------------|
-| Cross-language          | Yes                | Yes               | Yes (DIY)          | Limited           |
-| Schema / codegen step   | None               | `.proto` required | None               | None              |
-| Topology                | Broker (decoupled) | Point-to-point    | Broker             | Broker            |
-| Built-in load balancing | Yes (via broker)   | Needs LB / mesh   | DIY                | Yes               |
-| Extra infrastructure    | Reuses Redis       | —                 | Redis              | Broker + backend  |
-| Plumbing you write       | None               | Service stubs     | All of it          | Task definitions  |
+- **A request must never be lost.** anycall is RPC, not a job queue. A request
+  runs at most once: if its server dies mid-request, the caller gets a
+  `ServerLostError` and decides whether to call again. Requests waiting in
+  Redis are only as durable as your Redis.
+
+- **You send large payloads or streams.** Requests and responses are JSON
+  messages held in Redis memory. There is no streaming, so files, video and
+  multi-megabyte bodies don't belong here.
+
+- **You want a compiler-checked contract.** There is no schema file. Both
+  sides agree on a method name and on JSON field names, and a mismatch shows up
+  at run time.
+
+- **Callers are untrusted.** Anyone who can reach your Redis can call any
+  method and read any payload. anycall is for services inside your own
+  network, not for browsers, mobile apps or third parties.
+
+- **You run Redis Cluster.** actually anycall wont work on redis clusters.
+
