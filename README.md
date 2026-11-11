@@ -5,8 +5,6 @@
 ![License](https://img.shields.io/github/license/KaiqueBahmad/anycall)
 ![Stars](https://img.shields.io/github/stars/KaiqueBahmad/anycall)
 
-> 🚧 **Some features are still work in progress.** See [WIP.md](WIP.md) for details.
-
 Call functions across services written in different languages, using only the
 Redis you already have.
 
