@@ -25,7 +25,7 @@ public class ConsumerApplication {
             if (redisUri == null) {
                 redisUri = "redis://localhost:16379";
             }
-            AnyCallClient anyCall = AnyCall.client(redisUri, true);
+            AnyCallClient anyCall = AnyCall.client(redisUri);
 
             CountDownLatch startGate = new CountDownLatch(1);
             CountDownLatch doneGate = new CountDownLatch(CONCURRENCY);

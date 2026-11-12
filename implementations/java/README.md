@@ -46,14 +46,14 @@ For details on how to use as a supplier or consumer, see [USAGE.md](USAGE.md).
 ### lib
 Core library implementing an RPC framework via Redis (Lists as queues). Uses the `AnyCall` factory class to create clients and servers:
 
-- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis queue, waits for the response on a callback queue. Supports configurable timeout and optional metrics collection.
+- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis queue, waits for the response on a callback queue. Supports a configurable timeout and a default queue-depth limit, both passed to `AnyCall.client(...)`.
   
-- **AnyCall Server**: Listener that processes requests from Redis. A single read loop blocks on every registered method's request queue and dispatches to a shared worker pool. Methods are discovered via `@Supply` annotation on registered classes. Each method's concurrency is optionally capped by `@Supply(maxConcurrency = ...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redisUri, metricsEnabled, maxConcurrency)`.
+- **AnyCall Server**: Listener that processes requests from Redis. A single read loop blocks on every registered method's request queue and dispatches to a shared worker pool. Methods are discovered via `@Supply` annotation on registered classes. Each method's concurrency is optionally capped by `@Supply(maxConcurrency = ...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redisUri, maxConcurrency)`.
 
 - **Publisher**: Abstraction for publishing to Redis queues (JSON messages).
 
 ### example-consumer
-Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
+Client application demonstrating the use of `AnyCallClient`. Fires `CONCURRENCY` calls (1 by default) to the `analyze-sentiment` method at once and logs each response with its latency.
 
 ### example-supplier
 Server application that registers suppliers via `AnyCall.server()`. The `SentimentAnalyzer` class contains an `analyzeSentiment` method annotated with `@Supply(methodName = "analyze-sentiment")`, which handles sentiment analysis. Starts listeners for each registered method and writes a health file to `$XDG_RUNTIME_DIR/anycall/health` or `/tmp/anycall/health` as fallback.

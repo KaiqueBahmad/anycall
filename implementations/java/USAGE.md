@@ -26,7 +26,7 @@ Pass `maxConcurrency` to `AnyCall.server(...)` for a server-wide cap across ever
 registered method instead:
 
 ```java
-AnyCallServer server = AnyCall.server(redisUri, false, 16);
+AnyCallServer server = AnyCall.server(redisUri, 16);
 ```
 
 2. **Register and start the server:**
@@ -93,11 +93,8 @@ alive, not that one of them supports the method being called.
 // Custom timeout
 AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60));
 
-// With metrics
-AnyCallClient client = AnyCall.client(redisUri, true);
-
-// Both
-AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60), true);
+// Custom timeout and a default queue-depth limit for every call
+AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60), 100L);
 ```
 
 By default a call waits for its response with no limit (`Duration.ZERO`).

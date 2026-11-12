@@ -100,7 +100,6 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Map<String, Semaphore> methodConcurrencyLimiters;
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
-    private final boolean metricsEnabled;
     private final Semaphore globalConcurrencyLimiter;
     private final String serverId;
     private final String processingKey;
@@ -109,8 +108,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private ExecutorService loops;
     private ExecutorService workers;
 
-    public AnyCallServerImpl(String redisUri, boolean metricsEnabled) {
-        this(redisUri, metricsEnabled, null);
+    public AnyCallServerImpl(String redisUri) {
+        this(redisUri, null);
     }
 
     /**
@@ -120,7 +119,7 @@ public class AnyCallServerImpl implements AnyCallServer {
      *                       {@code null} means uncapped — the sum of each method's own
      *                       {@code maxConcurrency} applies instead
      */
-    public AnyCallServerImpl(String redisUri, boolean metricsEnabled, Integer maxConcurrency) {
+    public AnyCallServerImpl(String redisUri, Integer maxConcurrency) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Server: redisUri must not be null or blank");
         }
@@ -135,7 +134,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
-        this.metricsEnabled = metricsEnabled;
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
         this.serverId = UUID.randomUUID().toString();
         this.processingKey = AnycallQueues.PROCESSING_PREFIX + serverId;
@@ -448,74 +446,35 @@ public class AnyCallServerImpl implements AnyCallServer {
     /**
      * Processes a single request by deserializing it, invoking the handler method, and sending the response.
      * Handles errors gracefully and sends error responses back to the client.
-     * Collects detailed metrics if metrics are enabled.
      *
      * @param requestJson the JSON-serialized request, exactly as it was taken onto the
      *                    processing list; removed from there along with the response
      * @param handler the method handler to invoke
      */
     private void processRequest(String requestJson, MethodHandler handler) {
-        long startTime = metricsEnabled ? System.currentTimeMillis() : 0;
         String requestId = null;
         String methodName = null;
 
         try {
-            long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
             AnyCallRequest request = OBJECT_MAPPER.readValue(requestJson, AnyCallRequest.class);
             requestId = request.requestId();
             methodName = request.methodName();
             inFlightRequestIds.add(requestId);
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [SERVER] [{}] Request deserialized in {}ms", requestId,
-                    System.currentTimeMillis() - beforeDeserialize);
-            } else {
-                log.debug("Processing request: {} for method: {}", requestId, methodName);
-            }
+            log.debug("Processing request: {} for method: {}", requestId, methodName);
 
-            long beforePayloadDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
             Object parameter = OBJECT_MAPPER.readValue(request.payload(), handler.parameterType());
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [SERVER] [{}] Payload deserialized in {}ms", requestId,
-                    System.currentTimeMillis() - beforePayloadDeserialize);
-            }
-
-            long beforeInvoke = metricsEnabled ? System.currentTimeMillis() : 0;
             AnycallContext ctx = new AnycallContext(requestId, methodName);
             Object result = handler.method().invoke(handler.bean(), ctx, parameter);
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [SERVER] [{}] Method '{}' executed in {}ms", requestId, methodName,
-                    System.currentTimeMillis() - beforeInvoke);
-            }
-
-            long beforeSerialize = metricsEnabled ? System.currentTimeMillis() : 0;
             String resultJson = OBJECT_MAPPER.writeValueAsString(result);
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [SERVER] [{}] Result serialized in {}ms", requestId,
-                    System.currentTimeMillis() - beforeSerialize);
-            }
-
-            long beforeSend = metricsEnabled ? System.currentTimeMillis() : 0;
             AnyCallResponse response = AnyCallResponse.success(requestId, resultJson);
             sendResponse(response, requestJson);
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [SERVER] [{}] Response sent in {}ms", requestId,
-                    System.currentTimeMillis() - beforeSend);
-                log.debug("[METRICS] [SERVER] [{}] Total processing time: {}ms", requestId,
-                    System.currentTimeMillis() - startTime);
-            } else {
-                log.debug("Request {} processed successfully", requestId);
-            }
-
+            log.debug("Request {} processed successfully", requestId);
         } catch (Exception e) {
-            if (metricsEnabled && requestId != null) {
-                log.error("[METRICS] [SERVER] [{}] Processing failed after {}ms: {}", requestId,
-                    System.currentTimeMillis() - startTime, e.getMessage());
-            }
             log.error("Error processing request: {}", requestId, e);
             AnyCallResponse response = AnyCallResponse.error(
                 requestId != null ? requestId : "unknown",

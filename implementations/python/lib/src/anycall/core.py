@@ -31,7 +31,6 @@ class AnyCall:
     def client(
         redis_uri: str,
         timeout: timedelta = timedelta(0),
-        metrics_enabled: bool = False,
         default_max_queue_depth: int | None = None,
     ) -> AnyCallClient:
         """Create an AnyCall client.
@@ -40,7 +39,6 @@ class AnyCall:
             redis_uri: Redis connection URI (e.g., redis://localhost:16379)
             timeout: How long a call waits for its response; timedelta(0)
                 (the default) waits with no limit
-            metrics_enabled: Whether to collect metrics
             default_max_queue_depth: Default backlog limit applied to every
                 call made by this client (see AnyCallClient.call's
                 max_queue_depth); None means unbounded
@@ -57,14 +55,12 @@ class AnyCall:
     @staticmethod
     def server(
         redis_uri: str,
-        metrics_enabled: bool = False,
         max_concurrency: int | None = None,
     ) -> AnyCallServer:
         """Create an AnyCall server.
 
         Args:
             redis_uri: Redis connection URI (e.g., redis://localhost:16379)
-            metrics_enabled: Whether to collect metrics
             max_concurrency: Server-wide cap on requests processed at the same
                 time, across every registered @supply method combined; None
                 means uncapped

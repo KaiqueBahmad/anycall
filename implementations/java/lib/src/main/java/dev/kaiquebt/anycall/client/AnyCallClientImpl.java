@@ -44,7 +44,6 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final StatefulRedisConnection<String, String> connection;
     private final RedisCommands<String, String> commands;
     private final Duration timeout;
-    private final boolean metricsEnabled;
     private final TypeRegistry registry;
     private volatile Long defaultMaxQueueDepth;
     // For reaping, opened the first time a wait slice ends empty. Separate from
@@ -52,11 +51,11 @@ public class AnyCallClientImpl implements AnyCallClient {
     // every call can share it.
     private volatile StatefulRedisConnection<String, String> reapConnection;
 
-    public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled) {
-        this(redisUri, timeout, metricsEnabled, null);
+    public AnyCallClientImpl(String redisUri, Duration timeout) {
+        this(redisUri, timeout, null);
     }
 
-    public AnyCallClientImpl(String redisUri, Duration timeout, boolean metricsEnabled, Long defaultMaxQueueDepth) {
+    public AnyCallClientImpl(String redisUri, Duration timeout, Long defaultMaxQueueDepth) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Client: redisUri must not be null or blank");
         }
@@ -65,7 +64,6 @@ public class AnyCallClientImpl implements AnyCallClient {
         } else {
             this.timeout = timeout;
         }
-        this.metricsEnabled = metricsEnabled;
         this.registry = new TypeRegistry();
         this.defaultMaxQueueDepth = defaultMaxQueueDepth;
 
@@ -100,15 +98,9 @@ public class AnyCallClientImpl implements AnyCallClient {
     }
 
     private <T> T call(String methodName, Object request, Class<T> responseType, Long maxQueueDepth) {
-        long startTime = metricsEnabled ? System.currentTimeMillis() : 0;
-        String _requestId = null;
         String responseQueue = null;
 
         try {
-            if (metricsEnabled) {
-                log.debug("[METRICS] [CLIENT] Starting call to method: {}", methodName);
-            }
-
             String requestQueue = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
 
             checkServerAvailable(methodName);
@@ -123,31 +115,12 @@ public class AnyCallClientImpl implements AnyCallClient {
             String payload = OBJECT_MAPPER.writeValueAsString(request);
             AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, payload);
             String requestId = anyCallRequest.requestId();
-            _requestId = requestId;
             String requestJson = OBJECT_MAPPER.writeValueAsString(anyCallRequest);
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [CLIENT] [{}] Request serialized in {}ms", requestId,
-                    System.currentTimeMillis() - startTime);
-            }
-
-            long beforePush = metricsEnabled ? System.currentTimeMillis() : 0;
             commands.lpush(requestQueue, requestJson);
 
-            if (metricsEnabled) {
-                log.debug("[METRICS] [CLIENT] [{}] Request published to queue in {}ms", requestId,
-                    System.currentTimeMillis() - beforePush);
-            }
-
             responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
-            long beforeWait = metricsEnabled ? System.currentTimeMillis() : 0;
-
             String responseJson = readResponse(responseQueue);
-
-            if (metricsEnabled) {
-                log.debug("[METRICS] [CLIENT] [{}] Response received after {}ms", requestId,
-                    System.currentTimeMillis() - beforeWait);
-            }
 
             if (responseJson == null) {
                 throw new TimeoutError(
@@ -157,7 +130,6 @@ public class AnyCallClientImpl implements AnyCallClient {
                 );
             }
 
-            long beforeDeserialize = metricsEnabled ? System.currentTimeMillis() : 0;
             AnyCallResponse response = OBJECT_MAPPER.readValue(responseJson, AnyCallResponse.class);
 
             if (response.lostServer() != null) {
@@ -167,21 +139,8 @@ public class AnyCallClientImpl implements AnyCallClient {
                 throw new RemoteException(methodName, response.error(), "RemoteExecutionError");
             }
 
-            T result = OBJECT_MAPPER.readValue(response.payload(), responseType);
-
-            if (metricsEnabled) {
-                log.debug("[METRICS] [CLIENT] [{}] Response deserialized in {}ms", requestId,
-                    System.currentTimeMillis() - beforeDeserialize);
-                log.debug("[METRICS] [CLIENT] [{}] Total call duration: {}ms", requestId,
-                    System.currentTimeMillis() - startTime);
-            }
-
-            return result;
+            return OBJECT_MAPPER.readValue(response.payload(), responseType);
         } catch (Exception e) {
-            if (metricsEnabled && _requestId != null) {
-                log.error("[METRICS] [CLIENT] [{}] Call failed after {}ms: {}", _requestId,
-                    System.currentTimeMillis() - startTime, e.getMessage());
-            }
             if (e instanceof AnyCallError) {
                 throw (AnyCallError) e;
             }

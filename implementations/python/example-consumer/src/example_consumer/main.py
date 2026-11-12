@@ -18,7 +18,7 @@ def main() -> None:
     redis_uri = os.getenv("REDIS_URI", "redis://localhost:16379")
     logger.info(f"Starting consumer with Redis URI: {redis_uri}")
 
-    client = AnyCall.client(redis_uri, metrics_enabled=True)
+    client = AnyCall.client(redis_uri)
 
     request = TextRequest(text="Hello, AnyCall!")
     logger.info(f"Calling analyze-sentiment with: {request.text}")

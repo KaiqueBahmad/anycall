@@ -10,19 +10,11 @@ public class AnyCall {
     }
 
     public static AnyCallClient client(String redisUri) {
-        return new AnyCallClientImpl(redisUri, null, false);
+        return new AnyCallClientImpl(redisUri, null);
     }
 
     public static AnyCallClient client(String redisUri, Duration timeout) {
-        return new AnyCallClientImpl(redisUri, timeout, false);
-    }
-
-    public static AnyCallClient client(String redisUri, boolean metricsEnabled) {
-        return new AnyCallClientImpl(redisUri, null, metricsEnabled);
-    }
-
-    public static AnyCallClient client(String redisUri, Duration timeout, boolean metricsEnabled) {
-        return new AnyCallClientImpl(redisUri, timeout, metricsEnabled);
+        return new AnyCallClientImpl(redisUri, timeout);
     }
 
     /**
@@ -30,16 +22,12 @@ public class AnyCall {
      *                             client (see {@link AnyCallClient#call(String, Object, Class, long)});
      *                             {@code null} means unbounded
      */
-    public static AnyCallClient client(String redisUri, Duration timeout, boolean metricsEnabled, Long defaultMaxQueueDepth) {
-        return new AnyCallClientImpl(redisUri, timeout, metricsEnabled, defaultMaxQueueDepth);
+    public static AnyCallClient client(String redisUri, Duration timeout, Long defaultMaxQueueDepth) {
+        return new AnyCallClientImpl(redisUri, timeout, defaultMaxQueueDepth);
     }
 
     public static AnyCallServer server(String redisUri) {
-        return new AnyCallServerImpl(redisUri, false);
-    }
-
-    public static AnyCallServer server(String redisUri, boolean metricsEnabled) {
-        return new AnyCallServerImpl(redisUri, metricsEnabled);
+        return new AnyCallServerImpl(redisUri);
     }
 
     /**
@@ -48,7 +36,7 @@ public class AnyCall {
      *                       (see {@link dev.kaiquebt.anycall.annotation.Supply#maxConcurrency()});
      *                       {@code null} means uncapped
      */
-    public static AnyCallServer server(String redisUri, boolean metricsEnabled, Integer maxConcurrency) {
-        return new AnyCallServerImpl(redisUri, metricsEnabled, maxConcurrency);
+    public static AnyCallServer server(String redisUri, Integer maxConcurrency) {
+        return new AnyCallServerImpl(redisUri, maxConcurrency);
     }
 }

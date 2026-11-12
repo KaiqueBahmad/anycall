@@ -46,12 +46,12 @@ For details on how to use as a supplier or consumer, see [USAGE.md](../USAGE.md)
 ### lib
 Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall` factory class to create clients and servers:
 
-- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis Stream, waits for the response on a callback stream. Supports configurable timeout and optional metrics collection.
+- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis Stream, waits for the response on a callback stream. Supports a configurable timeout and a default queue-depth limit, both passed to `AnyCall.client(...)`.
   
 - **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via the `@supply` decorator on registered classes.
 
 ### example-consumer
-Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
+Client application demonstrating the use of `AnyCallClient`. Makes one call to the `analyze-sentiment` method and logs the response.
 
 ### example-supplier
 Server application that registers suppliers via `AnyCall.server()`. The `SentimentAnalyzer` class contains an `analyze_sentiment` method decorated with `@supply("analyze-sentiment")`, which handles sentiment analysis. Starts listeners for each registered method.

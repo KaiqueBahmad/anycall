@@ -126,14 +126,11 @@ from datetime import timedelta
 # Custom timeout
 client = AnyCall.client(redis_uri, timeout=timedelta(seconds=60))
 
-# With metrics
-client = AnyCall.client(redis_uri, metrics_enabled=True)
-
-# Both
+# Custom timeout and a default queue-depth limit for every call
 client = AnyCall.client(
     redis_uri,
     timeout=timedelta(seconds=60),
-    metrics_enabled=True
+    default_max_queue_depth=100,
 )
 ```
 
