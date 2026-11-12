@@ -56,7 +56,7 @@ class AnyCallClient(ABC):
             request: Request object (will be serialized to JSON)
             response_type: Expected response type. If None, resolves from registry.
             max_queue_depth: Reject with QueueFullError if the method's request
-                stream is already at or above this depth. Overrides the client's
+                queue is already at or above this depth. Overrides the client's
                 default_max_queue_depth for this call only. None means unbounded.
 
         Returns:
@@ -80,7 +80,7 @@ class AnyCallClient(ABC):
             method_name: Operation name
             request: Request object (will be serialized to JSON)
             max_queue_depth: Reject with QueueFullError if the method's request
-                stream is already at or above this depth. Overrides the client's
+                queue is already at or above this depth. Overrides the client's
                 default_max_queue_depth for this call only. None means unbounded.
 
         Returns:
@@ -113,17 +113,17 @@ class AnyCallClient(ABC):
 
     @abstractmethod
     def get_queue_depth(self, method_name: str) -> int:
-        """Read the current backlog of a method's request stream (XLEN).
+        """Read the current backlog of a method's request queue (LLEN).
 
-        Read-only and non-destructive; safe to poll as a health gauge. Workers
-        XDEL each request once it's been processed, so this reflects the true
-        in-flight backlog, not the method's lifetime call count.
+        Read-only and non-destructive; safe to poll as a health gauge. A
+        request leaves the queue as soon as a server takes it, so this counts
+        only requests still waiting, not the ones being processed.
 
         Args:
             method_name: Operation name
 
         Returns:
-            Number of entries currently in the method's request stream
+            Number of requests currently waiting in the method's queue
         """
         pass
 
@@ -240,7 +240,7 @@ class AnyCallClientImpl(AnyCallClient):
         self._registry.register(operation, response_type)
 
     def get_queue_depth(self, method_name: str) -> int:
-        """Read the current backlog of a method's request stream (XLEN)."""
+        """Read the current backlog of a method's request queue (LLEN)."""
         return self.redis.length(queues.request_queue(method_name))
 
     def set_default_max_queue_depth(self, max_queue_depth: int | None) -> None:

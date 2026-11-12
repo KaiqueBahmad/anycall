@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Kaique Bahmad", email = "kaiquebahmadt@gmail.com" }]
-keywords = ["rpc", "redis", "polyglot", "cross-language", "microservices", "streams"]
+keywords = ["rpc", "redis", "polyglot", "cross-language", "microservices"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

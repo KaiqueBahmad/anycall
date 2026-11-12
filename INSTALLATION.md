@@ -46,14 +46,14 @@ This installs the `anycall` library to your local Maven repository as
 
 ### Both Languages
 
-- **Redis 7.0+** — Used for message transport via Redis Streams
+- **Redis 6.0+** — Used for message transport, with Lists as queues
 - Running Redis instance (local or remote)
 
 ### Python
 
 - Python 3.10+
 - Dependencies installed automatically:
-  - `redis>=5.0.0` — Redis client with Streams support
+  - `redis>=5.0.0` — Redis client
   - `dacite>=1.8.0` — Dataclass deserialization
 
 ### Java

@@ -287,7 +287,7 @@ class TestQueueDepth:
         assert "Timeout" in str(exc_info.value)
 
     def test_get_queue_depth_reads_through_adapter(self):
-        """get_queue_depth() reflects the adapter's stream length."""
+        """get_queue_depth() reflects the adapter's queue length."""
         adapter = MockRedisAdapter(queue_depth=7)
         client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
 

@@ -103,7 +103,7 @@ from anycall.exceptions import QueueFullError
 try:
     sentiment = client.call("analyze-sentiment", request, Sentiment, max_queue_depth=100)
 except QueueFullError:
-    ...  # the request stream already had >= 100 pending entries; not submitted
+    ...  # the request queue already had >= 100 waiting requests; not submitted
 ```
 
 A client-wide default can be set instead of passing `max_queue_depth` on every call:
@@ -115,7 +115,7 @@ client.get_default_max_queue_depth()     # -> 200
 
 ### Check the current backlog:
 ```python
-depth = client.get_queue_depth("analyze-sentiment")  # XLEN of the request stream
+depth = client.get_queue_depth("analyze-sentiment")  # LLEN of the request queue
 ```
 
 ## Configuration

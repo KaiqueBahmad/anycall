@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A call whose request has an unknown or missing field now fails with a `RemoteException` when the server rejects it, instead of waiting forever
 - Java: a request missing a field is rejected instead of running with that field as `null`
 - Java: stopping a server waits for the requests it already took to finish and be answered, as Python does, instead of interrupting them after 5s
+- Python docs no longer describe Redis Streams
 
 ### Removed
 - The metrics flag on `AnyCall.client(...)` and `AnyCall.server(...)` (`metricsEnabled` in Java, `metrics_enabled` in Python)
