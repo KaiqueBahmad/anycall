@@ -8,7 +8,6 @@ import pytest
 
 from . import client as client_module
 from .client import AnyCallClientImpl
-from .config import AnycallProperties
 from .exceptions import AnyCallError, QueueFullError, ServerLostError, TimeoutError
 
 @dataclass
@@ -88,16 +87,15 @@ class DeadServerAdapter(MockRedisAdapter):
         self.responses.setdefault(response_queue, []).insert(0, value)
 
 
-def quick_props() -> AnycallProperties:
-    # The mock's pop returns at once, so with no limit a call would spin forever.
-    return AnycallProperties(timeout=timedelta(milliseconds=50))
+# The mock's pop returns at once, so with no limit a call would spin forever.
+QUICK_TIMEOUT = timedelta(milliseconds=50)
 
 
 @pytest.fixture
 def client():
     """Create a test client with mock Redis adapter."""
     adapter = MockRedisAdapter()
-    return AnyCallClientImpl(adapter, quick_props())
+    return AnyCallClientImpl(adapter, QUICK_TIMEOUT)
 
 
 class TestRegisterType:
@@ -239,7 +237,7 @@ class TestQueueDepth:
     def test_call_raises_when_queue_at_max_depth(self):
         """Call is rejected before publishing when depth >= max_queue_depth."""
         adapter = MockRedisAdapter(queue_depth=5)
-        client = AnyCallClientImpl(adapter, quick_props())
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
 
         with pytest.raises(QueueFullError) as exc_info:
             client.call("my-op", {}, MockResponse, max_queue_depth=5)
@@ -258,7 +256,7 @@ class TestQueueDepth:
     def test_default_max_queue_depth_applies_without_override(self):
         """Client-level default is used when no per-call override is given."""
         adapter = MockRedisAdapter(queue_depth=3)
-        client = AnyCallClientImpl(adapter, quick_props(), default_max_queue_depth=3)
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT, default_max_queue_depth=3)
 
         with pytest.raises(QueueFullError):
             client.call("my-op", {}, MockResponse)
@@ -266,7 +264,7 @@ class TestQueueDepth:
     def test_per_call_override_wins_over_default(self):
         """A per-call max_queue_depth overrides the client's default."""
         adapter = MockRedisAdapter(queue_depth=3)
-        client = AnyCallClientImpl(adapter, quick_props(), default_max_queue_depth=1)
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT, default_max_queue_depth=1)
 
         with pytest.raises(AnyCallError) as exc_info:
             client.call("my-op", {}, MockResponse, max_queue_depth=10)
@@ -276,7 +274,7 @@ class TestQueueDepth:
     def test_raw_call_respects_max_queue_depth(self):
         """raw_call() also enforces max_queue_depth."""
         adapter = MockRedisAdapter(queue_depth=2)
-        client = AnyCallClientImpl(adapter, quick_props())
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
 
         with pytest.raises(QueueFullError):
             client.raw_call("my-op", {}, max_queue_depth=2)
@@ -291,7 +289,7 @@ class TestQueueDepth:
     def test_get_queue_depth_reads_through_adapter(self):
         """get_queue_depth() reflects the adapter's stream length."""
         adapter = MockRedisAdapter(queue_depth=7)
-        client = AnyCallClientImpl(adapter, quick_props())
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
 
         assert client.get_queue_depth("my-op") == 7
 
@@ -316,7 +314,7 @@ class TestWaiterDrivenReaping:
     def test_call_reaps_its_dead_server_and_raises_server_lost(self, monkeypatch):
         monkeypatch.setattr(client_module, "WAITER_REAP_SLICE_SECONDS", 0.01)
         adapter = DeadServerAdapter()
-        client = AnyCallClientImpl(adapter, AnycallProperties())
+        client = AnyCallClientImpl(adapter)
 
         with pytest.raises(ServerLostError) as exc_info:
             client.raw_call("my-op", {})
@@ -326,7 +324,7 @@ class TestWaiterDrivenReaping:
 
     def test_no_claim_while_every_server_is_alive(self):
         adapter = DeadServerAdapter(dead=False)
-        client = AnyCallClientImpl(adapter, quick_props())
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
 
         with pytest.raises(TimeoutError):
             client.raw_call("my-op", {})

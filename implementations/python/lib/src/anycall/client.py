@@ -4,10 +4,10 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
+from datetime import timedelta
 from typing import Any, Type, TypeVar
 
 from . import queues
-from .config import AnycallProperties
 from .exceptions import (
     AnyCallError,
     JSONDecodeError,
@@ -152,11 +152,19 @@ class AnyCallClientImpl(AnyCallClient):
     def __init__(
         self,
         redis_adapter: RedisQueuePort,
-        props: AnycallProperties,
+        timeout: timedelta = timedelta(0),
         default_max_queue_depth: int | None = None,
     ):
+        """
+        Args:
+            redis_adapter: Redis queue adapter
+            timeout: How long a call waits for its response; timedelta(0)
+                waits with no limit
+            default_max_queue_depth: Default backlog limit for every call;
+                None means unbounded
+        """
         self.redis = redis_adapter
-        self.props = props
+        self._timeout = timeout
         self._registry = TypeRegistry()
         self._default_max_queue_depth = default_max_queue_depth
 
@@ -338,7 +346,7 @@ class AnyCallClientImpl(AnyCallClient):
         whose server died is failed back even when no other server is alive
         to notice.
         """
-        timeout_seconds = self.props.timeout.total_seconds()
+        timeout_seconds = self._timeout.total_seconds()
         deadline = time.monotonic() + timeout_seconds if timeout_seconds > 0 else None
         while True:
             wait = WAITER_REAP_SLICE_SECONDS

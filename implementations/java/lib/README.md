@@ -18,8 +18,7 @@ AnyCall is a framework that allows Java applications to communicate asynchronous
 - **AnyCallPublisher** - Publishes messages/requests
 - **AnycallQueues** - Manages message queues
 
-### Configuration
-- **AnycallProperties** - Configuration properties for the library
+### Annotation
 - **Supply** - Annotation to mark methods as supply
 
 ### Models
@@ -49,17 +48,14 @@ See `example-supplier` and `example-consumer` for practical examples.
 
 ## Configuration
 
-Configure properties through `AnycallProperties`:
+Clients and servers are configured through the `AnyCall` factory:
 
 ```java
-AnycallProperties props = new AnycallProperties(
-    Duration.ofSeconds(30),  // timeout
-    true                      // metricsEnabled
-);
+// Wait up to 30s for each response (the default, Duration.ZERO, waits with no limit)
+AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(30));
+
+// Cap the whole server at 16 requests at a time, across every method
+AnyCallServer server = AnyCall.server(redisUri, 16);
 ```
 
-Or use the defaults:
-
-```java
-AnycallProperties props = new AnycallProperties();
-```
+See [USAGE.md](../USAGE.md) for every option.

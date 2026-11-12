@@ -14,7 +14,6 @@ module dev.kaiquebt.anycall {
     exports dev.kaiquebt.anycall.annotation;
     exports dev.kaiquebt.anycall.exception;
     exports dev.kaiquebt.anycall.publisher;
-    exports dev.kaiquebt.anycall.config;
 
     // Open for reflection (Jackson, method invocation via reflection)
     opens dev.kaiquebt.anycall.model to com.fasterxml.jackson.databind;

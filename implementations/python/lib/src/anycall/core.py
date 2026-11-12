@@ -3,7 +3,6 @@ from datetime import timedelta
 import redis
 
 from .client import AnyCallClient, AnyCallClientImpl
-from .config import AnycallProperties
 from .redis_adapter import RedisQueueAdapter
 from .server import AnyCallServer, AnyCallServerImpl
 
@@ -53,8 +52,7 @@ class AnyCall:
             redis_uri, decode_responses=False, socket_timeout=_client_socket_timeout(timeout)
         )
         redis_adapter = RedisQueueAdapter(redis_client)
-        props = AnycallProperties(timeout=timeout, metrics_enabled=metrics_enabled)
-        return AnyCallClientImpl(redis_adapter, props, default_max_queue_depth)
+        return AnyCallClientImpl(redis_adapter, timeout, default_max_queue_depth)
 
     @staticmethod
     def server(
@@ -76,5 +74,4 @@ class AnyCall:
         """
         redis_client = redis.from_url(redis_uri, decode_responses=False)
         redis_adapter = RedisQueueAdapter(redis_client)
-        props = AnycallProperties(metrics_enabled=metrics_enabled)
-        return AnyCallServerImpl(redis_adapter, props, max_concurrency)
+        return AnyCallServerImpl(redis_adapter, max_concurrency)

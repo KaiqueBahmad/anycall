@@ -47,8 +47,6 @@ Core library implementing an RPC framework via Redis Streams. Uses the `AnyCall`
   
 - **AnyCall Server**: Listener that processes requests from Redis. Maintains a thread pool (one per registered method) consuming from specific streams. Methods are discovered via the `@supply` decorator on registered classes. Each method's concurrency is optionally capped by `@supply(max_concurrency=...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redis_uri, max_concurrency=...)`.
 
-- **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
-
 ### example-consumer
 Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
 

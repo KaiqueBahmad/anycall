@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Removed
+- Java: the `AnycallProperties` class, which nothing read
+
 ## [0.6] - 2026-11-07
 
 This release replaces the library's internals: how servers take requests,

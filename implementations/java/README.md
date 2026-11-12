@@ -52,8 +52,6 @@ Core library implementing an RPC framework via Redis (Lists as queues). Uses the
 
 - **Publisher**: Abstraction for publishing to Redis queues (JSON messages).
 
-- **Configuration**: Via `AnycallProperties` — defines parameters like Redis URI, timeouts, thread pools, etc.
-
 ### example-consumer
 Client application demonstrating the use of `AnyCallClient`. Makes 100 RPC calls to the `analyze-sentiment` method and displays latency statistics (min, avg, p50, p95, p99, max). Includes warmup call and metrics support.
 

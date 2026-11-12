@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
 from . import queues
-from .config import AnycallProperties
 from .context import AnycallContext
 from .model import AnyCallRequest, AnyCallResponse
 from .reaping import reap_dead_servers
@@ -124,13 +123,11 @@ class AnyCallServerImpl(AnyCallServer):
     def __init__(
         self,
         redis_adapter: RedisQueueAdapter,
-        props: AnycallProperties,
         max_concurrency: Optional[int] = None,
     ):
         """
         Args:
             redis_adapter: Redis queue adapter
-            props: Server configuration properties
             max_concurrency: Server-wide cap on requests processed at the same
                 time, across every registered @supply method combined (see
                 the `max_concurrency` argument of `supply`). None means
@@ -141,7 +138,6 @@ class AnyCallServerImpl(AnyCallServer):
             raise ValueError("AnyCall Server: max_concurrency must be at least 1")
 
         self.redis = redis_adapter
-        self.props = props
         self.method_handlers: Dict[str, MethodHandler] = {}
         self._method_limiters: Dict[str, ConcurrencyLimiter] = {}
         self._running = False
