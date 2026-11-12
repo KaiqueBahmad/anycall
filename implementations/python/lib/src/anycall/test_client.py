@@ -11,9 +11,6 @@ from .client import AnyCallClientImpl
 from .config import AnycallProperties
 from .exceptions import AnyCallError, QueueFullError, ServerLostError, TimeoutError
 
-pytestmark = pytest.mark.unit
-
-
 @dataclass
 class MockResponse:
     """Test model for deserialization."""

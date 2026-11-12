@@ -11,54 +11,34 @@ uv sync
 
 ## Running Tests
 
+Run these from `implementations/python/lib`.
+
 ### Run all tests
 ```bash
-pytest
+uv run pytest
 ```
 
 ### Run with coverage report
 ```bash
-pytest --cov=anycall --cov-report=html
+uv run pytest --cov=anycall --cov-report=html
 ```
 
-### Run specific test file
+### Run a single test class or test
 ```bash
-pytest src/anycall/test_client.py -v
-```
-
-### Run tests by marker
-```bash
-pytest -m unit        # Run unit tests only
-pytest -m integration # Run integration tests only
-```
-
-### Run with verbose output
-```bash
-pytest -v
-pytest -vv  # More verbose
+uv run pytest src/anycall/test_client.py::TestWaiterDrivenReaping
+uv run pytest -k max_queue_depth
 ```
 
 ## Test Structure
 
-Tests are located in `src/anycall/test_*.py` files.
-
-### Available Markers
-- `@pytest.mark.unit` - Unit tests (default)
-- `@pytest.mark.integration` - Integration tests requiring external services
-- `@pytest.mark.slow` - Slow tests
+Tests live next to the code in `src/anycall/test_*.py`. They run against an
+in-memory fake of the Redis adapter, so no Redis server is needed.
 
 ## Available Test Tools
 
 - **pytest** (>=7.0) - Test framework
 - **pytest-cov** (>=4.0) - Coverage reporting
-- **pytest-mock** (>=3.10) - Mocking utilities
-- **pytest-asyncio** (>=0.21) - Async test support
 
 ## Configuration
 
 Pytest is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
-
-Common options:
-- `testpaths` - Directories to search for tests
-- `python_files` - Patterns for test files (test_*.py, *_test.py)
-- `addopts` - Default command-line options
