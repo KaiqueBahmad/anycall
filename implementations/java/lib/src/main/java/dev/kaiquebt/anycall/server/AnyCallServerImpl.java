@@ -480,6 +480,10 @@ public class AnyCallServerImpl implements AnyCallServer {
 
         try {
             AnyCallRequest request = OBJECT_MAPPER.readValue(requestJson, AnyCallRequest.class);
+            // Jackson fills a missing field with null instead of failing.
+            if (request.requestId() == null || request.methodName() == null || request.payload() == null) {
+                throw new IllegalArgumentException("Request is missing a field: " + requestJson);
+            }
             requestId = request.requestId();
             methodName = request.methodName();
             inFlightRequestIds.add(requestId);
