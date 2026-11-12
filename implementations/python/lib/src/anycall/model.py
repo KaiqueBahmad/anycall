@@ -24,12 +24,28 @@ def read_request_id(item: str) -> Optional[str]:
     return request_id
 
 
+# Wire name -> dataclass field, for each envelope. Only these names are read:
+# anything else is an unknown field, and the message is rejected.
+_REQUEST_FIELDS = {"requestId": "request_id", "methodName": "method_name", "payload": "payload"}
+_RESPONSE_FIELDS = {
+    "requestId": "request_id",
+    "payload": "payload",
+    "error": "error_msg",
+    "lostServer": "lost_server",
+}
+
+
+def _from_wire(data: dict, fields: dict[str, str]) -> dict:
+    unknown = [key for key in data if key not in fields]
+    if unknown:
+        raise TypeError(f"unknown field(s): {', '.join(unknown)}")
+    return {fields[key]: value for key, value in data.items()}
+
+
 @dataclass
 class AnyCallRequest:
-    """RPC request envelope.
-
-    Supports both camelCase (from Java) and snake_case field names during deserialization.
-    """
+    """RPC request envelope. On the wire its fields are camelCase, as Java
+    writes them: `requestId`, `methodName`, `payload`."""
     request_id: str
     method_name: str
     payload: str
@@ -45,18 +61,9 @@ class AnyCallRequest:
 
     @staticmethod
     def from_dict(data: dict) -> "AnyCallRequest":
-        """Deserialize from dict, supporting both camelCase and snake_case keys."""
-        # Normalize camelCase keys to snake_case
-        normalized = {}
-        for key, value in data.items():
-            if key == "requestId":
-                normalized["request_id"] = value
-            elif key == "methodName":
-                normalized["method_name"] = value
-            else:
-                normalized[key] = value
-
-        return AnyCallRequest(**normalized)
+        """Deserialize from its wire dict. Raises TypeError on an unknown or
+        missing field."""
+        return AnyCallRequest(**_from_wire(data, _REQUEST_FIELDS))
 
     def to_dict(self) -> dict:
         """Serialize to dict using camelCase for Java compatibility."""
@@ -104,22 +111,9 @@ class AnyCallResponse:
 
     @staticmethod
     def from_dict(data: dict) -> "AnyCallResponse":
-        """Deserialize from dict, supporting both camelCase and snake_case keys."""
-        # Normalize camelCase keys to snake_case
-        normalized = {}
-        for key, value in data.items():
-            if key == "requestId":
-                normalized["request_id"] = value
-            elif key == "error":  # Java uses "error", not "error_msg"
-                normalized["error_msg"] = value
-            elif key == "errorMsg":  # Also support errorMsg for flexibility
-                normalized["error_msg"] = value
-            elif key == "lostServer":
-                normalized["lost_server"] = value
-            else:
-                normalized[key] = value
-
-        return AnyCallResponse(**normalized)
+        """Deserialize from its wire dict. Raises TypeError on an unknown
+        field, or a missing `requestId`."""
+        return AnyCallResponse(**_from_wire(data, _RESPONSE_FIELDS))
 
     def to_dict(self) -> dict:
         """Serialize to dict using camelCase for Java compatibility."""

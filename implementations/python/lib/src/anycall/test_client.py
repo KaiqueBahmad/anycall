@@ -8,7 +8,7 @@ import pytest
 
 from . import client as client_module
 from .client import AnyCallClientImpl
-from .exceptions import AnyCallError, QueueFullError, ServerLostError, TimeoutError
+from .exceptions import AnyCallError, QueueFullError, SerializationError, ServerLostError, TimeoutError
 
 @dataclass
 class MockResponse:
@@ -331,3 +331,31 @@ class TestWaiterDrivenReaping:
 
         assert adapter.claims == 0
         assert len(adapter.processing["dead-server"]) == 1
+
+
+class RespondingAdapter(MockRedisAdapter):
+    """Answers every call with `response`."""
+
+    def __init__(self, response: str):
+        super().__init__()
+        self.response = response
+
+    def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
+        return queue_keys[0], self.response
+
+
+class TestResponseFields:
+    """Responses are read by their camelCase wire names only."""
+
+    def test_camel_case_response_is_read(self):
+        adapter = RespondingAdapter('{"requestId": "r1", "payload": "{\\"value\\": \\"ok\\"}", "error": null}')
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        assert client.call("my-op", {}, MockResponse) == MockResponse(value="ok")
+
+    def test_response_with_other_field_name_is_a_serialization_error(self):
+        adapter = RespondingAdapter('{"requestId": "r1", "payload": null, "errorMsg": "boom"}')
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        with pytest.raises(SerializationError):
+            client.raw_call("my-op", {})

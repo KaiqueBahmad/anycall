@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Java: a request missing a field is rejected instead of running with that field as `null`
 - Java: stopping a server waits for the requests it already took to finish and be answered, as Python does, instead of interrupting them after 5s
 - Python docs no longer describe Redis Streams
+- Python: messages are read by their camelCase field names only, as in Java
 
 ### Removed
 - The metrics flag on `AnyCall.client(...)` and `AnyCall.server(...)` (`metricsEnabled` in Java, `metrics_enabled` in Python)

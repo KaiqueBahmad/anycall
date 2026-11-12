@@ -315,6 +315,8 @@ class AnyCallClientImpl(AnyCallClient):
                 response = deserialize(response_json, AnyCallResponse)
             except json.JSONDecodeError as e:
                 raise JSONDecodeError(method_name, f"Failed to decode response: {e}")
+            except TypeError as e:
+                raise SerializationError(method_name, f"Invalid response: {e}")
 
             if response.lost_server is not None:
                 raise ServerLostError(
