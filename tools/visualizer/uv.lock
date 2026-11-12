@@ -20,9 +20,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=7.0" },
-    { name = "pytest-asyncio", specifier = ">=0.21" },
     { name = "pytest-cov", specifier = ">=4.0" },
-    { name = "pytest-mock", specifier = ">=3.10" },
 ]
 
 [[package]]

@@ -1,9 +1,7 @@
 """Read-only collection of AnyCall protocol state from Redis.
 
-Request/response queues can be either a Redis List (Java, as of the
-Streams-to-Lists migration) or a Redis Stream (Python, still pending that
-migration) -- this module checks each key's TYPE at poll time and issues the
-right read-only commands for it, so both kinds show up side by side.
+Request queues are Redis Lists; a key under the request prefix holding
+anything else isn't AnyCall's and is skipped.
 
 Live servers come from the same sorted set the servers heartbeat into
 (`anycall:servers:alive`): members scored within HEARTBEAT_TTL_SECONDS of now
@@ -18,9 +16,9 @@ it does, at the end of its current wait slice. When that happens is only
 estimated here (see `estimate_reaping`): where a client is in its slice never
 reaches Redis.
 
-Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE, XLEN,
-XRANGE, ZRANGEBYSCORE, TIME, INFO) -- never BRPOP/BRPOPLPUSH/RPOP/LPUSH/LREM/
-XREADGROUP/XACK/XDEL/ZADD/ZREM/CONFIG SET or the AnyCall scripts. This process
+Only ever issues non-destructive commands (SCAN, TYPE, LLEN, LRANGE,
+ZRANGEBYSCORE, TIME, INFO) -- never BRPOP/BRPOPLPUSH/RPOP/LPUSH/LREM/
+ZADD/ZREM/CONFIG SET or the AnyCall scripts. This process
 must never be able to steal or alter real RPC traffic; it only observes it.
 """
 from __future__ import annotations
@@ -50,7 +48,6 @@ PREVIEW_MAX_LEN = 60
 class MethodInfo:
     name: str
     backlog: int
-    kind: str = "stream"  # "list" (Java) or "stream" (Python), from the key's TYPE
     entries: dict[str, str] = field(default_factory=dict)  # entry id -> preview
 
 
@@ -103,7 +100,7 @@ class Event:
 
 def _preview_request(raw_json: Optional[str | bytes]) -> str:
     if not raw_json:
-        return "<malformed entry: missing data field>"
+        return "<empty entry>"
     if isinstance(raw_json, bytes):
         raw_json = raw_json.decode("utf-8", errors="replace")
     try:
@@ -140,35 +137,16 @@ def _collect_method(client: redis.Redis, queue_key: str) -> Optional[MethodInfo]
         # fabricate a row for a queue that no longer exists in Redis.
         return None
 
-    name = _method_name(queue_key)
-    key_type = client.type(queue_key)
+    if client.type(queue_key) != "list":
+        return None
 
-    if key_type == "list":
-        return _collect_list_method(client, queue_key, name)
-    if key_type == "stream":
-        return _collect_stream_method(client, queue_key, name)
-    return None
-
-
-def _collect_list_method(client: redis.Redis, queue_key: str, name: str) -> MethodInfo:
     backlog = client.llen(queue_key)
-    # LPUSH pushes to the head (index 0); BRPOP pops from the tail, so the
+    # LPUSH pushes to the head (index 0); servers take from the tail, so the
     # tail-most elements are next to be processed. Fetch the last N and
-    # reverse them so index 0 of the preview is "next up" -- matching the
-    # Stream path's oldest-first convention below.
+    # reverse them so index 0 of the preview is "next up".
     raw_entries = list(reversed(client.lrange(queue_key, -ENTRY_PEEK_COUNT, -1) or []))
     entries = {_entry_key(raw): _preview_request(raw) for raw in raw_entries}
-    return MethodInfo(name=name, backlog=backlog, kind="list", entries=entries)
-
-
-def _collect_stream_method(client: redis.Redis, queue_key: str, name: str) -> MethodInfo:
-    backlog = client.xlen(queue_key)
-
-    entries = {}
-    for entry_id, fields in client.xrange(queue_key, count=ENTRY_PEEK_COUNT) or []:
-        entries[entry_id] = _preview_request((fields or {}).get("data"))
-
-    return MethodInfo(name=name, backlog=backlog, kind="stream", entries=entries)
+    return MethodInfo(name=_method_name(queue_key), backlog=backlog, entries=entries)
 
 
 def _collect_servers(client: redis.Redis, last_seen: dict[str, float]) -> tuple[list[ServerInfo], float]:

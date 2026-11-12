@@ -4,23 +4,15 @@ Read-only PyQt6 dashboard for observing AnyCall traffic on a Redis
 instance: live servers, request queue backlogs, and a best-effort
 activity log.
 
-Request/response queues can be either a Redis List (Java, as of the
-Streams-to-Lists migration) or a Redis Stream (Python, still pending that
-migration) — the dashboard checks each queue's `TYPE` and reads it the
-right way, so both kinds show up side by side, tagged `[list]`/`[stream]`
-in the Methods panel.
-
 It only ever issues non-destructive Redis commands (`SCAN`, `TYPE`, `LLEN`,
-`LRANGE`, `XLEN`, `XRANGE`, `ZRANGEBYSCORE`, `TIME`, `INFO`) — it never
-pushes or pops a queue entry, acknowledges/deletes messages, writes or prunes
+`LRANGE`, `ZRANGEBYSCORE`, `TIME`, `INFO`) — it never
+pushes or pops a queue entry, writes or prunes
 the heartbeat set or a processing list, runs the AnyCall scripts, or changes
 Redis config. It has no effect on real
 client/server traffic and provides no actions of its own.
 
 Works against any AnyCall implementation (Java, Python, ...) since they all
-share the same Redis *key* protocol — though as of the Java migration to
-Lists, the structure *behind* a given key can now differ by language (see
-above); the dashboard handles that automatically.
+share the same Redis protocol.
 
 ## Run
 
@@ -42,10 +34,9 @@ Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
   refreshing its entry and drops off the list once it ages past the TTL.
   Ages come from the server's own clock, so they're only as accurate as
   the clock agreement between that host and this one.
-- **Methods**: one row per `anycall:requests:<method>` queue, tagged
-  `[list]` or `[stream]`, with backlog (not-yet-popped requests). A
-  request simply disappears from the backlog the instant a worker pops
-  it, for both kinds.
+- **Methods**: one row per `anycall:requests:<method>` queue, with backlog
+  (not-yet-taken requests). A request disappears from the backlog the
+  instant a server takes it.
 - **In flight**: requests a server has taken and not yet answered (every
   entry of every `anycall:processing:<server id>` list), with the owning
   server and whether it's still alive. A row whose server is *gone*

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - The metrics flag on `AnyCall.client(...)` and `AnyCall.server(...)` (`metricsEnabled` in Java, `metrics_enabled` in Python)
 - Java: the `AnycallProperties` class, which nothing read
+- Visualizer: support for Redis Streams queues
 
 ## [0.6] - 2026-11-07
 

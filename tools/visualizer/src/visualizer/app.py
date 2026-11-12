@@ -417,7 +417,6 @@ class VisualizerApp(QMainWindow):
     def _method_to_dict(method: MethodInfo) -> dict:
         return {
             "method": method.name,
-            "kind": method.kind,
             "backlog": method.backlog,
         }
 
@@ -518,7 +517,7 @@ class VisualizerApp(QMainWindow):
             method_key = f"method:{method.name}"
             method_item = QTreeWidgetItem(
                 [
-                    f"{method.name}  [{method.kind}]",
+                    method.name,
                     str(method.backlog),
                 ]
             )
