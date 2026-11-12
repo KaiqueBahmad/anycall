@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Optional
 
 from . import queues
 from .context import AnycallContext
+from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
@@ -200,20 +201,30 @@ class AnyCallServerImpl(AnyCallServer):
                     self._start_reader(method_name, handler)
 
     def start(self) -> "AnyCallServer":
-        """Start the server."""
+        """Start the server.
+
+        Raises:
+            AnyCallError: If the first heartbeat fails; the server is left
+                stopped and can be started again.
+        """
         with self._running_lock:
             if self._running:
                 return self
 
+            logger.info(f"Starting AnyCall server {self._server_id}")
+            # Heartbeat once before taking any request: a server missing from
+            # the live set is never looked at by reaping, so a request it took
+            # would be lost if it then crashed.
+            try:
+                self._heartbeat()
+            except Exception as e:
+                raise AnyCallError(
+                    "AnyCall Server", f"Failed to write the first heartbeat, not starting: {e}"
+                ) from e
+
             self._running = True
             worker_count = sum(h.max_concurrency for h in self.method_handlers.values())
             self._executor = ThreadPoolExecutor(max_workers=max(worker_count, 1))
-
-            logger.info(f"Starting AnyCall server {self._server_id}")
-            # Heartbeat once before taking any request: a server missing from
-            # the live set is never looked at by reaping, so this server must be
-            # in it before its processing list holds anything.
-            self._heartbeat_tick()
             self._start_thread(self._emit_heartbeats, "anycall-heartbeat")
             for method_name, handler in self.method_handlers.items():
                 self._start_reader(method_name, handler)
@@ -258,13 +269,18 @@ class AnyCallServerImpl(AnyCallServer):
                 self._heartbeat_tick()
 
     def _heartbeat_tick(self) -> None:
-        """One heartbeat (see `RedisQueueAdapter.heartbeat`), then fail back
-        whatever the servers it found dead were still processing."""
+        """A heartbeat of the running server: a failure only logs, and the
+        next tick tries again."""
         try:
-            rejoined, dead = self.redis.heartbeat(HEARTBEAT_KEY, self._server_id, HEARTBEAT_TTL_SECONDS)
+            self._heartbeat()
         except Exception as e:
             logger.warning(f"Failed to write heartbeat: {e}")
-            return
+
+    def _heartbeat(self) -> None:
+        """One heartbeat (see `RedisQueueAdapter.heartbeat`), then fail back
+        whatever the servers it found dead were still processing. Raises if
+        the heartbeat itself fails; reaping failures only log."""
+        rejoined, dead = self.redis.heartbeat(HEARTBEAT_KEY, self._server_id, HEARTBEAT_TTL_SECONDS)
 
         if rejoined and self._heartbeat_registered:
             logger.warning(

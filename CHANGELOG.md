@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A server whose first heartbeat fails no longer starts taking requests: `start()` now raises, and can be called again
+
 ### Removed
 - The metrics flag on `AnyCall.client(...)` and `AnyCall.server(...)` (`metricsEnabled` in Java, `metrics_enabled` in Python)
 - Java: the `AnycallProperties` class, which nothing read

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
@@ -26,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -146,15 +148,26 @@ public class AnyCallServerImpl implements AnyCallServer {
      * effect if already running.
      *
      * @return this server instance for method chaining
+     * @throws AnyCallError if the first heartbeat fails; the server is left stopped and can
+     *                      be started again
      */
     @Override
     public synchronized AnyCallServer start() {
-        if (running.compareAndSet(false, true)) {
+        if (!running.get()) {
             log.info("Starting AnyCall server {}", serverId);
             // Heartbeat once before taking any request: a server missing from the live set
-            // is never looked at by reaping, so this server must be in it before its
-            // processing list holds anything.
-            heartbeatTick();
+            // is never looked at by reaping, so a request it took would be lost if it then
+            // crashed.
+            try {
+                heartbeat();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AnyCallError("AnyCall Server", "Interrupted while writing the first heartbeat", e);
+            } catch (Exception e) {
+                throw new AnyCallError("AnyCall Server",
+                    "Failed to write the first heartbeat, not starting: " + describe(e), e);
+            }
+            running.set(true);
             loops = Executors.newCachedThreadPool();
             workers = Executors.newCachedThreadPool();
             loops.submit(this::emitHeartbeats);
@@ -323,6 +336,29 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
+     * A heartbeat of the running server: a failure only logs, and the next tick tries again.
+     */
+    private void heartbeatTick() {
+        try {
+            heartbeat();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("Failed to write heartbeat: {}", describe(e));
+        }
+    }
+
+    private static String describe(Exception e) {
+        if (e instanceof TimeoutException) {
+            return "timed out after " + HEARTBEAT_PERIOD.toMillis() + "ms";
+        }
+        if (e instanceof ExecutionException && e.getCause() != null) {
+            return e.getCause().getMessage();
+        }
+        return e.getMessage();
+    }
+
+    /**
      * One heartbeat, as a single {@code EVAL} of {@link #HEARTBEAT_SCRIPT}: {@code ZADD} this
      * server under Redis's own clock ({@code TIME}) and read back the servers whose heartbeat
      * is older than {@link #HEARTBEAT_TTL}, then fail back whatever those were still
@@ -330,24 +366,13 @@ public class AnyCallServerImpl implements AnyCallServer {
      * <p>
      * "Now" is Redis's clock, not this host's, so scores written and compared by different
      * servers are always on the same clock — skew between hosts can't make a live server
-     * look dead or a dead one alive.
+     * look dead or a dead one alive. Throws if the heartbeat itself fails or takes longer
+     * than {@link #HEARTBEAT_PERIOD}; reaping failures only log.
      */
-    private void heartbeatTick() {
-        List<Object> result;
-        try {
-            RedisFuture<List<Object>> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.MULTI,
-                new String[] {HEARTBEAT_KEY}, serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()));
-            result = future.get(HEARTBEAT_PERIOD.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return;
-        } catch (TimeoutException e) {
-            log.warn("Failed to write heartbeat: timed out after {}ms", HEARTBEAT_PERIOD.toMillis());
-            return;
-        } catch (Exception e) {
-            log.warn("Failed to write heartbeat: {}", e.getMessage());
-            return;
-        }
+    private void heartbeat() throws Exception {
+        RedisFuture<List<Object>> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.MULTI,
+            new String[] {HEARTBEAT_KEY}, serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()));
+        List<Object> result = future.get(HEARTBEAT_PERIOD.toMillis(), TimeUnit.MILLISECONDS);
 
         if (Long.valueOf(1).equals(result.get(0)) && heartbeatRegistered) {
             log.warn("Server {} was reaped as dead (no heartbeat for over {}s); the requests it "
