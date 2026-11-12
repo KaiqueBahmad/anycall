@@ -256,7 +256,9 @@ public class AnyCallServerImpl implements AnyCallServer {
 
     /**
      * Stops the server. Read loops notice within {@link #TAKE_BLOCK_SECONDS}; the requests
-     * already taken get up to 5s more to finish and be answered.
+     * already taken are run to completion and answered, however long that takes.
+     * Interrupting the thread that called this gives up on them: they stay on the processing
+     * list, to be failed back once this server stops heartbeating.
      * This method is idempotent - repeated calls have no effect if already stopped.
      */
     @Override
@@ -269,13 +271,9 @@ public class AnyCallServerImpl implements AnyCallServer {
         log.info("Stopping AnyCall server");
         try {
             loops.shutdown();
-            if (!loops.awaitTermination(TAKE_BLOCK_SECONDS + 3, TimeUnit.SECONDS)) {
-                loops.shutdownNow();
-            }
+            loops.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
             workers.shutdown();
-            if (!workers.awaitTermination(5, TimeUnit.SECONDS)) {
-                workers.shutdownNow();
-            }
+            workers.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
         } catch (InterruptedException e) {
             loops.shutdownNow();
             workers.shutdownNow();
