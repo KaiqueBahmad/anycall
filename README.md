@@ -181,5 +181,5 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
   method and read any payload. anycall is for services inside your own
   network, not for browsers, mobile apps or third parties.
 
-- **You run Redis Cluster.** actually anycall wont work on redis clusters.
+- **You run Redis Cluster.** By now Anycall doesn't work on redis clusters.
 

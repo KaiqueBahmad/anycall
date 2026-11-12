@@ -15,39 +15,19 @@ To watch it step by step, open
 | `anycall:requests:<method>` | clients | requests nobody has taken yet |
 | `anycall:processing:<server>` | servers | the requests that server is processing, whole |
 
-## The gap a crash could fall into
-
-A plain `BRPOP` takes a request and records nothing in Redis about who has
-it. Recording the owner afterwards makes it two commands:
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant R as Redis
-    participant A as Server A
-    C->>R: LPUSH request
-    A->>R: BRPOP request
-    Note over A: kill -9, before the record
-    Note over R: the request is in no queue and in no record
-```
-
-Between the two, the request exists only in the server's memory. If the server
-dies there, no other server can take it, because it's gone from the queue, and
-[reaping](reaping.md) can't fail it back, because nothing says who had it.
-Calls wait with no limit by default, so the client would wait forever.
-
-## One command instead
+## Taking a request
 
 `BRPOPLPUSH anycall:requests:<method> anycall:processing:<server>` pops the
-request and pushes it onto the server's processing list in one step. A crash
-falls before it or after it:
+request and pushes it onto the server's processing list in one step. The
+request is always in one of the two places, so a crash falls before the
+command or after it:
 
 - **before:** the request is still in its queue, and another server takes it;
 - **after:** it's on the list of the server that died, and
   [reaping](reaping.md) fails it back with `ServerLostError`.
 
-The key name is the record of who has the request, so there's no separate
-owner record to keep in step with it.
+The name of the processing list says which server has the request, so Redis
+always knows who to hold responsible for it.
 
 ```mermaid
 sequenceDiagram
@@ -98,40 +78,8 @@ loop for "analyze":
 
 A server uses one connection per method, plus:
 
-- **Java:** one, shared by the responses and the heartbeat. A Lettuce
-  connection is shared by every thread, so all workers and the heartbeat write
-  on one, but a blocking command holds its connection, so each loop needs its
-  own.
-- **Python:** one more for each command running at the same time, from
-  redis-py's pool. A redis-py connection serves one command at a time, so
-  workers writing responses together, and the heartbeat, each borrow one. The
-  pool keeps them open, so a busy server ends up with about one per worker.
+- **Java:** one more, shared by every worker's responses and the heartbeat.
+- **Python:** about one more per worker, since a redis-py connection serves
+  one command at a time.
 
 Blocked connections cost Redis no CPU, only memory, about 57 KB each.
-
-## Why not the alternatives
-
-| | Many queues on one connection | No gap on a crash |
-|---|---|---|
-| `BRPOP`, then record the owner | yes | no |
-| `XREADGROUP` on Streams | yes | yes |
-| `BRPOPLPUSH` (AnyCall) | no, one connection per method | yes |
-
-All three block, so an idle server costs nothing per call. `BRPOPLPUSH` closes
-the gap at the price of a connection per method.
-
-## Timings and costs
-
-Measured with the Python library against a local Redis 6.0.16, 300 sequential
-calls, `INFO commandstats` minus idle traffic:
-
-| | Value |
-|---|---|
-| Commands per call, 1, 3 or 6 servers | 9 |
-| Idle commands per server | 2.5/s (heartbeat script and its inner commands, one take per 2s) |
-| Latency per sequential call, local Redis | ~0.6–0.9ms Python, ~2ms Java |
-| Longest an idle loop takes to notice `stop` | 2s |
-
-The 9 are the client's liveness check (`TIME`, `ZCOUNT`), `LPUSH`, `BRPOP` and
-`DEL` of its response queue, and the server's `BRPOPLPUSH`, `LPUSH`, `EXPIRE`
-and `LREM`.

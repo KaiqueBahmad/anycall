@@ -12,7 +12,7 @@ Example:
 - Python: 1.2.0, 1.2.1
 - All are **contract 1.2**, fully compatible
 
-> **Note:** per SemVer, `0.Y.Z` is unstable — a `Y` bump (e.g. 0.1 → 0.2) may break compatibility. The guarantee above applies to patches within the same `0.Y`, not across `0.Y` versions.
+> **Note:** per SemVer, `0.Y.Z` is unstable. The contract and internal working is still not well defined, so it can vary a lot between versions.
 
 ## Release Types
 
