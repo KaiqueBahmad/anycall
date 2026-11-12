@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - A server whose first heartbeat fails no longer starts taking requests: `start()` now raises, and can be called again
+- A call whose request has an unknown or missing field now fails with a `RemoteException` when the server rejects it, instead of waiting forever
 - Java: stopping a server waits for the requests it already took to finish and be answered, as Python does, instead of interrupting them after 5s
 
 ### Removed

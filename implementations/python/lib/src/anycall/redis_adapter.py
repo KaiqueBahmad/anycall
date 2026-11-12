@@ -170,6 +170,16 @@ class RedisQueueAdapter:
             pipe.lrem(processing_key, 1, item)
         pipe.execute()
 
+    def release(self, processing_key: str, item: str) -> None:
+        """Drop a request from a processing list without answering it (LREM),
+        for one with no response queue to answer on.
+
+        Args:
+            processing_key: Processing list the request was taken onto
+            item: The request json exactly as it was taken
+        """
+        self.redis.lrem(processing_key, 1, item)
+
     def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]:
         """Take over a dead server's requests (see CLAIM_SCRIPT): if its
         heartbeat is still older than `ttl_seconds`, remove it from the live

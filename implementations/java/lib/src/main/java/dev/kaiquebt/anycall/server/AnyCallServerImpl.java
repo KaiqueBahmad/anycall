@@ -498,9 +498,17 @@ public class AnyCallServerImpl implements AnyCallServer {
 
             log.debug("Request {} processed successfully", requestId);
         } catch (Exception e) {
+            if (requestId == null) {
+                requestId = AnyCallRequest.readRequestId(requestJson);
+            }
+            if (requestId == null) {
+                log.warn("Dropped a request with no readable requestId: {}", e.getMessage());
+                release(requestJson);
+                return;
+            }
             log.error("Error processing request: {}", requestId, e);
             AnyCallResponse response = AnyCallResponse.error(
-                requestId != null ? requestId : "unknown",
+                requestId,
                 e.getMessage() != null ? e.getMessage() : e.getClass().getName()
             );
             sendResponse(response, requestJson);
@@ -508,6 +516,20 @@ public class AnyCallServerImpl implements AnyCallServer {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
             }
+        }
+    }
+
+    /**
+     * Drops a request from this server's processing list without answering it, for one with
+     * no response queue to answer on.
+     *
+     * @param requestJson the request json exactly as it was taken
+     */
+    private void release(String requestJson) {
+        try {
+            writeCommands.lrem(processingKey, 1, requestJson);
+        } catch (Exception e) {
+            log.error("Error dropping a request from the processing list", e);
         }
     }
 

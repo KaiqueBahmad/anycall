@@ -1,9 +1,8 @@
-import json
 import logging
 from typing import Iterable
 
 from . import queues
-from .model import AnyCallRequest, AnyCallResponse
+from .model import AnyCallResponse, read_request_id
 from .serialization import serialize
 
 logger = logging.getLogger(__name__)
@@ -40,10 +39,11 @@ def reap_dead_servers(redis, dead: Iterable[str]) -> None:
 
 
 def _fail_back(redis, item: str, server_id: str) -> None:
-    try:
-        request_id = AnyCallRequest.from_dict(json.loads(item)).request_id
-    except Exception:
-        logger.warning(f"Dropped an unparseable request of dead server {server_id}")
+    # Only the requestId is needed, so a request the server couldn't have
+    # parsed (an unknown field, say) still reaches its client.
+    request_id = read_request_id(item)
+    if request_id is None:
+        logger.warning(f"Dropped a request with no readable requestId of dead server {server_id}")
         return
     try:
         redis.respond(

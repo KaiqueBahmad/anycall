@@ -1,6 +1,5 @@
 package dev.kaiquebt.anycall.publisher;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import io.lettuce.core.ScriptOutputType;
@@ -19,7 +18,6 @@ import java.util.List;
 public final class AnycallReaping {
 
     private static final Logger log = LoggerFactory.getLogger(AnycallReaping.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // KEYS[1] = live servers sorted set, ARGV[1] = ttl seconds. Returns every member whose
     // heartbeat is older than the ttl: the read-only half of the heartbeat script, for
@@ -89,11 +87,11 @@ public final class AnycallReaping {
     }
 
     private static void failBack(RedisCommands<String, String> commands, String item, String serverId) {
-        String requestId;
-        try {
-            requestId = OBJECT_MAPPER.readValue(item, AnyCallRequest.class).requestId();
-        } catch (Exception e) {
-            log.warn("Dropped an unparseable request of dead server {}", serverId);
+        // Only the requestId is needed, so a request the server couldn't have parsed (an
+        // unknown field, say) still reaches its client.
+        String requestId = AnyCallRequest.readRequestId(item);
+        if (requestId == null) {
+            log.warn("Dropped a request with no readable requestId of dead server {}", serverId);
             return;
         }
         try {

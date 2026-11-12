@@ -1,6 +1,27 @@
 from dataclasses import dataclass
 from typing import Optional
+import json
 import uuid
+
+
+def read_request_id(item: str) -> Optional[str]:
+    """The `requestId` of a request entry, read on its own, or None if it has
+    none: the entry isn't a JSON object, or its `requestId` isn't a non-empty
+    string.
+
+    For entries the strict read rejects (an unknown or missing field), so
+    their error can still reach the client waiting on their response queue.
+    """
+    try:
+        data = json.loads(item)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    request_id = data.get("requestId")
+    if not isinstance(request_id, str) or not request_id:
+        return None
+    return request_id
 
 
 @dataclass

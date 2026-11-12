@@ -1,5 +1,6 @@
-"""Unit tests for AnyCallServer start."""
+"""Unit tests for AnyCallServer: starting, and answering requests it can't parse."""
 
+import json
 import time
 from typing import cast
 
@@ -20,11 +21,14 @@ class Echo:
 
 
 class FakeRedisAdapter:
-    """Records takes; its heartbeat fails while `heartbeat_fails` is set."""
+    """Records takes, responses and releases; its heartbeat fails while
+    `heartbeat_fails` is set."""
 
-    def __init__(self, heartbeat_fails: bool):
+    def __init__(self, heartbeat_fails: bool = False):
         self.heartbeat_fails = heartbeat_fails
         self.takes = 0
+        self.responses: dict[str, dict] = {}
+        self.released: list[str] = []
 
     def heartbeat(self, key: str, member: str, ttl_seconds: int):
         if self.heartbeat_fails:
@@ -35,6 +39,13 @@ class FakeRedisAdapter:
         self.takes += 1
         time.sleep(0.01)
         return None
+
+    def respond(self, response_queue: str, value: str, ttl_seconds: int, processing_key: str = "", item: str = ""):
+        self.responses[response_queue] = json.loads(value)
+        self.released.append(item)
+
+    def release(self, processing_key: str, item: str):
+        self.released.append(item)
 
 
 def make_server(adapter: FakeRedisAdapter) -> AnyCallServer:
@@ -74,3 +85,46 @@ def test_start_can_be_retried_after_first_heartbeat_fails():
         assert adapter.takes > 0
     finally:
         server.stop()
+
+
+def process(adapter: FakeRedisAdapter, item: str) -> None:
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, adapter))
+    server.register(Echo())
+    server._process_request(server.method_handlers["echo"], item)
+
+
+def test_request_with_unknown_field_is_answered_on_its_own_queue():
+    adapter = FakeRedisAdapter()
+    item = json.dumps({"requestId": "r1", "methodName": "echo", "payload": "{}", "extra": 1})
+
+    process(adapter, item)
+
+    response = adapter.responses["anycall:responses:r1"]
+    assert response["payload"] is None
+    assert response["error"]
+    assert adapter.released == [item]
+
+
+def test_request_missing_a_field_is_answered_on_its_own_queue():
+    adapter = FakeRedisAdapter()
+    item = json.dumps({"requestId": "r1", "methodName": "echo"})
+
+    process(adapter, item)
+
+    assert adapter.responses["anycall:responses:r1"]["error"]
+
+
+@pytest.mark.parametrize("item", [
+    "not json",
+    json.dumps(["requestId", "r1"]),
+    json.dumps({"methodName": "echo", "payload": "{}"}),
+    json.dumps({"requestId": "", "methodName": "echo", "payload": "{}", "extra": 1}),
+    json.dumps({"requestId": 7, "methodName": "echo", "payload": "{}", "extra": 1}),
+])
+def test_request_with_no_readable_request_id_is_dropped_unanswered(item):
+    adapter = FakeRedisAdapter()
+
+    process(adapter, item)
+
+    assert adapter.responses == {}
+    assert adapter.released == [item]

@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Optional
 from . import queues
 from .context import AnycallContext
 from .exceptions import AnyCallError
-from .model import AnyCallRequest, AnyCallResponse
+from .model import AnyCallRequest, AnyCallResponse, read_request_id
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
@@ -348,6 +348,11 @@ class AnyCallServerImpl(AnyCallServer):
         `item` is the request json exactly as it was taken onto the processing
         list; it's removed from there along with sending the response, even if
         the request fails to deserialize here.
+
+        A request the strict read rejects still gets its error, as long as its
+        `requestId` can be read on its own. One with no readable `requestId`
+        has no response queue: it's dropped from the processing list, and
+        nothing is answered.
         """
         request_id = None
         try:
@@ -365,11 +370,14 @@ class AnyCallServerImpl(AnyCallServer):
             response = AnyCallResponse.success(rpc_request.request_id, result_json)
 
         except Exception as e:
+            if request_id is None:
+                request_id = read_request_id(item)
+            if request_id is None:
+                logger.warning(f"Dropped a request with no readable requestId: {e}")
+                self.redis.release(self._processing_key, item)
+                return
             logger.exception(f"Error invoking method: {e}")
-            response = AnyCallResponse.error(
-                request_id if request_id is not None else "unknown",
-                str(e)
-            )
+            response = AnyCallResponse.error(request_id, str(e))
         finally:
             if request_id is not None:
                 with self._in_flight_lock:
