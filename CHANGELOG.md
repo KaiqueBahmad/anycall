@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `SPEC.md`: the protocol every implementation follows, for contract 0.7
+
 ### Changed
 - Redis 5.0 or later is enough; servers take with `BLMOVE` where Redis has it (6.2+)
 
