@@ -42,8 +42,8 @@ server.start();
 If a server crashes while processing a request, another live server notices
 within ~8–10s and fails the request back: the client gets a `ServerLostError`
 instead of waiting out its timeout. If no other server is alive, the waiting
-client notices on its own once it has had no response for 30s, so the error
-comes 30–60s after the crash. The request is not retried, and may have
+client notices on its own at the end of its current 10s wait, so the error
+comes 8–18s after the crash. The request is not retried, and may have
 partially run.
 
 A `TimeoutError` says nothing about the server: it may be slow, may never have
