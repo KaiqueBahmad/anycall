@@ -15,7 +15,6 @@ from . import queues
 from .exceptions import (
     AnyCallError,
     BrokerError,
-    JSONDecodeError,
     NoServerAvailableError,
     QueueFullError,
     RemoteException,
@@ -342,7 +341,7 @@ class AnyCallClientImpl(AnyCallClient):
             try:
                 response = deserialize(response_json, AnyCallResponse)
             except json.JSONDecodeError as e:
-                raise JSONDecodeError(method_name, f"Failed to decode response: {e}")
+                raise SerializationError(method_name, f"Failed to decode response: {e}")
             except TypeError as e:
                 raise SerializationError(method_name, f"Invalid response: {e}")
 
@@ -368,7 +367,7 @@ class AnyCallClientImpl(AnyCallClient):
             try:
                 return deserialize(payload, response_type)
             except json.JSONDecodeError as e:
-                raise JSONDecodeError(method_name, f"Failed to decode response payload: {e}")
+                raise SerializationError(method_name, f"Failed to decode response payload: {e}")
             except dacite.DaciteError as e:
                 raise SerializationError(method_name, f"Response payload doesn't fit {response_type.__name__}: {e}")
 

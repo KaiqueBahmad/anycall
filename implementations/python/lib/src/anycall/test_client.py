@@ -465,3 +465,19 @@ class TestBrokerError:
             client.raw_call("my-op", {})
 
         assert adapter.deleted is False
+
+
+class TestInvalidJson:
+    """Invalid JSON, in the response or its payload, is a plain SerializationError."""
+
+    @pytest.mark.parametrize("response", [
+        "not json",
+        '{"requestId": "r1", "payload": "not json", "error": null}',
+    ])
+    def test_invalid_json_is_a_serialization_error(self, response):
+        client = AnyCallClientImpl(RespondingAdapter(response), QUICK_TIMEOUT)
+
+        with pytest.raises(SerializationError) as exc_info:
+            client.raw_call("my-op", {})
+
+        assert type(exc_info.value) is SerializationError

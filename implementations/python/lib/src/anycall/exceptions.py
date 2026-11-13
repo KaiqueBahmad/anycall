@@ -126,8 +126,3 @@ class RemoteException(RemoteExecutionError):
 class SerializationError(AnyCallError):
     """JSON encode/decode or type mismatch error."""
     pass
-
-
-class JSONDecodeError(SerializationError):
-    """Response is not valid JSON."""
-    pass

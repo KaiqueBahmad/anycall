@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Java: the `AnycallProperties` class, which nothing read
 - Visualizer: support for Redis Streams queues
 - Java: the unused `AnyCallPublisher` and `ConnectionError`
+- Python: `JSONDecodeError`; invalid JSON raises `SerializationError`, as in Java
 
 ## [0.6] - 2026-11-07
 
