@@ -25,7 +25,7 @@ public class AnycallQueues {
      * Format: {@code anycall:processing:<server-id>}
      * <p>
      * One List per server, holding the requests it is processing. A server moves a request
-     * here from its method's queue with one {@code BRPOPLPUSH}, so a request is always in its
+     * here from its method's queue with one {@code BLMOVE} (or {@code BRPOPLPUSH}), so a request is always in its
      * queue or in exactly one of these: the key name is the record of who has it. The server
      * removes it once the response is written; whoever finds the server dead fails back
      * whatever is left (see {@link AnycallReaping}).

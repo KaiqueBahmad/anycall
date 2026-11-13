@@ -30,6 +30,9 @@ class FakeRedisAdapter:
         self.responses: dict[str, dict] = {}
         self.released: list[str] = []
 
+    def detect_blmove(self) -> bool:
+        return True
+
     def heartbeat(self, key: str, member: str, ttl_seconds: int):
         if self.heartbeat_fails:
             raise ConnectionError("Redis is down")

@@ -10,6 +10,7 @@ import dev.kaiquebt.anycall.publisher.AnycallReaping;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.KeyValue;
+import io.lettuce.core.protocol.ProtocolVersion;
 import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisException;
@@ -74,8 +75,10 @@ public class AnyCallClientImpl implements AnyCallClient {
         // While disconnected, fail commands at once instead of queueing them for after a
         // reconnect: a call blocked on a dead Redis would otherwise wait forever with no
         // timeout, and a Redis failure is surfaced as a BrokerError instead.
+        // RESP2: Redis 5 has no HELLO, so no RESP3.
         this.redisClient.setOptions(ClientOptions.builder()
             .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
+            .protocolVersion(ProtocolVersion.RESP2)
             .build());
         this.connection = redisClient.connect();
         // Every BRPOP lasts a slice at most, whatever the call's timeout: a call with no limit
@@ -287,16 +290,17 @@ public class AnyCallClientImpl implements AnyCallClient {
     private String readResponse(String queueKey) {
         long deadline = timeout.isZero() ? 0 : System.nanoTime() + timeout.toNanos();
         while (true) {
-            long waitNanos = WAITER_REAP_SLICE.toNanos();
+            long waitSeconds = WAITER_REAP_SLICE.getSeconds();
             if (deadline != 0) {
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) {
                     return null;
                 }
-                waitNanos = Math.min(waitNanos, remaining);
+                // Whole seconds, rounded up: Redis before 6.0 rejects a fractional timeout,
+                // and 0 would mean forever. The call may end up to 1s late.
+                long remainingSeconds = (remaining + 999_999_999L) / 1_000_000_000L;
+                waitSeconds = Math.min(waitSeconds, remainingSeconds);
             }
-            // BRPOP takes 0 as "forever", so never let a slice round down to it.
-            double waitSeconds = Math.max(waitNanos / 1_000_000L, 1) / 1000.0;
             KeyValue<String, String> entry = commands.brpop(waitSeconds, queueKey);
             if (entry != null) {
                 return entry.getValue();

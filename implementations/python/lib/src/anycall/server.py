@@ -19,7 +19,7 @@ from .serialization import deserialize, serialize
 logger = logging.getLogger(__name__)
 
 # How long a method's read loop blocks on its queue before looking again, in
-# whole seconds (BRPOPLPUSH's unit). Bounds how long `stop` and `unregister`
+# whole seconds (a take's unit). Bounds how long `stop` and `unregister`
 # take to reach an idle loop; an idle loop costs one command per this period.
 TAKE_BLOCK_SECONDS = 2
 
@@ -95,11 +95,12 @@ class AnyCallServerImpl(AnyCallServer):
     """RPC server implementation.
 
     Every registered method gets a read loop of its own, which takes its
-    requests with one BRPOPLPUSH (see `RedisQueueAdapter.take`): the request
+    requests with one BLMOVE, or BRPOPLPUSH on a Redis before 6.2 (see
+    `RedisQueueAdapter.take`): the request
     moves from the method's queue onto this server's processing list
     (`anycall:processing:<server id>`) in one atomic step, so a crash at any
     point leaves it either still queued or on the list of the server that had
-    it -- never neither. BRPOPLPUSH blocks, so an idle loop waits in Redis and
+    it -- never neither. A take blocks, so an idle loop waits in Redis and
     is handed a request the moment a client pushes one, and of several idle
     servers, Redis hands it to exactly one.
 
@@ -116,7 +117,7 @@ class AnyCallServerImpl(AnyCallServer):
     heartbeating (see `reaping.reap_dead_servers`): their clients get a
     ServerLostError instead of waiting out their whole timeout.
 
-    BRPOPLPUSH reads a single queue and holds its connection while it blocks,
+    A take reads a single queue and holds its connection while it blocks,
     so the server uses one Redis connection per method, plus the ones redis-
     py's pool hands out for responses and the heartbeat.
     """
@@ -212,6 +213,13 @@ class AnyCallServerImpl(AnyCallServer):
                 return self
 
             logger.info(f"Starting AnyCall server {self._server_id}")
+            try:
+                uses_blmove = self.redis.detect_blmove()
+            except Exception as e:
+                raise AnyCallError(
+                    "AnyCall Server", f"Failed to ask Redis for BLMOVE, not starting: {e}"
+                ) from e
+            logger.info(f"Taking requests with {'BLMOVE' if uses_blmove else 'BRPOPLPUSH'}")
             # Heartbeat once before taking any request: a server missing from
             # the live set is never looked at by reaping, so a request it took
             # would be lost if it then crashed.

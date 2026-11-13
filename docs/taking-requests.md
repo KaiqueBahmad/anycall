@@ -17,8 +17,10 @@ To watch it step by step, open
 
 ## Taking a request
 
-`BRPOPLPUSH anycall:requests:<method> anycall:processing:<server>` pops the
-request and pushes it onto the server's processing list in one step. The
+`BLMOVE anycall:requests:<method> anycall:processing:<server> RIGHT LEFT` pops
+the request and pushes it onto the server's processing list in one step. On a
+Redis before 6.2, which has no `BLMOVE`, the server uses the equivalent
+`BRPOPLPUSH`; it asks Redis which one on start. The
 request is always in one of the two places, so a crash falls before the
 command or after it:
 
@@ -35,8 +37,8 @@ sequenceDiagram
     participant R as Redis
     participant A as Server A
     participant B as Server B
-    A->>R: BRPOPLPUSH requests:analyze processing:A (waiting)
-    B->>R: BRPOPLPUSH requests:analyze processing:B (waiting)
+    A->>R: BLMOVE requests:analyze processing:A (waiting)
+    B->>R: BLMOVE requests:analyze processing:B (waiting)
     C->>R: LPUSH requests:analyze
     R-->>A: the request, now on processing:A (one step)
     Note over B: stays blocked, never woken
@@ -54,14 +56,14 @@ takes the oldest.
 
 ## One loop, and one connection, per method
 
-`BRPOPLPUSH` reads a single queue, and a blocked command holds its connection
+`BLMOVE` reads a single queue, and a blocked command holds its connection
 until it returns. So a server runs one read loop per method it serves, each on
 its own connection:
 
 ```
 loop for "analyze":
     wait for a free slot (the method's max_concurrency)
-    BRPOPLPUSH requests:analyze processing:A, up to 2s
+    BLMOVE requests:analyze processing:A, up to 2s
     hand the request to a worker
 ```
 

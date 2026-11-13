@@ -10,7 +10,10 @@ import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import dev.kaiquebt.anycall.publisher.AnycallReaping;
 import dev.kaiquebt.anycall.publisher.AnycallResponses;
+import io.lettuce.core.ClientOptions;
+import io.lettuce.core.LMoveArgs;
 import io.lettuce.core.RedisClient;
+import io.lettuce.core.protocol.ProtocolVersion;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -41,10 +44,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <strong>This class is not intended for direct use. Use {@link dev.kaiquebt.anycall.core.AnyCall#server(String)} instead.</strong>
  * </p>
  * Every registered method gets a read loop of its own, which takes its requests with one
- * {@code BRPOPLPUSH}: the request moves from the method's queue onto this server's
+ * {@code BLMOVE} ({@code BRPOPLPUSH} on a Redis before 6.2): the request moves from the method's queue onto this server's
  * processing list ({@code anycall:processing:<server id>}) in one atomic step, so a crash
  * at any point leaves it either still queued or on the list of the server that had it —
- * never neither. {@code BRPOPLPUSH} blocks, so an idle loop waits in Redis and is handed a
+ * never neither. A take blocks, so an idle loop waits in Redis and is handed a
  * request the moment a client pushes one, and of several idle servers, Redis hands it to
  * exactly one.
  * <p>
@@ -59,7 +62,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * (see {@link AnycallReaping}): their clients get a {@code ServerLostError} instead of
  * waiting out their whole timeout.
  * <p>
- * {@code BRPOPLPUSH} reads a single queue and holds its connection while it blocks, so the
+ * A take reads a single queue and holds its connection while it blocks, so the
  * server uses one Redis connection per method, plus one shared by response writes and the
  * heartbeat.
  */
@@ -97,6 +100,9 @@ public class AnyCallServerImpl implements AnyCallServer {
     // The write connection's async view, so a tick can give up after one period.
     private final RedisAsyncCommands<String, String> heartbeatCommands;
     private volatile boolean heartbeatRegistered;
+    // Whether to take with BLMOVE (Redis 6.2+) or BRPOPLPUSH, which 6.2 deprecates. Asked
+    // of Redis on start (see detectBlmove).
+    private volatile boolean useBlmove;
 
     private final Map<String, MethodHandler> methodHandlers;
     private final Map<String, Semaphore> methodConcurrencyLimiters;
@@ -129,6 +135,8 @@ public class AnyCallServerImpl implements AnyCallServer {
             throw new IllegalArgumentException("AnyCall Server: maxConcurrency must be at least 1");
         }
         this.redisClient = RedisClient.create(redisUri);
+        // RESP2: Redis 5 has no HELLO, so no RESP3.
+        this.redisClient.setOptions(ClientOptions.builder().protocolVersion(ProtocolVersion.RESP2).build());
         this.writeConnection = redisClient.connect();
         this.writeCommands = writeConnection.sync();
         this.heartbeatCommands = writeConnection.async();
@@ -155,6 +163,13 @@ public class AnyCallServerImpl implements AnyCallServer {
     public synchronized AnyCallServer start() {
         if (!running.get()) {
             log.info("Starting AnyCall server {}", serverId);
+            try {
+                useBlmove = detectBlmove();
+            } catch (Exception e) {
+                throw new AnyCallError("AnyCall Server", "Failed to ask Redis for BLMOVE, not starting: "
+                    + e.getMessage(), e);
+            }
+            log.info("Taking requests with {}", useBlmove ? "BLMOVE" : "BRPOPLPUSH");
             // Heartbeat once before taking any request: a server missing from the live set
             // is never looked at by reaping, so a request it took would be lost if it then
             // crashed.
@@ -334,6 +349,16 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
+     * Whether Redis has {@code BLMOVE}, asked with {@code COMMAND INFO BLMOVE}, which answers
+     * nil for a command Redis doesn't have. Asks for the command rather than reading the
+     * version, which servers compatible with Redis don't always report faithfully.
+     */
+    private boolean detectBlmove() {
+        List<Object> info = writeCommands.commandInfo("BLMOVE");
+        return info != null && !info.isEmpty() && info.get(0) != null;
+    }
+
+    /**
      * A heartbeat of the running server: a failure only logs, and the next tick tries again.
      */
     private void heartbeatTick() {
@@ -390,7 +415,7 @@ public class AnyCallServerImpl implements AnyCallServer {
      * Read loop for one method's queue, until the server stops or the method is
      * unregistered (or registered again, which starts a new loop). Waits for a free
      * permit of the method before every take, so it never takes a request it has no room
-     * to run. Holds a connection of its own, since {@code BRPOPLPUSH} blocks it.
+     * to run. Holds a connection of its own, since a take blocks it.
      */
     private void readMethod(String methodName, MethodHandler handler) {
         String queueKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
@@ -406,7 +431,9 @@ public class AnyCallServerImpl implements AnyCallServer {
                     }
                     String item;
                     try {
-                        item = commands.brpoplpush(TAKE_BLOCK_SECONDS, queueKey, processingKey);
+                        item = useBlmove
+                            ? commands.blmove(queueKey, processingKey, LMoveArgs.Builder.rightLeft(), TAKE_BLOCK_SECONDS)
+                            : commands.brpoplpush(TAKE_BLOCK_SECONDS, queueKey, processingKey);
                     } catch (RuntimeException e) {
                         methodLimiter.release();
                         throw e;

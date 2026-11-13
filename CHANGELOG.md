@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Redis 5.0 or later is enough; servers take with `BLMOVE` where Redis has it (6.2+)
+
 ### Fixed
 - A server whose first heartbeat fails no longer starts taking requests: `start()` now raises, and can be called again
 - A call whose request has an unknown or missing field now fails with a `RemoteException` when the server rejects it, instead of waiting forever

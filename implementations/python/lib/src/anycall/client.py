@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from abc import ABC, abstractmethod
 from datetime import timedelta
@@ -383,8 +384,8 @@ class AnyCallClientImpl(AnyCallClient):
 
     def _await_response(self, response_queue: str) -> str | None:
         """Wait for the call's response, up to the client's timeout (forever
-        if it's zero), in slices of WAITER_REAP_SLICE_SECONDS. Returns None
-        once the timeout is up.
+        if it's zero), in slices of WAITER_REAP_SLICE_SECONDS, whole seconds
+        each. Returns None once the timeout is up.
 
         A slice that ends empty reaps dead servers (see `_reap`), so a request
         whose server died is failed back even when no other server is alive
@@ -398,8 +399,9 @@ class AnyCallClientImpl(AnyCallClient):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
-                # BRPOP takes 0 as "forever", so never let a slice round down to it.
-                wait = max(min(wait, remaining), 0.001)
+                # Whole seconds, rounded up: Redis before 6.0 rejects a fractional
+                # timeout, and 0 would mean forever. The call may end up to 1s late.
+                wait = min(wait, math.ceil(remaining))
             result = self.redis.pop([response_queue], wait)
             if result is not None:
                 return result[1]

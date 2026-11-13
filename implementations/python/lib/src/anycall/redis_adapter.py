@@ -86,6 +86,8 @@ class RedisQueueAdapter:
 
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
+        # Set by `detect_blmove`, which a server runs once on start.
+        self._blmove = False
         self._heartbeat_script = redis_client.register_script(HEARTBEAT_SCRIPT)
         self._stale_script = redis_client.register_script(STALE_SCRIPT)
         self._claim_script = redis_client.register_script(CLAIM_SCRIPT)
@@ -120,11 +122,33 @@ class RedisQueueAdapter:
         key, value = result
         return _text(key), _text(value)
 
+    def detect_blmove(self) -> bool:
+        """Ask Redis whether it has BLMOVE (6.2+), and take with it from now
+        on if so; BRPOPLPUSH, which 6.2 deprecates, otherwise. Asks for the
+        command rather than reading the version, which servers compatible
+        with Redis don't always report faithfully.
+
+        Reads the reply raw: redis-py's parser for COMMAND INFO breaks on the
+        nil a Redis without the command answers.
+
+        Returns:
+            Whether BLMOVE is used
+        """
+        connection = self.redis.connection_pool.get_connection()
+        try:
+            connection.send_command("COMMAND", "INFO", "BLMOVE")
+            reply = connection.read_response()
+        finally:
+            self.redis.connection_pool.release(connection)
+        self._blmove = bool(reply) and reply[0] is not None
+        return self._blmove
+
     def take(self, queue_key: str, processing_key: str, timeout_seconds: int) -> Optional[str]:
         """Block until the queue has a request, then move it onto the
-        processing list, in one atomic step (BRPOPLPUSH): there's no moment
-        where a request is out of its queue but not yet recorded as taken, so
-        a crash can't make one vanish without a trace.
+        processing list, in one atomic step (BLMOVE, or BRPOPLPUSH on a Redis
+        without it; see `detect_blmove`): there's no moment where a request
+        is out of its queue but not yet recorded as taken, so a crash can't
+        make one vanish without a trace.
 
         Reads a single queue and holds its connection while it blocks, so a
         server keeps one connection per method it reads.
@@ -137,7 +161,10 @@ class RedisQueueAdapter:
         Returns:
             The request json, or None on timeout
         """
-        value = self.redis.brpoplpush(queue_key, processing_key, timeout_seconds)
+        if self._blmove:
+            value = self.redis.blmove(queue_key, processing_key, timeout_seconds, "RIGHT", "LEFT")
+        else:
+            value = self.redis.brpoplpush(queue_key, processing_key, timeout_seconds)
         return None if value is None else _text(value)
 
     def respond(

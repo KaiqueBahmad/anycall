@@ -14,6 +14,10 @@ SOCKET_TIMEOUT_MARGIN = timedelta(seconds=5)
 # redis-py 8 changed the default from no limit to 5s, which would cut a wait
 # slice short. Every BRPOP lasts a slice at most, whatever the call's timeout,
 # so a call with no limit still never blocks on a dead Redis forever.
+# RESP2: redis-py 8 opens every connection with HELLO 3, which Redis 5 doesn't
+# have.
+REDIS_PROTOCOL = 2
+
 CLIENT_SOCKET_TIMEOUT = (timedelta(seconds=WAITER_REAP_SLICE_SECONDS) + SOCKET_TIMEOUT_MARGIN).total_seconds()
 
 
@@ -40,7 +44,7 @@ class AnyCall:
             AnyCallClient instance
         """
         redis_client = redis.from_url(
-            redis_uri, decode_responses=False, socket_timeout=CLIENT_SOCKET_TIMEOUT
+            redis_uri, decode_responses=False, socket_timeout=CLIENT_SOCKET_TIMEOUT, protocol=REDIS_PROTOCOL
         )
         redis_adapter = RedisQueueAdapter(redis_client)
         return AnyCallClientImpl(redis_adapter, timeout, default_max_queue_depth)
@@ -61,6 +65,6 @@ class AnyCall:
         Returns:
             AnyCallServer instance
         """
-        redis_client = redis.from_url(redis_uri, decode_responses=False)
+        redis_client = redis.from_url(redis_uri, decode_responses=False, protocol=REDIS_PROTOCOL)
         redis_adapter = RedisQueueAdapter(redis_client)
         return AnyCallServerImpl(redis_adapter, max_concurrency)

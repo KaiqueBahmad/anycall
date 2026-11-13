@@ -46,7 +46,7 @@ This installs the `anycall` library to your local Maven repository as
 
 ### Both Languages
 
-- **Redis 6.0+** — Used for message transport, with Lists as queues
+- **Redis 5.0+** — Used for message transport, with Lists as queues
 - Running Redis instance (local or remote)
 
 ### Python
