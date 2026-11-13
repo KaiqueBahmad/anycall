@@ -39,11 +39,14 @@ def deserialize(json_str: str, target_type: Type[T]) -> T:
     data = json.loads(json_str)
 
     if is_dataclass(target_type):
-        # Special handling for request/response to support camelCase from Java
+        # The envelopes have camelCase wire names of their own.
         if target_type is AnyCallRequest:
             return AnyCallRequest.from_dict(data)
         if target_type is AnyCallResponse:
             return AnyCallResponse.from_dict(data)
+        # JSON null is a null value of any type, as Jackson reads it.
+        if data is None:
+            return None
         return dacite.from_dict(target_type, data)
 
     return data

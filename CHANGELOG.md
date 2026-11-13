@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Java: stopping a server waits for the requests it already took to finish and be answered, as Python does, instead of interrupting them after 5s
 - Python docs no longer describe Redis Streams
 - Python: messages are read by their camelCase field names only, as in Java
+- A response with neither a payload nor an error fails with `SerializationError`
+- Python: a typed call to a method that returned `None` returns `None` instead of failing
 
 ### Removed
 - The metrics flag on `AnyCall.client(...)` and `AnyCall.server(...)` (`metricsEnabled` in Java, `metrics_enabled` in Python)

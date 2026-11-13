@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 from datetime import timedelta
 from typing import Any, Type, TypeVar
 
+import dacite
+
 from . import queues
 from .exceptions import (
     AnyCallError,
@@ -328,13 +330,21 @@ class AnyCallClientImpl(AnyCallClient):
             if response.has_error():
                 raise RemoteException(method_name, response.error_msg or "Unknown error", "RemoteExecutionError")
 
+            # A method that returned None sends the payload "null"; a null
+            # payload without an error is a broken response, not a None result.
             payload = response.payload
             if payload is None:
-                raise SerializationError(method_name, "Response payload is missing")
+                raise SerializationError(
+                    method_name,
+                    f"Response from method {method_name} has neither a payload nor an error; "
+                    f"the method may have run",
+                )
             try:
                 return deserialize(payload, response_type)
             except json.JSONDecodeError as e:
                 raise JSONDecodeError(method_name, f"Failed to decode response payload: {e}")
+            except dacite.DaciteError as e:
+                raise SerializationError(method_name, f"Response payload doesn't fit {response_type.__name__}: {e}")
 
         finally:
             self.redis.delete(response_queue)

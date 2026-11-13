@@ -359,3 +359,33 @@ class TestResponseFields:
 
         with pytest.raises(SerializationError):
             client.raw_call("my-op", {})
+
+
+class TestNullPayload:
+    """A null result travels as the payload "null"; a null payload is a broken response."""
+
+    def test_null_result_is_none_for_typed_call(self):
+        adapter = RespondingAdapter('{"requestId": "r1", "payload": "null", "error": null}')
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        assert client.call("my-op", {}, MockResponse) is None
+
+    def test_null_result_is_none_for_raw_call(self):
+        adapter = RespondingAdapter('{"requestId": "r1", "payload": "null", "error": null}')
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        assert client.raw_call("my-op", {}) is None
+
+    def test_response_with_neither_payload_nor_error_is_a_serialization_error(self):
+        adapter = RespondingAdapter('{"requestId": "r1", "payload": null, "error": null}')
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        with pytest.raises(SerializationError, match="neither a payload nor an error"):
+            client.call("my-op", {}, MockResponse)
+
+    def test_payload_that_does_not_fit_the_type_is_a_serialization_error(self):
+        adapter = RespondingAdapter('{"requestId": "r1", "payload": "{\\\\"other\\\\": 1}", "error": null}')
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        with pytest.raises(SerializationError):
+            client.call("my-op", {}, MockResponse)

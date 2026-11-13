@@ -138,6 +138,12 @@ public class AnyCallClientImpl implements AnyCallClient {
             if (response.hasError()) {
                 throw new RemoteException(methodName, response.error(), "RemoteExecutionError");
             }
+            // A method that returned null sends the payload "null"; a null payload without
+            // an error is a broken response, not a null result.
+            if (response.payload() == null) {
+                throw new SerializationError(methodName, "Response from method " + methodName
+                    + " has neither a payload nor an error; the method may have run");
+            }
 
             return OBJECT_MAPPER.readValue(response.payload(), responseType);
         } catch (Exception e) {
