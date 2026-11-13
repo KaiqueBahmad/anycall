@@ -10,7 +10,7 @@ Reaping never runs the request again. It only fails it back to its client.
 
 | Redis key | Written by | Holds |
 |---|---|---|
-| `anycall:processing:<server>` | servers | the requests that server is processing (see [taking-requests.md](taking-requests.md)) |
+| `anycall:processing:<server>` | servers, reapers | the requests that server is processing (see [taking-requests.md](taking-requests.md)); once a dead server is reaped, a tombstone |
 | `anycall:servers:alive` | servers | every server's last heartbeat, by Redis's clock |
 | `anycall:responses:<id>` | servers, reapers | the response a client waits on |
 
@@ -18,37 +18,44 @@ A server heartbeats every 2s and counts as dead when its heartbeat is over 8s
 old. A dead server stays in `anycall:servers:alive` until it's reaped, because
 its entry is how its processing list gets found.
 
-## The claim
+## Failing back a request
 
-Anyone who finds a heartbeat older than 8s runs one Lua script on that server:
+Anyone who finds a heartbeat older than 8s fails back that server's requests
+one at a time, each in a transaction of its own:
 
-```lua
--- KEYS[1] = anycall:servers:alive, KEYS[2] = anycall:processing:<server>
--- ARGV[1] = the server's id, ARGV[2] = 8 (seconds)
-local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
-if not score then return {} end -- in this case the server were reaped
-local t = redis.call('TIME')
-local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-if tonumber(score) >= now - tonumber(ARGV[2]) then return {} end
-redis.call('ZREM', KEYS[1], ARGV[1])
-local items = redis.call('LRANGE', KEYS[2], 0, -1)
-redis.call('DEL', KEYS[2])
-return items
+```
+WATCH  anycall:processing:<server>
+LINDEX anycall:processing:<server> -1       -- the next request, not removed
+                                            -- (its requestId is read by the reaper)
+MULTI
+LTRIM  anycall:processing:<server> 0 -2     -- drops the last one: the request read
+LPUSH  anycall:responses:<requestId> <server-lost error>
+EXPIRE anycall:responses:<requestId> 60
+EXEC
 ```
 
-If the server is gone from the set, or its heartbeat is no longer that old,
-the script returns nothing and changes nothing. Otherwise it atomically:
+The request leaves the list in the same `EXEC` that writes its error, so a
+reaper that dies at any point leaves it on the list for the next one.
 
-1. removes the server from `anycall:servers:alive`;
-2. reads its whole processing list and deletes it;
-3. returns what was on it.
+When the list is empty, one script removes the server from
+`anycall:servers:alive` and turns its processing key into a **tombstone**: a
+string, kept 30 days. A take onto a tombstone fails with `WRONGTYPE`, and Redis
+leaves the request in its queue. So nothing can land on a dead server's list
+after it was reaped, where no one would look anymore. A reaper that finds the
+tombstone already there knows the server was reaped, and stops.
 
-The caller then pushes a server-lost error, with a 60s expiry, to the response
-queue of each request it got back.
+`WATCH` cancels the `EXEC` if anything changed the list since it was read:
+another reaper took the request first. The reaper then reads again. So when
+several reapers find the same dead server, each request is failed back by
+exactly one of them.
 
-When several reapers find the same dead server, only the first gets its
-requests, so a client never gets two errors. A server that heartbeats again
-before the claim is left alone.
+Nothing needs checking about the server first: once its heartbeat is over 8s
+old, it's dead for good. The heartbeat script refuses its id from then on, so
+it can't come back while being reaped.
+
+The request is read with a plain `LINDEX`, not inside a Lua script: copying a
+large request into Lua blocks Redis several times longer than a plain read
+(1.5ms against 0.14ms for 1MB).
 
 ## Who reaps it
 
@@ -62,12 +69,13 @@ flowchart LR
 ```
 
 - **Servers:** the heartbeat script refreshes the server's own entry and
-  returns the servers that are dead. The server runs the claim on each.
+  returns the servers that are dead. The server fails back their requests on
+  a connection of its own, since `WATCH` and `MULTI` belong to a connection.
 - **Clients:** a call waits on `BRPOP` in slices of up to 10s. When a slice
-  ends empty, the client lists the dead servers and runs the claim on each. If
-  its own request was among them, the error is in its queue on the next
-  `BRPOP`. The Java client uses a second connection for this, opened the first
-  time a slice ends empty.
+  ends empty, the client lists the dead servers and fails back their
+  requests. If its own request was among them, the error is in its queue on
+  the next `BRPOP`. The Java client uses a second connection for this, opened
+  the first time a slice ends empty, and one call at a time uses it.
 
 ## What the caller sees
 
@@ -82,17 +90,26 @@ tells a lost server apart from the method's own error (`RemoteException`).
 
 ## Edge cases
 
-- **A server reaped while still alive.** A server that misses heartbeats for
-  8s, say during a long GC pause, has its requests failed back. Its next
-  heartbeat re-registers it and logs a warning. The responses it still writes
-  are never read and expire after 60s.
+- **A server declared dead while still running.** A server that misses
+  heartbeats for 8s (a long GC pause, a frozen VM, Redis unreachable) has its
+  requests failed back, and its list becomes a tombstone. When it resumes,
+  its old id drains, as soon as its heartbeat is refused or a take hits the
+  tombstone: it logs a warning and carries on under a new server id. The
+  requests still running under the draining id finish with their results
+  discarded, holding their concurrency slots until then. A take that hit the
+  tombstone left its request in the queue, so it's served under the new id.
+  Once no take is left on the draining id, the server deletes its own
+  tombstone.
+- **A server frozen longer than the tombstone's 30 days.** It may lose a
+  request taken in the moment before it notices it's dead. It's the only
+  case reaping can't cover.
 - **A request still in its queue.** It isn't on any processing list, so it
   isn't reaped. With no server serving its method, it waits out the timeout.
 - **No server alive and no client waiting.** Nobody reaps. The list stays
   until a server starts, and that server's heartbeat reaps it.
-- **A reaper that dies between the claim and writing the errors.** The claim
-  already removed the requests, so their clients wait out their timeout. The
-  window is one round trip.
+- **A reaper that dies halfway.** Every request it hadn't failed back yet is
+  still on the dead server's list, which is still in `anycall:servers:alive`,
+  so the next reaper carries on.
 
 ## Timings
 

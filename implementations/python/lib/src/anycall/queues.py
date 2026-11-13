@@ -26,6 +26,13 @@ HEARTBEAT_TTL_SECONDS = 8
 # or a server pruned as dead answered late), so it doesn't sit in Redis forever.
 RESPONSE_TTL_SECONDS = 60
 
+# Expiry on a tombstone: the string a dead server's processing list becomes
+# once reaping has emptied it (see `reaping`). While it's there, a take that
+# would land on that list fails with WRONGTYPE and leaves the request in its
+# queue. A server that comes back drains and deletes its own tombstone; this
+# only bounds how long a crashed server's stays.
+TOMBSTONE_TTL_SECONDS = 30 * 24 * 3600
+
 
 def request_queue(method_name: str) -> str:
     """Generate request queue key for a method."""

@@ -51,9 +51,10 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final TypeRegistry registry;
     private volatile Long defaultMaxQueueDepth;
     // For reaping, opened the first time a wait slice ends empty. Separate from
-    // `connection`, which may be blocked in another thread's BRPOP; never blocks itself, so
-    // every call can share it.
+    // `connection`, which may be blocked in another thread's BRPOP. Every call shares it,
+    // one reaping at a time (see reapLock), since its WATCH and MULTI belong to it.
     private volatile StatefulRedisConnection<String, String> reapConnection;
+    private final Object reapLock = new Object();
 
     public AnyCallClientImpl(String redisUri, Duration timeout) {
         this(redisUri, timeout, null);
@@ -315,6 +316,14 @@ public class AnyCallClientImpl implements AnyCallClient {
      * log; the call goes back to waiting either way.
      */
     private void reap() {
+        // One reaper at a time per client: WATCH and MULTI belong to the reap connection,
+        // which every call shares.
+        synchronized (reapLock) {
+            reapUnderLock();
+        }
+    }
+
+    private void reapUnderLock() {
         try {
             RedisCommands<String, String> reap = reapCommands();
             AnycallReaping.reapDeadServers(reap, AnycallReaping.staleServers(reap));

@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
+import redis.exceptions
+
 from . import queues
 from .context import AnycallContext
 from .exceptions import AnyCallError
@@ -29,6 +31,24 @@ TAKE_BLOCK_SECONDS = 2
 HEARTBEAT_KEY = queues.HEARTBEAT_KEY
 HEARTBEAT_PERIOD_SECONDS = 2  # how often a live server refreshes its entry
 HEARTBEAT_TTL_SECONDS = queues.HEARTBEAT_TTL_SECONDS
+
+
+class _Identity:
+    """The server id a server heartbeats and takes requests under. Replaced by
+    a new one when the server is declared dead, and the old one drains (see
+    `AnyCallServerImpl._drain`): requests taken under it are failed back by
+    reapers, so their results are discarded."""
+
+    def __init__(self) -> None:
+        self.server_id = str(uuid.uuid4())
+        self.processing_key = queues.processing_list(self.server_id)
+        # Whether its first heartbeat went through: no request is taken
+        # under an id before that.
+        self.registered = False
+        # Takes started under this id and not returned yet, guarded by the
+        # server's identity lock. Once it drains and this reaches 0, nothing
+        # can land on its list anymore, and its tombstone can go.
+        self.active_takes = 0
 
 
 class ConcurrencyLimiter:
@@ -147,11 +167,19 @@ class AnyCallServerImpl(AnyCallServer):
         self._executor: Optional[ThreadPoolExecutor] = None
         self._threads: list[threading.Thread] = []
         self._global_limiter = ConcurrencyLimiter(max_concurrency) if max_concurrency else None
-        self._server_id = str(uuid.uuid4())
-        self._processing_key = queues.processing_list(self._server_id)
+        self._identity = _Identity()
+        # Guards `_identity`, `_draining` and every identity's `active_takes`:
+        # a read loop counts its take under the same lock a drain switches
+        # ids under, so once an id drains, no new take can start on it.
+        self._identity_lock = threading.Lock()
+        # Ids that drained and whose tombstone still has to be deleted.
+        self._draining: list[_Identity] = []
+        # Set while the current id is registered, so read loops can take.
+        self._registered = threading.Event()
+        # Wakes the heartbeat early, to register a new id right after a drain.
+        self._heartbeat_wake = threading.Event()
         self._in_flight_request_ids: set[str] = set()
         self._in_flight_lock = threading.Lock()
-        self._heartbeat_registered = False
 
     def register(self, *suppliers: Any) -> "AnyCallServer":
         """Register supplier(s) with this server."""
@@ -212,7 +240,11 @@ class AnyCallServerImpl(AnyCallServer):
             if self._running:
                 return self
 
-            logger.info(f"Starting AnyCall server {self._server_id}")
+            # A restart starts clean: the last run's id ages out with an empty list.
+            if self._identity.registered:
+                self._identity = _Identity()
+                self._registered.clear()
+            logger.info(f"Starting AnyCall server {self._identity.server_id}")
             try:
                 uses_blmove = self.redis.detect_blmove()
             except Exception as e:
@@ -249,10 +281,10 @@ class AnyCallServerImpl(AnyCallServer):
 
     @property
     def server_id(self) -> str:
-        """This server instance's id -- the member it registers under in
-        `HEARTBEAT_KEY`. Generated at construction, stable for the instance's
-        lifetime, and not reused across restarts."""
-        return self._server_id
+        """This server's current id -- the member it registers under in
+        `HEARTBEAT_KEY`. A new one is generated on every start, and whenever
+        the server is declared dead; an id is never reused."""
+        return self._identity.server_id
 
     def get_in_flight_request_ids(self) -> set[str]:
         """Request ids currently between deserialization and response in
@@ -272,7 +304,8 @@ class AnyCallServerImpl(AnyCallServer):
         first.
         """
         while self._running:
-            time.sleep(HEARTBEAT_PERIOD_SECONDS)
+            self._heartbeat_wake.wait(HEARTBEAT_PERIOD_SECONDS)
+            self._heartbeat_wake.clear()
             if self._running:
                 self._heartbeat_tick()
 
@@ -286,19 +319,59 @@ class AnyCallServerImpl(AnyCallServer):
 
     def _heartbeat(self) -> None:
         """One heartbeat (see `RedisQueueAdapter.heartbeat`), then fail back
-        whatever the servers it found dead were still processing. Raises if
-        the heartbeat itself fails; reaping failures only log."""
-        rejoined, dead = self.redis.heartbeat(HEARTBEAT_KEY, self._server_id, HEARTBEAT_TTL_SECONDS)
-
-        if rejoined and self._heartbeat_registered:
-            logger.warning(
-                f"Server {self._server_id} was reaped as dead (no heartbeat for over "
-                f"{HEARTBEAT_TTL_SECONDS}s); the requests it was processing have been "
-                f"failed back to their clients"
-            )
-        self._heartbeat_registered = True
+        whatever the servers it found dead were still processing. If this
+        server was declared dead meanwhile, its id drains and it heartbeats
+        under a new one instead (see `_drain`). Raises if the heartbeat
+        itself fails; reaping failures only log."""
+        identity = self._identity
+        dead = self.redis.heartbeat(
+            HEARTBEAT_KEY, identity.server_id, HEARTBEAT_TTL_SECONDS, first=not identity.registered
+        )
+        if dead is None:
+            self._drain(identity)
+            self._heartbeat()
+            return
+        identity.registered = True
+        if identity is self._identity:
+            self._registered.set()
 
         reap_dead_servers(self.redis, dead)
+
+        # A draining id with no take left on it can't get anything on its list
+        # anymore: make sure its list was reaped, then delete its tombstone.
+        with self._identity_lock:
+            idle = [old for old in self._draining if old.active_takes == 0]
+            for old in idle:
+                self._draining.remove(old)
+        for old in idle:
+            reap_dead_servers(self.redis, [old.server_id])
+            self.redis.drop_tombstone(old.processing_key)
+
+    def _drain(self, old: _Identity) -> None:
+        """Drain an id this server was declared dead under, which never
+        heartbeats again, and carry on under a new one. The requests taken
+        under the draining id are failed back by reapers, so the ones still
+        running here finish with their results discarded, holding their
+        concurrency slots until then.
+
+        Called by the heartbeat when Redis refuses it, or by a read loop whose
+        take hit the id's tombstone; whichever comes first drains, the other
+        finds the id already switched. Read loops wait until the new id's
+        first heartbeat, which this wakes at once."""
+        with self._identity_lock:
+            if self._identity is not old:
+                return
+            fresh = _Identity()
+            self._identity = fresh
+            self._draining.append(old)
+            self._registered.clear()
+        self._heartbeat_wake.set()
+        logger.warning(
+            f"Server {old.server_id} was declared dead (no heartbeat for over "
+            f"{HEARTBEAT_TTL_SECONDS}s): draining it and continuing as {fresh.server_id}; "
+            f"the requests it had taken are failed back to their clients, and their "
+            f"results discarded"
+        )
 
     def _read_method(self, method_name: str, handler: MethodHandler) -> None:
         """Read loop for one method's queue, until the server stops or the
@@ -312,14 +385,36 @@ class AnyCallServerImpl(AnyCallServer):
         while self._running and self.method_handlers.get(method_name) is handler:
             if not limiter.acquire(timeout=TAKE_BLOCK_SECONDS):
                 continue
+            with self._identity_lock:
+                taker = self._identity
+                if taker.registered:
+                    taker.active_takes += 1
+            if not taker.registered:
+                # Just drained: wait for the new id's first heartbeat.
+                limiter.release()
+                self._registered.wait(TAKE_BLOCK_SECONDS)
+                continue
             try:
-                item = self.redis.take(queue_key, self._processing_key, TAKE_BLOCK_SECONDS)
+                item = self.redis.take(queue_key, taker.processing_key, TAKE_BLOCK_SECONDS)
+            except redis.exceptions.ResponseError as e:
+                limiter.release()
+                if "WRONGTYPE" in str(e):
+                    # Our list is a tombstone: this id was reaped, so it's dead.
+                    # The request stays in its queue.
+                    self._drain(taker)
+                elif self._running:
+                    logger.warning(f"Error reading from queue {queue_key}: {e}")
+                    time.sleep(1)
+                continue
             except Exception as e:
                 limiter.release()
                 if self._running:
                     logger.warning(f"Error reading from queue {queue_key}: {e}")
                     time.sleep(1)
                 continue
+            finally:
+                with self._identity_lock:
+                    taker.active_takes -= 1
             if item is None:
                 limiter.release()
                 continue
@@ -329,7 +424,7 @@ class AnyCallServerImpl(AnyCallServer):
             if self._global_limiter is not None:
                 self._global_limiter.acquire()
             try:
-                self._executor.submit(self._process_message, item, handler, limiter)
+                self._executor.submit(self._process_message, item, handler, limiter, taker)
             except RuntimeError:
                 # The worker pool shut down under us (`stop` joins the loops first,
                 # so this shouldn't happen). The request stays on the processing
@@ -342,15 +437,17 @@ class AnyCallServerImpl(AnyCallServer):
             self._global_limiter.release()
         method_limiter.release()
 
-    def _process_message(self, item: str, handler: MethodHandler, method_limiter: ConcurrencyLimiter) -> None:
+    def _process_message(
+        self, item: str, handler: MethodHandler, method_limiter: ConcurrencyLimiter, taker: _Identity
+    ) -> None:
         try:
-            self._process_request(handler, item)
+            self._process_request(handler, item, taker)
         except Exception as e:
             logger.exception(f"Error processing request: {e}")
         finally:
             self._release_slots(method_limiter)
 
-    def _process_request(self, handler: MethodHandler, item: str) -> None:
+    def _process_request(self, handler: MethodHandler, item: str, taker: _Identity) -> None:
         """Process a single request and send response.
 
         `item` is the request json exactly as it was taken onto the processing
@@ -361,6 +458,10 @@ class AnyCallServerImpl(AnyCallServer):
         `requestId` can be read on its own. One with no readable `requestId`
         has no response queue: it's dropped from the processing list, and
         nothing is answered.
+
+        `taker` is the identity it was taken under. If it's draining by the
+        time the request is done, reapers fail the request back, so its result
+        is discarded and the old list left to them.
         """
         request_id = None
         try:
@@ -382,7 +483,8 @@ class AnyCallServerImpl(AnyCallServer):
                 request_id = read_request_id(item)
             if request_id is None:
                 logger.warning(f"Dropped a request with no readable requestId: {e}")
-                self.redis.release(self._processing_key, item)
+                if taker is self._identity:
+                    self.redis.release(taker.processing_key, item)
                 return
             logger.exception(f"Error invoking method: {e}")
             response = AnyCallResponse.error(request_id, str(e))
@@ -391,10 +493,16 @@ class AnyCallServerImpl(AnyCallServer):
                 with self._in_flight_lock:
                     self._in_flight_request_ids.discard(request_id)
 
+        if taker is not self._identity:
+            logger.debug(
+                f"Discarded the result of request {response.request_id}, taken under "
+                f"draining id {taker.server_id}"
+            )
+            return
         response_queue = queues.response_queue(response.request_id)
         response_json = serialize(response)
         self.redis.respond(
-            response_queue, response_json, queues.RESPONSE_TTL_SECONDS, self._processing_key, item
+            response_queue, response_json, queues.RESPONSE_TTL_SECONDS, taker.processing_key, item
         )
 
     def stop(self) -> None:

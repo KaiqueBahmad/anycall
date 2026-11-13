@@ -54,4 +54,13 @@ public class AnycallQueues {
      * the queue; this only matters when nobody reads it, so it doesn't sit in Redis forever.
      */
     public static final Duration RESPONSE_TTL = Duration.ofSeconds(60);
+
+    /**
+     * Expiry on a tombstone: the string a dead server's processing list becomes once
+     * reaping has emptied it (see {@link AnycallReaping}). While it's there, a take that
+     * would land on that list fails with {@code WRONGTYPE} and leaves the request in its
+     * queue. A server that comes back drains and deletes its own tombstone; this only bounds
+     * how long a crashed server's stays.
+     */
+    public static final Duration TOMBSTONE_TTL = Duration.ofDays(30);
 }

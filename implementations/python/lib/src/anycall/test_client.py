@@ -54,8 +54,8 @@ class MockRedisAdapter:
     def stale_members(self, key: str, ttl_seconds: int) -> set[str]:
         return set()
 
-    def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]:
-        return []
+    def fail_back_next(self, alive_key, processing_key, server_id, response_ttl_seconds, tombstone_ttl_seconds, response_for):
+        return None
 
     def respond(self, response_queue: str, value: str, ttl_seconds: int, processing_key: str = "", item: str = "") -> None:
         pass
@@ -73,7 +73,7 @@ class DeadServerAdapter(MockRedisAdapter):
         self.dead = dead
         self.processing: dict[str, list[str]] = {"dead-server": []}
         self.responses: dict[str, list[str]] = {}
-        self.claims = 0
+        self.reap_steps = 0
 
     def push(self, queue_key: str, value: str) -> int:
         self.processing["dead-server"].append(value)
@@ -86,10 +86,19 @@ class DeadServerAdapter(MockRedisAdapter):
     def stale_members(self, key: str, ttl_seconds: int) -> set[str]:
         return {server for server in self.processing if self.dead}
 
-    def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]:
-        self.claims += 1
+    def fail_back_next(self, alive_key, processing_key, server_id, response_ttl_seconds, tombstone_ttl_seconds, response_for):
+        self.reap_steps += 1
         assert processing_key == f"anycall:processing:{server_id}"
-        return self.processing.pop(server_id, [])
+        items = self.processing.get(server_id)
+        if items is None:
+            return None
+        if not items:
+            del self.processing[server_id]
+            return None
+        target = response_for(items.pop())
+        if target is not None:
+            self.respond(target[0], target[1], response_ttl_seconds)
+        return "dropped" if target is None else "answered"
 
     def respond(self, response_queue: str, value: str, ttl_seconds: int, processing_key: str = "", item: str = "") -> None:
         self.responses.setdefault(response_queue, []).insert(0, value)
@@ -337,7 +346,7 @@ class TestWaiterDrivenReaping:
         with pytest.raises(TimeoutError):
             client.raw_call("my-op", {})
 
-        assert adapter.claims == 0
+        assert adapter.reap_steps == 0
         assert len(adapter.processing["dead-server"]) == 1
 
 

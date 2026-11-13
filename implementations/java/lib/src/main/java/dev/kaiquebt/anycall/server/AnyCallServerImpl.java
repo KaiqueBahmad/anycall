@@ -13,6 +13,7 @@ import dev.kaiquebt.anycall.publisher.AnycallResponses;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.LMoveArgs;
 import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisCommandExecutionException;
 import io.lettuce.core.protocol.ProtocolVersion;
 import io.lettuce.core.RedisFuture;
 import io.lettuce.core.ScriptOutputType;
@@ -77,20 +78,43 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final String HEARTBEAT_KEY = AnycallQueues.HEARTBEAT_KEY;
     private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
     private static final Duration HEARTBEAT_TTL = AnycallQueues.HEARTBEAT_TTL;
-    // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds.
-    // Returns {1 if this server's entry was missing (first tick, or it was reaped as
-    // dead), followed by every member whose heartbeat is older than the ttl}. Prunes
-    // nothing: a dead server leaves the set only through AnycallReaping's claim, so its
-    // processing list is never forgotten.
+    // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds,
+    // ARGV[3] = '1' on the server id's first heartbeat. A server whose entry is gone, or
+    // older than the ttl, was declared dead: past its first heartbeat, it gets {-1} and
+    // nothing is written, so a dead server never comes back. Otherwise refreshes its entry
+    // and returns {0, every member older than the ttl}. Prunes nothing: a dead server
+    // leaves the set only once AnycallReaping has emptied its processing list, so that list
+    // is never forgotten.
     // Kept byte-for-byte identical to the Python server's copy.
     private static final String HEARTBEAT_SCRIPT = """
         local t = redis.call('TIME')
         local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-        local added = redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
-        local result = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. string.format('%.6f', now - tonumber(ARGV[2])))
-        table.insert(result, 1, added)
+        local stale = string.format('%.6f', now - tonumber(ARGV[2]))
+        if ARGV[3] ~= '1' then
+          local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+          if not score or tonumber(score) < tonumber(stale) then return {-1} end
+        end
+        redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
+        local result = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. stale)
+        table.insert(result, 1, 0)
         return result
         """;
+
+    /**
+     * The server id this server heartbeats and takes requests under. Replaced by a new one
+     * when the server is declared dead, and the old one drains (see {@link #drain}): requests taken under it
+     * one are failed back by reapers, so their results are discarded.
+     */
+    private static final class Identity {
+        final String serverId = UUID.randomUUID().toString();
+        final String processingKey = AnycallQueues.PROCESSING_PREFIX + serverId;
+        // Whether its first heartbeat went through: no request is taken under an id before.
+        volatile boolean registered;
+        // Takes started under this id and not returned yet, guarded by identityLock. Once it
+        // drains and this reaches 0, nothing can land on its list anymore, and its tombstone
+        // can go.
+        int activeTakes;
+    }
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -99,7 +123,18 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final RedisCommands<String, String> writeCommands;
     // The write connection's async view, so a tick can give up after one period.
     private final RedisAsyncCommands<String, String> heartbeatCommands;
-    private volatile boolean heartbeatRegistered;
+    // For reaping, used only by the heartbeat: its WATCH and MULTI belong to the connection,
+    // so they can't share the write connection with the workers' responses.
+    private final StatefulRedisConnection<String, String> reapConnection;
+    // Draining identities whose lists still need a last pass; only the heartbeat touches it.
+    // Guards identity, draining and every identity's activeTakes: a read loop counts its take
+    // under the same lock a drain switches ids under, so once an id drains, no new take can
+    // start on it. Read loops also wait on it for a new id's first heartbeat.
+    private final Object identityLock = new Object();
+    // Ids that drained and whose tombstone still has to be deleted.
+    private final List<Identity> draining = new ArrayList<>();
+    // Wakes the heartbeat early, to register a new id right after a drain.
+    private final Semaphore heartbeatWake = new Semaphore(0);
     // Whether to take with BLMOVE (Redis 6.2+) or BRPOPLPUSH, which 6.2 deprecates. Asked
     // of Redis on start (see detectBlmove).
     private volatile boolean useBlmove;
@@ -109,8 +144,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
     private final Semaphore globalConcurrencyLimiter;
-    private final String serverId;
-    private final String processingKey;
+    private volatile Identity identity = new Identity();
     // Read loops and the heartbeat, apart from the workers so stop() can wait for every
     // loop to exit before the worker pool stops taking requests.
     private ExecutorService loops;
@@ -140,13 +174,12 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.writeConnection = redisClient.connect();
         this.writeCommands = writeConnection.sync();
         this.heartbeatCommands = writeConnection.async();
+        this.reapConnection = redisClient.connect();
         this.methodHandlers = new ConcurrentHashMap<>();
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
         this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
-        this.serverId = UUID.randomUUID().toString();
-        this.processingKey = AnycallQueues.PROCESSING_PREFIX + serverId;
     }
 
     /**
@@ -162,7 +195,11 @@ public class AnyCallServerImpl implements AnyCallServer {
     @Override
     public synchronized AnyCallServer start() {
         if (!running.get()) {
-            log.info("Starting AnyCall server {}", serverId);
+            // A restart starts clean: the last run's id ages out with an empty list.
+            if (identity.registered) {
+                identity = new Identity();
+            }
+            log.info("Starting AnyCall server {}", identity.serverId);
             try {
                 useBlmove = detectBlmove();
             } catch (Exception e) {
@@ -315,14 +352,14 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * This server instance's id — the member it registers under in {@code anycall:servers:alive}.
-     * Generated at construction, stable for the instance's lifetime, and never reused
-     * across restarts.
+     * This server's current id — the member it registers under in {@code anycall:servers:alive}.
+     * A new one is generated on every start, and whenever the server is declared dead; an id
+     * is never reused.
      *
      * @return this server's id
      */
     public String getServerId() {
-        return serverId;
+        return identity.serverId;
     }
 
     /**
@@ -338,7 +375,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private void emitHeartbeats() {
         try {
             while (running.get()) {
-                Thread.sleep(HEARTBEAT_PERIOD.toMillis());
+                heartbeatWake.tryAcquire(HEARTBEAT_PERIOD.toMillis(), TimeUnit.MILLISECONDS);
+                heartbeatWake.drainPermits();
                 if (running.get()) {
                     heartbeatTick();
                 }
@@ -382,10 +420,11 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * One heartbeat, as a single {@code EVAL} of {@link #HEARTBEAT_SCRIPT}: {@code ZADD} this
-     * server under Redis's own clock ({@code TIME}) and read back the servers whose heartbeat
-     * is older than {@link #HEARTBEAT_TTL}, then fail back whatever those were still
-     * processing.
+     * One heartbeat, as a single {@code EVAL} of {@link #HEARTBEAT_SCRIPT}: refresh this
+     * server's entry under Redis's own clock ({@code TIME}) and read back the servers whose
+     * heartbeat is older than {@link #HEARTBEAT_TTL}, then fail back whatever those were still
+     * processing. If this server was declared dead meanwhile, its id drains and it heartbeats
+     * under a new one instead (see {@link #drain}).
      * <p>
      * "Now" is Redis's clock, not this host's, so scores written and compared by different
      * servers are always on the same clock — skew between hosts can't make a live server
@@ -393,22 +432,70 @@ public class AnyCallServerImpl implements AnyCallServer {
      * than {@link #HEARTBEAT_PERIOD}; reaping failures only log.
      */
     private void heartbeat() throws Exception {
+        Identity current = identity;
         RedisFuture<List<Object>> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.MULTI,
-            new String[] {HEARTBEAT_KEY}, serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()));
+            new String[] {HEARTBEAT_KEY}, current.serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()),
+            current.registered ? "0" : "1");
         List<Object> result = future.get(HEARTBEAT_PERIOD.toMillis(), TimeUnit.MILLISECONDS);
 
-        if (Long.valueOf(1).equals(result.get(0)) && heartbeatRegistered) {
-            log.warn("Server {} was reaped as dead (no heartbeat for over {}s); the requests it "
-                + "was processing have been failed back to their clients",
-                serverId, HEARTBEAT_TTL.getSeconds());
+        if (Long.valueOf(-1).equals(result.get(0))) {
+            drain(current);
+            heartbeat();
+            return;
         }
-        heartbeatRegistered = true;
+        current.registered = true;
+        synchronized (identityLock) {
+            identityLock.notifyAll();  // read loops waiting for this id can take now
+        }
 
         List<String> dead = new ArrayList<>(result.size() - 1);
         for (Object member : result.subList(1, result.size())) {
             dead.add((String) member);
         }
-        AnycallReaping.reapDeadServers(writeCommands, dead);
+        RedisCommands<String, String> reap = reapConnection.sync();
+        AnycallReaping.reapDeadServers(reap, dead);
+
+        // A draining id with no take left on it can't get anything on its list anymore: make
+        // sure its list was reaped, then delete its tombstone.
+        List<Identity> idle = new ArrayList<>();
+        synchronized (identityLock) {
+            for (Identity old : draining) {
+                if (old.activeTakes == 0) {
+                    idle.add(old);
+                }
+            }
+            draining.removeAll(idle);
+        }
+        for (Identity old : idle) {
+            AnycallReaping.reapDeadServers(reap, List.of(old.serverId));
+            AnycallReaping.dropTombstone(reap, old.serverId);
+        }
+    }
+
+    /**
+     * Drains an id this server was declared dead under, which never heartbeats again, and
+     * carries on under a new one. The requests taken under the draining id are failed back
+     * by reapers, so the ones still running here finish with their results discarded, holding
+     * their concurrency slots until then.
+     * <p>
+     * Called by the heartbeat when Redis refuses it, or by a read loop whose take hit the
+     * id's tombstone; whichever comes first drains, the other finds the id already switched.
+     * Read loops wait until the new id's first heartbeat, which this wakes at once.
+     */
+    private void drain(Identity old) {
+        Identity fresh;
+        synchronized (identityLock) {
+            if (identity != old) {
+                return;  // already drained, by the heartbeat or another read loop
+            }
+            fresh = new Identity();
+            identity = fresh;
+            draining.add(old);
+        }
+        heartbeatWake.release();
+        log.warn("Server {} was declared dead (no heartbeat for over {}s): draining it and "
+            + "continuing as {}; the requests it had taken are failed back to their clients, "
+            + "and their results discarded", old.serverId, HEARTBEAT_TTL.getSeconds(), fresh.serverId);
     }
 
     /**
@@ -429,20 +516,50 @@ public class AnyCallServerImpl implements AnyCallServer {
                     if (!methodLimiter.tryAcquire(TAKE_BLOCK_SECONDS, TimeUnit.SECONDS)) {
                         continue;
                     }
+                    Identity taker;
+                    synchronized (identityLock) {
+                        taker = identity;
+                        if (taker.registered) {
+                            taker.activeTakes++;
+                        }
+                    }
+                    if (!taker.registered) {
+                        // Just drained: wait for the new id's first heartbeat.
+                        methodLimiter.release();
+                        synchronized (identityLock) {
+                            if (!identity.registered) {
+                                identityLock.wait(TimeUnit.SECONDS.toMillis(TAKE_BLOCK_SECONDS));
+                            }
+                        }
+                        continue;
+                    }
                     String item;
                     try {
                         item = useBlmove
-                            ? commands.blmove(queueKey, processingKey, LMoveArgs.Builder.rightLeft(), TAKE_BLOCK_SECONDS)
-                            : commands.brpoplpush(TAKE_BLOCK_SECONDS, queueKey, processingKey);
+                            ? commands.blmove(queueKey, taker.processingKey, LMoveArgs.Builder.rightLeft(), TAKE_BLOCK_SECONDS)
+                            : commands.brpoplpush(TAKE_BLOCK_SECONDS, queueKey, taker.processingKey);
+                    } catch (RedisCommandExecutionException e) {
+                        methodLimiter.release();
+                        if (e.getMessage() != null && e.getMessage().startsWith("WRONGTYPE")) {
+                            // Our list is a tombstone: this id was reaped, so it's dead. The
+                            // request stays in its queue.
+                            drain(taker);
+                            continue;
+                        }
+                        throw e;
                     } catch (RuntimeException e) {
                         methodLimiter.release();
                         throw e;
+                    } finally {
+                        synchronized (identityLock) {
+                            taker.activeTakes--;
+                        }
                     }
                     if (item == null) {
                         methodLimiter.release();
                         continue;
                     }
-                    dispatch(item, handler, methodLimiter);
+                    dispatch(item, handler, methodLimiter, taker);
                 }
             } catch (InterruptedException e) {
                 // Only from shutdownNow(): whatever was taken stays on the processing list,
@@ -472,7 +589,8 @@ public class AnyCallServerImpl implements AnyCallServer {
      * Hands a taken request to the worker pool. Waits for a server-wide permit first, if
      * there's a cap: see the class docs for why that happens after taking, not before.
      */
-    private void dispatch(String item, MethodHandler handler, Semaphore methodLimiter) throws InterruptedException {
+    private void dispatch(String item, MethodHandler handler, Semaphore methodLimiter, Identity taker)
+            throws InterruptedException {
         if (globalConcurrencyLimiter != null) {
             try {
                 globalConcurrencyLimiter.acquire();
@@ -483,7 +601,7 @@ public class AnyCallServerImpl implements AnyCallServer {
         }
         workers.submit(() -> {
             try {
-                processRequest(item, handler);
+                processRequest(item, handler, taker);
             } finally {
                 if (globalConcurrencyLimiter != null) {
                     globalConcurrencyLimiter.release();
@@ -500,8 +618,10 @@ public class AnyCallServerImpl implements AnyCallServer {
      * @param requestJson the JSON-serialized request, exactly as it was taken onto the
      *                    processing list; removed from there along with the response
      * @param handler the method handler to invoke
+     * @param taker the identity it was taken under; if draining by the time it's done, its
+     *              result is discarded
      */
-    private void processRequest(String requestJson, MethodHandler handler) {
+    private void processRequest(String requestJson, MethodHandler handler, Identity taker) {
         String requestId = null;
         String methodName = null;
 
@@ -525,7 +645,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             String resultJson = OBJECT_MAPPER.writeValueAsString(result);
 
             AnyCallResponse response = AnyCallResponse.success(requestId, resultJson);
-            sendResponse(response, requestJson);
+            sendResponse(response, requestJson, taker);
 
             log.debug("Request {} processed successfully", requestId);
         } catch (Exception e) {
@@ -534,7 +654,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             }
             if (requestId == null) {
                 log.warn("Dropped a request with no readable requestId: {}", e.getMessage());
-                release(requestJson);
+                release(requestJson, taker);
                 return;
             }
             log.error("Error processing request: {}", requestId, e);
@@ -542,7 +662,7 @@ public class AnyCallServerImpl implements AnyCallServer {
                 requestId,
                 e.getMessage() != null ? e.getMessage() : e.getClass().getName()
             );
-            sendResponse(response, requestJson);
+            sendResponse(response, requestJson, taker);
         } finally {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
@@ -555,10 +675,14 @@ public class AnyCallServerImpl implements AnyCallServer {
      * no response queue to answer on.
      *
      * @param requestJson the request json exactly as it was taken
+     * @param taker the identity it was taken under
      */
-    private void release(String requestJson) {
+    private void release(String requestJson, Identity taker) {
+        if (taker != identity) {
+            return;  // a draining identity's list belongs to the reapers now
+        }
         try {
-            writeCommands.lrem(processingKey, 1, requestJson);
+            writeCommands.lrem(taker.processingKey, 1, requestJson);
         } catch (Exception e) {
             log.error("Error dropping a request from the processing list", e);
         }
@@ -571,10 +695,17 @@ public class AnyCallServerImpl implements AnyCallServer {
      *
      * @param response the response to send
      * @param requestJson the request json exactly as it was taken
+     * @param taker the identity it was taken under; a draining one's result is discarded,
+     *              since reapers fail its requests back
      */
-    private void sendResponse(AnyCallResponse response, String requestJson) {
+    private void sendResponse(AnyCallResponse response, String requestJson, Identity taker) {
+        if (taker != identity) {
+            log.debug("Discarded the result of request {}, taken under draining id {}",
+                response.requestId(), taker.serverId);
+            return;
+        }
         try {
-            AnycallResponses.pushAndRelease(writeCommands, response, processingKey, requestJson);
+            AnycallResponses.pushAndRelease(writeCommands, response, taker.processingKey, requestJson);
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
         }

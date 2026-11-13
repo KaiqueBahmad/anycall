@@ -7,10 +7,9 @@ import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.api.sync.RedisCommands;
 
 /**
- * The one way a response is written, by a server answering a request or by a reaper
- * failing one back: pushed onto its response queue together with the queue's expiry and,
- * for a server, the removal of its request from the server's processing list, atomically
- * and in one round trip.
+ * How a server writes a response: pushed onto its response queue together with the queue's
+ * expiry and the removal of its request from the server's processing list, atomically and
+ * in one round trip. A reaper writes its own in a transaction (see {@link AnycallReaping}).
  * <p>
  * A waiting client pops the response within milliseconds and deletes the queue; the
  * expiry only matters when nobody reads it (the client timed out or died, or a server
@@ -19,12 +18,6 @@ import io.lettuce.core.api.sync.RedisCommands;
 public final class AnycallResponses {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
-    // KEYS[1] = response queue, ARGV[1] = response json, ARGV[2] = ttl seconds.
-    private static final String PUSH_SCRIPT =
-        "redis.call('LPUSH', KEYS[1], ARGV[1])\n"
-        + "redis.call('EXPIRE', KEYS[1], ARGV[2])\n"
-        + "return 1";
 
     // KEYS[1] = response queue, KEYS[2] = processing list, ARGV[1] = response json,
     // ARGV[2] = ttl seconds, ARGV[3] = the request json exactly as it was taken.
@@ -37,17 +30,6 @@ public final class AnycallResponses {
         + "return 1";
 
     private AnycallResponses() {
-    }
-
-    /**
-     * Writes a response nobody has to release, i.e. a reaper's: its claim already emptied
-     * the dead server's processing list.
-     */
-    public static void push(RedisCommands<String, String> commands, AnyCallResponse response)
-            throws JsonProcessingException {
-        commands.eval(PUSH_SCRIPT, ScriptOutputType.INTEGER, new String[] {responseQueue(response)},
-            OBJECT_MAPPER.writeValueAsString(response),
-            String.valueOf(AnycallQueues.RESPONSE_TTL.getSeconds()));
     }
 
     /**

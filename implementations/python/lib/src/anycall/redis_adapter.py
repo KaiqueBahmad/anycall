@@ -1,22 +1,29 @@
 import logging
-from typing import List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Callable, List, Optional, Protocol, Tuple, runtime_checkable
 
 import redis
 
 logger = logging.getLogger(__name__)
 
-# KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds.
-# Returns {1 if this server's entry was missing (first tick, or it was reaped as
-# dead), followed by every member whose heartbeat is older than the ttl}. Prunes
-# nothing: a dead server leaves the set only through CLAIM_SCRIPT, so its
-# processing list is never forgotten.
+# KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds,
+# ARGV[3] = '1' on the server id's first heartbeat. A server whose entry is gone,
+# or older than the ttl, was declared dead: past its first heartbeat, it gets
+# {-1} and nothing is written, so a dead server never comes back. Otherwise
+# refreshes its entry and returns {0, every member older than the ttl}. Prunes
+# nothing: a dead server leaves the set only once `fail_back_next` has emptied
+# its processing list, so that list is never forgotten.
 # Kept byte-for-byte identical to the Java server's copy.
 HEARTBEAT_SCRIPT = """\
 local t = redis.call('TIME')
 local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-local added = redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
-local result = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. string.format('%.6f', now - tonumber(ARGV[2])))
-table.insert(result, 1, added)
+local stale = string.format('%.6f', now - tonumber(ARGV[2]))
+if ARGV[3] ~= '1' then
+  local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+  if not score or tonumber(score) < tonumber(stale) then return {-1} end
+end
+redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
+local result = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. stale)
+table.insert(result, 1, 0)
 return result
 """
 
@@ -30,23 +37,36 @@ local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
 return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. string.format('%.6f', now - tonumber(ARGV[1])))
 """
 
-# KEYS[1] = live servers sorted set, KEYS[2] = the server's processing list.
-# ARGV[1] = server id, ARGV[2] = ttl seconds. If the server's heartbeat is still
-# older than the ttl, removes it from the set, empties its processing list and
-# returns what was in it; otherwise returns {} and changes nothing. Atomic, so
-# of everyone who finds the same server dead, exactly one gets its requests.
+# KEYS[1] = live servers sorted set, KEYS[2] = a dead server's processing list.
+# ARGV[1] = server id, ARGV[2] = tombstone ttl seconds. The last step of reaping
+# a dead server: if its list is still empty, removes it from the live set and,
+# if it was still there, turns the list into a tombstone string. Returns 0 if a
+# request landed on the list meanwhile (keep reaping), else 1. A server whose
+# entry is already gone was reaped before; its tombstone isn't recreated, in
+# case the server came back and deleted it.
 # Kept byte-for-byte identical to the Java copy.
-CLAIM_SCRIPT = """\
-local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
-if not score then return {} end
-local t = redis.call('TIME')
-local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-if tonumber(score) >= now - tonumber(ARGV[2]) then return {} end
-redis.call('ZREM', KEYS[1], ARGV[1])
-local items = redis.call('LRANGE', KEYS[2], 0, -1)
-redis.call('DEL', KEYS[2])
-return items
+TOMBSTONE_SCRIPT = """\
+local kind = redis.call('TYPE', KEYS[2])['ok']
+if kind == 'list' then return 0 end
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 1 and kind == 'none' then
+  redis.call('SET', KEYS[2], 'drained', 'EX', ARGV[2])
+end
+return 1
 """
+
+# KEYS[1] = a server's own processing list. Deletes it only if it's a
+# tombstone: a server that drained deletes its own once nothing can take onto
+# that list anymore.
+# Kept byte-for-byte identical to the Java copy.
+DROP_TOMBSTONE_SCRIPT = """\
+if redis.call('TYPE', KEYS[1])['ok'] == 'string' then return redis.call('DEL', KEYS[1]) end
+return 0
+"""
+
+
+# What a reaping step returns when someone changed the list meanwhile: look
+# again. (Its other results are "answered", "dropped", or None once done.)
+_RETRY = "retry"
 
 
 def _text(value) -> str:
@@ -71,7 +91,15 @@ class RedisQueuePort(Protocol):
 
     def stale_members(self, key: str, ttl_seconds: int) -> set[str]: ...
 
-    def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]: ...
+    def fail_back_next(
+        self,
+        alive_key: str,
+        processing_key: str,
+        server_id: str,
+        response_ttl_seconds: int,
+        tombstone_ttl_seconds: int,
+        response_for: Callable[[str], Optional[Tuple[str, str]]],
+    ) -> Optional[str]: ...
 
     def respond(
         self, response_queue: str, value: str, ttl_seconds: int, processing_key: str = "", item: str = ""
@@ -90,7 +118,8 @@ class RedisQueueAdapter:
         self._blmove = False
         self._heartbeat_script = redis_client.register_script(HEARTBEAT_SCRIPT)
         self._stale_script = redis_client.register_script(STALE_SCRIPT)
-        self._claim_script = redis_client.register_script(CLAIM_SCRIPT)
+        self._tombstone_script = redis_client.register_script(TOMBSTONE_SCRIPT)
+        self._drop_tombstone_script = redis_client.register_script(DROP_TOMBSTONE_SCRIPT)
 
     def push(self, queue_key: str, value: str) -> int:
         """Push a value onto a queue (LPUSH).
@@ -187,7 +216,7 @@ class RedisQueueAdapter:
             value: Serialized response
             ttl_seconds: Expiry for the queue, in case nobody ever reads it
             processing_key: Processing list the request was taken onto ('' to
-                skip the LREM, e.g. for a reaper, whose claim emptied it)
+                skip the LREM)
             item: The request json exactly as it was taken
         """
         pipe = self.redis.pipeline(transaction=False)
@@ -207,23 +236,98 @@ class RedisQueueAdapter:
         """
         self.redis.lrem(processing_key, 1, item)
 
-    def claim_dead(self, alive_key: str, processing_key: str, server_id: str, ttl_seconds: int) -> List[str]:
-        """Take over a dead server's requests (see CLAIM_SCRIPT): if its
-        heartbeat is still older than `ttl_seconds`, remove it from the live
-        set and empty its processing list. Several callers can find the same
-        server dead at once; exactly one gets its requests, the rest get [].
+    def fail_back_next(
+        self,
+        alive_key: str,
+        processing_key: str,
+        server_id: str,
+        response_ttl_seconds: int,
+        tombstone_ttl_seconds: int,
+        response_for: Callable[[str], Optional[Tuple[str, str]]],
+    ) -> Optional[str]:
+        """One step of reaping a dead server: fail back its next request, or,
+        once its list is empty, leave a tombstone. Looks at the server's
+        processing key and picks the case:
+
+        - a string: a tombstone, the server was reaped before;
+        - a list: there are requests left (see `_fail_back_last`);
+        - nothing: the list is empty (see `_tombstone`).
+
+        WATCH on the key makes any change by another reaper meanwhile restart
+        the step.
 
         Args:
             alive_key: Sorted set key holding the live servers
             processing_key: The dead server's processing list
             server_id: The dead server's id
-            ttl_seconds: How old a heartbeat must be to count as dead
+            response_ttl_seconds: Expiry for the response queue
+            tombstone_ttl_seconds: Expiry for the tombstone its list becomes
+            response_for: Gives the (response queue, response) for a request,
+                or None for one with no readable requestId, which is dropped
 
         Returns:
-            The request json of everything it was processing, or []
+            "answered" or "dropped" for the request it took, or None once
+            there's nothing left: the server's list is a tombstone now.
         """
-        items = self._claim_script(keys=[alive_key, processing_key], args=[server_id, ttl_seconds])
-        return [_text(item) for item in items]
+        while True:
+            with self.redis.pipeline() as pipe:
+                pipe.watch(processing_key)
+                kind = _text(pipe.type(processing_key))
+                if kind == "string":
+                    return None
+                if kind == "list":
+                    step = self._fail_back_last(pipe, processing_key, response_ttl_seconds, response_for)
+                else:
+                    step = self._tombstone(alive_key, processing_key, server_id, tombstone_ttl_seconds)
+            if step != _RETRY:
+                return step
+
+    def _fail_back_last(
+        self,
+        pipe,
+        processing_key: str,
+        response_ttl_seconds: int,
+        response_for: Callable[[str], Optional[Tuple[str, str]]],
+    ) -> Optional[str]:
+        """Fail back the last request on a dead server's list: remove it and
+        write its server-lost response in one transaction, so it never leaves
+        the list unanswered.
+
+        The request is read with a plain LINDEX, outside any script, so Redis
+        is never blocked copying it into Lua. The WATCH guarantees it's still
+        the last one when the transaction runs, so it's removed by position
+        (LTRIM), with nothing to compare or send back; if another reaper took
+        it first, the transaction is discarded.
+        """
+        request = pipe.lindex(processing_key, -1)
+        if request is None:
+            return _RETRY  # emptied meanwhile: the next look tombstones it
+        target = response_for(_text(request))
+
+        pipe.multi()
+        pipe.ltrim(processing_key, 0, -2)
+        if target is not None:
+            response_queue, response = target
+            pipe.lpush(response_queue, response)
+            pipe.expire(response_queue, response_ttl_seconds)
+        try:
+            pipe.execute()
+        except redis.exceptions.WatchError:
+            return _RETRY
+        return "dropped" if target is None else "answered"
+
+    def _tombstone(self, alive_key: str, processing_key: str, server_id: str, tombstone_ttl_seconds: int) -> Optional[str]:
+        """The last step of reaping a dead server, once its list is empty:
+        TOMBSTONE_SCRIPT removes it from the live set and turns its processing
+        key into a tombstone. If a request landed on the list meanwhile, the
+        script changes nothing, and reaping goes on."""
+        done = self._tombstone_script(keys=[alive_key, processing_key], args=[server_id, tombstone_ttl_seconds])
+        return None if done else _RETRY
+
+    def drop_tombstone(self, processing_key: str) -> None:
+        """Delete a server's own tombstone (see DROP_TOMBSTONE_SCRIPT); does
+        nothing if the key isn't one."""
+        self._drop_tombstone_script(keys=[processing_key])
 
     def delete(self, key: str) -> int:
         """Delete a key.
@@ -247,12 +351,17 @@ class RedisQueueAdapter:
         """
         return self.redis.llen(queue_key)
 
-    def heartbeat(self, key: str, member: str, ttl_seconds: int) -> Tuple[bool, set[str]]:
+    def heartbeat(self, key: str, member: str, ttl_seconds: int, first: bool) -> Optional[set[str]]:
         """Refresh one server's liveness entry in a sorted set, in a single
-        round trip: ZADD the server under the current time and read back the
-        members older than `ttl_seconds` (servers that stopped heartbeating).
-        It removes none of them: that's left to `claim_dead`, which also
-        fails back what they were processing.
+        round trip, and read back the members older than `ttl_seconds`
+        (servers that stopped heartbeating). It removes none of them: that's
+        left to `fail_back_next`, which also fails back what they were
+        processing.
+
+        Past its first heartbeat, a server whose entry is gone or older than
+        `ttl_seconds` was declared dead, and gets None: nothing is written,
+        so it never comes back under that id. The check and the write are one
+        script, so no reaper can act in between.
 
         Runs as a Lua script so "now" is Redis's own clock (`TIME`), not this
         host's: scores written and compared by different servers are always
@@ -263,12 +372,15 @@ class RedisQueueAdapter:
             key: Sorted set key holding the live servers
             member: This server's id
             ttl_seconds: Members older than this are dead
+            first: Whether this is `member`'s first heartbeat
 
         Returns:
-            (whether `member` had no entry before this tick, every dead member)
+            Every dead member, or None if `member` itself was declared dead
         """
-        added, *stale = self._heartbeat_script(keys=[key], args=[member, ttl_seconds])
-        return added == 1, {_text(m) for m in stale}
+        status, *stale = self._heartbeat_script(keys=[key], args=[member, ttl_seconds, "1" if first else "0"])
+        if status == -1:
+            return None
+        return {_text(m) for m in stale}
 
     def alive_count(self, key: str, ttl_seconds: int) -> int:
         """Count members in a heartbeat sorted set still within `ttl_seconds`

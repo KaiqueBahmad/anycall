@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+- A server declared dead (silent for over 8s, say while Redis was unreachable) never comes back under its id: the old id drains, and the server carries on under a new one. The requests it was running finish with their results discarded, since they're failed back, and keep their concurrency slots until then
+
+### Fixed
+- A reaper that dies while failing back a dead server's requests no longer loses them: each leaves the dead server's list only together with its error
+- A request can no longer be taken onto a dead server's list after it was reaped, where no one would fail it back: the list becomes a tombstone, and the request stays in its queue
+
 ## [0.7] - 2026-11-13
 
 ### Added

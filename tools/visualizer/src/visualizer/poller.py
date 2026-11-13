@@ -184,6 +184,9 @@ def _collect_inflight(client: redis.Redis, alive: set[str]) -> list[InflightInfo
     entry of every server's processing list."""
     inflight = []
     for processing_key in client.scan_iter(match=PROCESSING_LIST_PATTERN, count=200):
+        # A dead server's emptied list is a tombstone string: nothing in flight.
+        if client.type(processing_key) != "list":
+            continue
         owner = processing_key[len(anycall_queues.PROCESSING_PREFIX):]
         for raw in client.lrange(processing_key, 0, -1) or []:
             inflight.append(InflightInfo(request_id=_entry_key(raw), owner=owner, owner_alive=owner in alive))

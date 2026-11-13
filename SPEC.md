@@ -8,8 +8,8 @@
 
 - **Client**: a process that calls methods.
 - **Server**: a process that registers methods and answers calls. Each
-  instance has a **server id**: a random lowercase UUID, made at creation and
-  never reused.
+  instance has a **server id**: a random lowercase UUID, made on every start
+  and whenever the server is declared dead, and never reused.
 - **Reaper**: whoever fails back a dead server's requests: any live server, or
   a waiting client.
 - **Now**: Redis's `TIME`, as seconds with six decimals. No rule uses a
@@ -24,7 +24,7 @@ talk RESP2: Redis 5.0 has no `HELLO`, so no RESP3.
 | Key | Type | Written by | Read by | Expiry |
 |---|---|---|---|---|
 | `anycall:requests:<method>` | List | clients (`LPUSH`) | servers (`BLMOVE` or `BRPOPLPUSH`) | none |
-| `anycall:processing:<server id>` | List | its server | its server, reapers | none |
+| `anycall:processing:<server id>` | List; a string once reaped (a tombstone) | its server; reapers | its server, reapers | none; a tombstone `TOMBSTONE_TTL` |
 | `anycall:responses:<request id>` | List | server or reaper (`LPUSH`) | the caller (`BRPOP`) | `RESPONSE_TTL`, set on every write |
 | `anycall:servers:alive` | Sorted set: server id → now of its last heartbeat | servers | everyone | none |
 
@@ -75,21 +75,30 @@ Fixed by the contract; implementations MUST NOT make them configurable.
 | `RESPONSE_TTL` | 60s | expiry of a response queue |
 | `TAKE_BLOCK` | 2s | how long one take blocks |
 | `WAIT_SLICE` | 10s | the longest a client blocks at once |
+| `TOMBSTONE_TTL` | 30 days | expiry of a dead server's tombstone |
 
 ## 5. Scripts
 
 ### 5.1 HEARTBEAT
 
-`KEYS[1]` = `anycall:servers:alive`; `ARGV` = server id, `HEARTBEAT_TTL`.
-Returns `1` if the server had no entry before (first heartbeat, or it was
-reaped) else `0`, followed by every dead server's id. Removes nothing.
+`KEYS[1]` = `anycall:servers:alive`; `ARGV` = server id, `HEARTBEAT_TTL`,
+`1` on the server id's first heartbeat (else `0`). Past its first heartbeat,
+a server whose entry is gone or older than `HEARTBEAT_TTL` was declared dead:
+it gets `{-1}` and nothing is written, so a dead server never comes back.
+Otherwise refreshes its entry and returns `0`, followed by every dead server's
+id. Removes nothing.
 
 ```lua
 local t = redis.call('TIME')
 local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-local added = redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
-local result = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. string.format('%.6f', now - tonumber(ARGV[2])))
-table.insert(result, 1, added)
+local stale = string.format('%.6f', now - tonumber(ARGV[2]))
+if ARGV[3] ~= '1' then
+  local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
+  if not score or tonumber(score) < tonumber(stale) then return {-1} end
+end
+redis.call('ZADD', KEYS[1], string.format('%.6f', now), ARGV[1])
+local result = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. stale)
+table.insert(result, 1, 0)
 return result
 ```
 
@@ -104,24 +113,33 @@ local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
 return redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', '(' .. string.format('%.6f', now - tonumber(ARGV[1])))
 ```
 
-### 5.3 CLAIM
+### 5.3 TOMBSTONE
 
 `KEYS` = `anycall:servers:alive`, `anycall:processing:<server id>`; `ARGV` =
-server id, `HEARTBEAT_TTL`. If the server is still dead, removes it from the
-live set, empties its processing list and returns what was on it; otherwise
-returns nothing. Of all reapers claiming one server, exactly one gets its
-requests.
+server id, `TOMBSTONE_TTL` in seconds. The last step of reaping a dead
+server: if its list is still empty, removes it from the live set and, if it
+was still there, turns its processing key into a tombstone string. Returns
+`0` if a request landed on the list meanwhile, else `1`. A server whose
+entry is already gone was reaped before; its tombstone isn't recreated, in
+case the server came back and deleted it.
 
 ```lua
-local score = redis.call('ZSCORE', KEYS[1], ARGV[1])
-if not score then return {} end
-local t = redis.call('TIME')
-local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
-if tonumber(score) >= now - tonumber(ARGV[2]) then return {} end
-redis.call('ZREM', KEYS[1], ARGV[1])
-local items = redis.call('LRANGE', KEYS[2], 0, -1)
-redis.call('DEL', KEYS[2])
-return items
+local kind = redis.call('TYPE', KEYS[2])['ok']
+if kind == 'list' then return 0 end
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 1 and kind == 'none' then
+  redis.call('SET', KEYS[2], 'drained', 'EX', ARGV[2])
+end
+return 1
+```
+
+### 5.4 DROP_TOMBSTONE
+
+`KEYS` = `anycall:processing:<server id>`. Deletes the key only if it's a
+tombstone.
+
+```lua
+if redis.call('TYPE', KEYS[1])['ok'] == 'string' then return redis.call('DEL', KEYS[1]) end
+return 0
 ```
 
 ## 6. Server
@@ -134,10 +152,40 @@ See [docs/taking-requests.md](docs/taking-requests.md).
   If it fails, starting MUST fail and the server MUST NOT take anything.
 - While running, it MUST run HEARTBEAT every `HEARTBEAT_PERIOD` and reap every
   dead server it returns. Request processing MUST NOT delay it.
-- If HEARTBEAT returns `1` after the first time, the server was reaped; it
-  SHOULD log a warning and keeps running.
+- A server whose heartbeat is older than `HEARTBEAT_TTL` is dead, for good:
+  HEARTBEAT refuses its id from then on.
 
-### 6.2 Taking
+### 6.2 Draining
+
+A server that gets `-1` from HEARTBEAT was declared dead while still running
+(a long GC pause, a frozen VM, Redis unreachable). It MUST NOT stop or fail:
+its old server id **drains**, and it carries on under a new one. It SHOULD
+log a warning.
+
+- It heartbeats under the new id at once, as a first heartbeat. Read loops
+  MUST NOT take under the new id before that heartbeat went through, and
+  never again under the draining one.
+- Requests taken under the draining id that are still running finish, but
+  their results MUST be discarded: reapers fail them back, and the draining
+  id's processing list belongs to them.
+- They keep their concurrency slots until they finish, as if nothing had
+  changed: the new id only takes what the slots left allow. A method with
+  `max_concurrency` 3 and 2 requests still draining takes 1 more until they
+  finish.
+- A take that fails with `WRONGTYPE` hit the draining id's tombstone: the id
+  was reaped, so it's dead. The request stays in its queue; the server MUST
+  drain at once, without waiting for HEARTBEAT to be refused.
+- Once no take started under the draining id is still running, nothing can
+  land on its list anymore. The server MUST then reap that id (in case no
+  one did) and delete its own tombstone with DROP_TOMBSTONE. A server that
+  dies before that leaves its tombstone to expire.
+
+A server frozen longer than `TOMBSTONE_TTL` that then resumes as if nothing
+happened may lose a request taken in the moment before it notices it's
+dead. That's the only bound draining relies on, and it's measured by Redis's
+clock.
+
+### 6.3 Taking
 
 - Each method MUST have its own read loop, taking one request at a time with
   `BLMOVE anycall:requests:<method> anycall:processing:<server id> RIGHT LEFT TAKE_BLOCK`
@@ -148,8 +196,10 @@ See [docs/taking-requests.md](docs/taking-requests.md).
   the command (`COMMAND INFO BLMOVE` is `nil` when it doesn't exist), not by
   its version.
 - A read loop MUST wait for a free slot of its method before each take.
+- A dead server's processing key is a tombstone once reaped: a take onto it
+  fails with `WRONGTYPE`, and Redis leaves the request in its queue.
 
-### 6.3 Answering
+### 6.4 Answering
 
 - The server runs the method with a context (`requestId`, `methodName`) and
   writes a success or remote-error response. An exception MUST become a
@@ -168,14 +218,14 @@ See [docs/taking-requests.md](docs/taking-requests.md).
 - A request whose `requestId` isn't readable MUST NOT be answered. The server
   MUST `LREM` it from its processing list and SHOULD log it.
 
-### 6.4 Concurrency
+### 6.5 Concurrency
 
 - Each method has a `max_concurrency`, default `1`, at least `1`.
 - A server MAY have a server-wide `max_concurrency`, at least `1`. It caps
   running requests, not taking: taking may exceed it by one request per
   method.
 
-### 6.5 Stopping
+### 6.6 Stopping
 
 - On stop or unregister, read loops MUST stop taking within `TAKE_BLOCK`.
   Requests already taken MUST still be run and answered.
@@ -184,13 +234,27 @@ See [docs/taking-requests.md](docs/taking-requests.md).
 
 ## 7. Reaping
 
-See [docs/reaping.md](docs/reaping.md). For each server believed dead:
+See [docs/reaping.md](docs/reaping.md). A dead server's requests are failed
+back one at a time, each in a transaction of its own, until none is left:
 
-1. Run CLAIM. It checks again, so a server that heartbeated meanwhile is left
-   alone.
-2. For each returned request, read its `requestId` on its own, as above, and
-   write a server-lost response with `LPUSH` + `EXPIRE`, without `LREM`. Drop
-   a request whose `requestId` isn't readable.
+1. `WATCH anycall:processing:<server id>`, then `TYPE` of it:
+   - a string: it's a tombstone, the server was reaped before. Stop.
+   - none: the list is empty. Run TOMBSTONE; if it returns `0`, start again
+     from step 1, else stop.
+2. `LINDEX anycall:processing:<server id> -1`, and read its `requestId` the way
+   a server does. Requests MUST NOT be read inside a script.
+3. `MULTI`, `LTRIM anycall:processing:<server id> 0 -2`, which drops the
+   request read in step 2 (the `WATCH` guarantees it's still the last), and,
+   if its `requestId` is readable, a server-lost response with `LPUSH` +
+   `EXPIRE`, as a server writes a response. A request whose `requestId` isn't
+   readable is dropped.
+4. `EXEC`. If it was discarded, start again from step 1.
+
+A dead server never heartbeats again, so nothing about it needs checking
+first. A request leaves the list only in the `EXEC` that writes its response,
+so a reaper that dies at any point loses nothing. `WATCH` and `MULTI` belong to a
+connection: a reaper MUST NOT share its connection with anything else while
+reaping.
 
 A failure reaping one server MUST NOT stop the others, nor fail the call or
 heartbeat that triggered it.
@@ -216,7 +280,8 @@ Both checks are advisory.
   fractional timeout, and `0` would mean forever. A call may therefore time
   out up to 1s late.
 - A timeout of zero means no limit, and is the default.
-- After each empty slice, the client MUST run STALE and reap what it returns.
+- After each empty slice, the client MUST run STALE and reap every dead server
+  it returns.
 - The socket read timeout MUST be `WAIT_SLICE` plus a margin, whatever the
   call timeout: no command blocks longer than a slice, so one that outlasts it
   is stuck on a Redis that stopped answering.
