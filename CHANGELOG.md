@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.7] - 2026-11-13
 
 ### Added
 - `SPEC.md`: the protocol every implementation follows, for contract 0.7
