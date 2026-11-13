@@ -51,6 +51,14 @@ taken the request, or may have been lost too recently to be noticed.
 
 How it works: [docs/reaping.md](../../docs/reaping.md).
 
+### If Redis fails mid-call
+
+If a Redis command fails during a call (the connection drops, Redis restarts
+or stops answering for 15s), the call throws a `BrokerError`.
+`isPublished()` says whether the request may have left: `false` means it
+failed before publishing and is safe to call again; `true` means the method
+may have run, as with `ServerLostError`.
+
 ## How to Use as Consumer (Client)
 
 ### Call with explicit type:

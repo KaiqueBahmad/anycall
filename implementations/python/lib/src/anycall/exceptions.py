@@ -91,6 +91,25 @@ class ServerLostError(PublishError):
         return self.call_id
 
 
+class BrokerError(PublishError):
+    """Raised when a Redis command fails during a call: the connection
+    dropped, Redis restarted or stopped answering.
+
+    `published` says whether the request may have left: False when Redis
+    failed before the LPUSH, so the method certainly didn't run and the call
+    can be made again; True from the LPUSH on, so the method may have run,
+    as with ServerLostError. The redis-py exception is the `__cause__`.
+    """
+
+    def __init__(self, service: str, message: str, call_id: str, published: bool):
+        super().__init__(service, message)
+        self.call_id = call_id
+        self.published = published
+
+    def get_id(self) -> str:
+        return self.call_id
+
+
 class RemoteExecutionError(AnyCallError):
     """Function was executed but failed on worker."""
     pass

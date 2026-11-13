@@ -8,10 +8,12 @@ from datetime import timedelta
 from typing import Any, Type, TypeVar
 
 import dacite
+import redis.exceptions
 
 from . import queues
 from .exceptions import (
     AnyCallError,
+    BrokerError,
     JSONDecodeError,
     NoServerAvailableError,
     QueueFullError,
@@ -67,6 +69,7 @@ class AnyCallClient(ABC):
         Raises:
             QueueFullError: If the request queue is already full
             NoServerAvailableError: If no server is currently alive
+            BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         pass
@@ -91,6 +94,7 @@ class AnyCallClient(ABC):
         Raises:
             QueueFullError: If the request queue is already full
             NoServerAvailableError: If no server is currently alive
+            BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
         pass
@@ -191,6 +195,7 @@ class AnyCallClientImpl(AnyCallClient):
         Raises:
             QueueFullError: If the request queue is already full
             NoServerAvailableError: If no server is currently alive
+            BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         resolved_type = response_type
@@ -222,6 +227,7 @@ class AnyCallClientImpl(AnyCallClient):
         Raises:
             QueueFullError: If the request queue is already full
             NoServerAvailableError: If no server is currently alive
+            BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
         return self._call_impl(method_name, request, dict, max_queue_depth)
@@ -274,6 +280,7 @@ class AnyCallClientImpl(AnyCallClient):
         Raises:
             QueueFullError: If the request queue is already full
             NoServerAvailableError: If no server is currently alive
+            BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
         effective_max_queue_depth = (
@@ -289,22 +296,40 @@ class AnyCallClientImpl(AnyCallClient):
         request_queue = queues.request_queue(method_name)
         response_queue = queues.response_queue(rpc_request.request_id)
 
-        if self.redis.alive_count(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS) == 0:
-            raise NoServerAvailableError(method_name)
+        try:
+            if self.redis.alive_count(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS) == 0:
+                raise NoServerAvailableError(method_name)
 
-        if effective_max_queue_depth is not None:
-            queue_depth = self.redis.length(request_queue)
-            if queue_depth >= effective_max_queue_depth:
-                raise QueueFullError(method_name, queue_depth, effective_max_queue_depth)
+            if effective_max_queue_depth is not None:
+                queue_depth = self.redis.length(request_queue)
+                if queue_depth >= effective_max_queue_depth:
+                    raise QueueFullError(method_name, queue_depth, effective_max_queue_depth)
+        except redis.exceptions.RedisError as e:
+            raise BrokerError(
+                method_name,
+                f"Redis failed before the request was published: {e}",
+                rpc_request.request_id,
+                published=False,
+            ) from e
 
+        redis_failed = False
         try:
             try:
                 request_json = serialize(rpc_request)
             except (TypeError, ValueError) as e:
                 raise SerializationError(method_name, f"Failed to serialize RPC request: {e}")
-            self.redis.push(request_queue, request_json)
-
-            response_json = self._await_response(response_queue)
+            try:
+                self.redis.push(request_queue, request_json)
+                response_json = self._await_response(response_queue)
+            except redis.exceptions.RedisError as e:
+                redis_failed = True
+                # The LPUSH may have reached Redis before the connection dropped.
+                raise BrokerError(
+                    method_name,
+                    f"Redis failed after the request may have been published: {e}",
+                    rpc_request.request_id,
+                    published=True,
+                ) from e
 
             if response_json is None:
                 raise TimeoutError(
@@ -347,7 +372,14 @@ class AnyCallClientImpl(AnyCallClient):
                 raise SerializationError(method_name, f"Response payload doesn't fit {response_type.__name__}: {e}")
 
         finally:
-            self.redis.delete(response_queue)
+            # After a Redis failure the DEL would only wait out the socket timeout
+            # again. Nothing is lost: a response queue only exists once a response
+            # is written, and every write sets its RESPONSE_TTL.
+            if not redis_failed:
+                try:
+                    self.redis.delete(response_queue)
+                except redis.exceptions.RedisError:
+                    pass  # never hide the call's own outcome
 
     def _await_response(self, response_queue: str) -> str | None:
         """Wait for the call's response, up to the client's timeout (forever

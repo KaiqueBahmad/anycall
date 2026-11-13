@@ -5,10 +5,18 @@ from datetime import timedelta
 from typing import List, Optional, Tuple
 
 import pytest
+import redis.exceptions
 
 from . import client as client_module
 from .client import AnyCallClientImpl
-from .exceptions import AnyCallError, QueueFullError, SerializationError, ServerLostError, TimeoutError
+from .exceptions import (
+    AnyCallError,
+    BrokerError,
+    QueueFullError,
+    SerializationError,
+    ServerLostError,
+    TimeoutError,
+)
 
 @dataclass
 class MockResponse:
@@ -389,3 +397,71 @@ class TestNullPayload:
 
         with pytest.raises(SerializationError):
             client.call("my-op", {}, MockResponse)
+
+
+class FailingRedisAdapter(MockRedisAdapter):
+    """Raises a redis-py ConnectionError from the command named `fails`."""
+
+    def __init__(self, fails: str):
+        super().__init__()
+        self.fails = fails
+        self.pushed = False
+        self.deleted = False
+
+    def _maybe_fail(self, command: str) -> None:
+        if command == self.fails:
+            raise redis.exceptions.ConnectionError("Connection refused")
+
+    def alive_count(self, key: str, ttl_seconds: int) -> int:
+        self._maybe_fail("alive_count")
+        return 1
+
+    def length(self, queue_key: str) -> int:
+        self._maybe_fail("length")
+        return 0
+
+    def push(self, queue_key: str, value: str) -> int:
+        self._maybe_fail("push")
+        self.pushed = True
+        return 1
+
+    def pop(self, queue_keys: List[str], timeout_seconds: float) -> Optional[Tuple[str, str]]:
+        self._maybe_fail("pop")
+        return None
+
+    def delete(self, key: str) -> int:
+        self.deleted = True
+        return 0
+
+
+class TestBrokerError:
+    """A Redis failure during a call is a BrokerError saying whether the request may have left."""
+
+    @pytest.mark.parametrize("fails", ["alive_count", "length"])
+    def test_failure_before_publishing_is_not_published(self, fails):
+        client = AnyCallClientImpl(FailingRedisAdapter(fails), QUICK_TIMEOUT, default_max_queue_depth=10)
+
+        with pytest.raises(BrokerError) as exc_info:
+            client.raw_call("my-op", {})
+
+        assert exc_info.value.published is False
+        assert isinstance(exc_info.value.__cause__, redis.exceptions.ConnectionError)
+
+    @pytest.mark.parametrize("fails", ["push", "pop"])
+    def test_failure_from_publishing_on_may_be_published(self, fails):
+        client = AnyCallClientImpl(FailingRedisAdapter(fails), QUICK_TIMEOUT)
+
+        with pytest.raises(BrokerError) as exc_info:
+            client.raw_call("my-op", {})
+
+        assert exc_info.value.published is True
+        assert exc_info.value.get_id()
+
+    def test_response_queue_is_not_deleted_after_a_redis_failure(self):
+        adapter = FailingRedisAdapter("pop")
+        client = AnyCallClientImpl(adapter, QUICK_TIMEOUT)
+
+        with pytest.raises(BrokerError):
+            client.raw_call("my-op", {})
+
+        assert adapter.deleted is False

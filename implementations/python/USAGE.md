@@ -59,6 +59,14 @@ taken the request, or may have been lost too recently to be noticed.
 
 How it works: [docs/reaping.md](../../docs/reaping.md).
 
+### If Redis fails mid-call
+
+If a Redis command fails during a call (the connection drops, Redis restarts
+or stops answering for 15s), the call raises a `BrokerError`, with redis-py's
+exception as its `__cause__`. `published` says whether the request may have
+left: `False` means it failed before publishing and is safe to call again;
+`True` means the method may have run, as with `ServerLostError`.
+
 ## How to Use as Consumer (Client)
 
 ### Call with explicit type:

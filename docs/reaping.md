@@ -75,6 +75,7 @@ flowchart LR
 |---|---|---|
 | `ServerLostError` | The server holding the request stopped heartbeating. Carries that server's id. | It started and may have partly run. Retry only if it's idempotent. |
 | `TimeoutError` | The configured timeout ran out. | Unknown: a slow server, a server lost too recently to notice, or a request never taken. |
+| `BrokerError` | A Redis command failed during the call. | No if `published` is false; otherwise unknown. |
 
 A reaper's response carries a `lostServer` field, which is how the client
 tells a lost server apart from the method's own error (`RemoteException`).

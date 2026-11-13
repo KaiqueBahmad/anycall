@@ -2,26 +2,19 @@ from datetime import timedelta
 
 import redis
 
-from .client import AnyCallClient, AnyCallClientImpl
+from .client import WAITER_REAP_SLICE_SECONDS, AnyCallClient, AnyCallClientImpl
 from .redis_adapter import RedisQueueAdapter
 from .server import AnyCallServer, AnyCallServerImpl
 
-# Added on top of the call timeout to get the client's socket read timeout, so
-# the socket never gives up on a response BRPOP that is still within its call
-# timeout.
+# Added on top of a wait slice to get the client's socket read timeout: no
+# command blocks longer than a slice, so one that outlasts this is stuck on a
+# Redis that stopped answering, and fails as a BrokerError.
 SOCKET_TIMEOUT_MARGIN = timedelta(seconds=5)
 
-
-def _client_socket_timeout(timeout: timedelta) -> float | None:
-    """Socket read timeout for a client whose calls wait up to `timeout`.
-
-    redis-py 8 changed the default from no limit to 5s, which cut every call
-    waiting longer than that with a TimeoutError. A zero `timeout` means the
-    BRPOP blocks forever, so the socket must too.
-    """
-    if timeout <= timedelta(0):
-        return None
-    return (timeout + SOCKET_TIMEOUT_MARGIN).total_seconds()
+# redis-py 8 changed the default from no limit to 5s, which would cut a wait
+# slice short. Every BRPOP lasts a slice at most, whatever the call's timeout,
+# so a call with no limit still never blocks on a dead Redis forever.
+CLIENT_SOCKET_TIMEOUT = (timedelta(seconds=WAITER_REAP_SLICE_SECONDS) + SOCKET_TIMEOUT_MARGIN).total_seconds()
 
 
 class AnyCall:
@@ -47,7 +40,7 @@ class AnyCall:
             AnyCallClient instance
         """
         redis_client = redis.from_url(
-            redis_uri, decode_responses=False, socket_timeout=_client_socket_timeout(timeout)
+            redis_uri, decode_responses=False, socket_timeout=CLIENT_SOCKET_TIMEOUT
         )
         redis_adapter = RedisQueueAdapter(redis_client)
         return AnyCallClientImpl(redis_adapter, timeout, default_max_queue_depth)

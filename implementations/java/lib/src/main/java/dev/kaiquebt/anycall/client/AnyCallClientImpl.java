@@ -8,9 +8,11 @@ import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import dev.kaiquebt.anycall.publisher.AnycallReaping;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
+import io.lettuce.core.ClientOptions;
 import io.lettuce.core.KeyValue;
 import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisException;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
@@ -31,8 +33,9 @@ public class AnyCallClientImpl implements AnyCallClient {
     private static final Logger log = LoggerFactory.getLogger(AnyCallClientImpl.class);
     // Zero means a call waits for its response with no limit.
     private static final Duration DEFAULT_TIMEOUT = Duration.ZERO;
-    // Added on top of the call timeout to get the connection's command timeout, so
-    // Lettuce never gives up on a response BRPOP that is still within its call timeout.
+    // Added on top of a wait slice to get the connection's command timeout: no command
+    // blocks longer than a slice, so one that outlasts this is stuck on a Redis that
+    // stopped answering, and fails as a BrokerError.
     private static final Duration COMMAND_TIMEOUT_MARGIN = Duration.ofSeconds(5);
     // A call waits for its response in slices of at most this long; after each one that
     // ends empty, it reaps dead servers itself (see AnycallReaping), so its request is
@@ -68,9 +71,16 @@ public class AnyCallClientImpl implements AnyCallClient {
         this.defaultMaxQueueDepth = defaultMaxQueueDepth;
 
         this.redisClient = RedisClient.create(redisUri);
+        // While disconnected, fail commands at once instead of queueing them for after a
+        // reconnect: a call blocked on a dead Redis would otherwise wait forever with no
+        // timeout, and a Redis failure is surfaced as a BrokerError instead.
+        this.redisClient.setOptions(ClientOptions.builder()
+            .disconnectedBehavior(ClientOptions.DisconnectedBehavior.REJECT_COMMANDS)
+            .build());
         this.connection = redisClient.connect();
-        // Lettuce's own default (60s) would cut any call waiting longer than that.
-        this.connection.setTimeout(this.timeout.isZero() ? Duration.ZERO : this.timeout.plus(COMMAND_TIMEOUT_MARGIN));
+        // Every BRPOP lasts a slice at most, whatever the call's timeout: a call with no limit
+        // still never blocks a command on a dead Redis forever.
+        this.connection.setTimeout(WAITER_REAP_SLICE.plus(COMMAND_TIMEOUT_MARGIN));
         this.commands = connection.sync();
     }
 
@@ -99,9 +109,18 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     private <T> T call(String methodName, Object request, Class<T> responseType, Long maxQueueDepth) {
         String responseQueue = null;
+        String requestId = null;
+        // Set just before the LPUSH: from then on the request may have reached Redis.
+        boolean published = false;
+        boolean redisFailed = false;
 
         try {
             String requestQueue = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+
+            String payload = OBJECT_MAPPER.writeValueAsString(request);
+            AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, payload);
+            requestId = anyCallRequest.requestId();
+            String requestJson = OBJECT_MAPPER.writeValueAsString(anyCallRequest);
 
             checkServerAvailable(methodName);
 
@@ -112,11 +131,7 @@ public class AnyCallClientImpl implements AnyCallClient {
                 }
             }
 
-            String payload = OBJECT_MAPPER.writeValueAsString(request);
-            AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, payload);
-            String requestId = anyCallRequest.requestId();
-            String requestJson = OBJECT_MAPPER.writeValueAsString(anyCallRequest);
-
+            published = true;
             commands.lpush(requestQueue, requestJson);
 
             responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
@@ -150,13 +165,27 @@ public class AnyCallClientImpl implements AnyCallClient {
             if (e instanceof AnyCallError) {
                 throw (AnyCallError) e;
             }
+            if (e instanceof RedisException) {
+                redisFailed = true;
+                throw new BrokerError(methodName, published
+                    ? "Redis failed after the request may have been published: " + e.getMessage()
+                    : "Redis failed before the request was published: " + e.getMessage(),
+                    requestId, published, e);
+            }
             if (e instanceof com.fasterxml.jackson.core.JsonProcessingException) {
                 throw new SerializationError(methodName, "Failed to serialize/deserialize method call: " + methodName, e);
             }
             throw new AnyCallError(methodName, "Failed to call method: " + methodName, e);
         } finally {
-            if (responseQueue != null) {
-                commands.del(responseQueue);
+            // After a Redis failure the DEL would only wait out the command timeout again.
+            // Nothing is lost: a response queue only exists once a response is written,
+            // and every write sets its RESPONSE_TTL.
+            if (responseQueue != null && !redisFailed) {
+                try {
+                    commands.del(responseQueue);
+                } catch (RedisException e) {
+                    // Never hide the call's own outcome.
+                }
             }
         }
     }
@@ -257,26 +286,22 @@ public class AnyCallClientImpl implements AnyCallClient {
      */
     private String readResponse(String queueKey) {
         long deadline = timeout.isZero() ? 0 : System.nanoTime() + timeout.toNanos();
-        try {
-            while (true) {
-                long waitNanos = WAITER_REAP_SLICE.toNanos();
-                if (deadline != 0) {
-                    long remaining = deadline - System.nanoTime();
-                    if (remaining <= 0) {
-                        return null;
-                    }
-                    waitNanos = Math.min(waitNanos, remaining);
+        while (true) {
+            long waitNanos = WAITER_REAP_SLICE.toNanos();
+            if (deadline != 0) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    return null;
                 }
-                // BRPOP takes 0 as "forever", so never let a slice round down to it.
-                double waitSeconds = Math.max(waitNanos / 1_000_000L, 1) / 1000.0;
-                KeyValue<String, String> entry = commands.brpop(waitSeconds, queueKey);
-                if (entry != null) {
-                    return entry.getValue();
-                }
-                reap();
+                waitNanos = Math.min(waitNanos, remaining);
             }
-        } catch (Exception e) {
-            return null;
+            // BRPOP takes 0 as "forever", so never let a slice round down to it.
+            double waitSeconds = Math.max(waitNanos / 1_000_000L, 1) / 1000.0;
+            KeyValue<String, String> entry = commands.brpop(waitSeconds, queueKey);
+            if (entry != null) {
+                return entry.getValue();
+            }
+            reap();
         }
     }
 
