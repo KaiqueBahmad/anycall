@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.8] - 2026-11-13
 
 ### Changed
 - A server declared dead (silent for over 8s, say while Redis was unreachable) never comes back under its id: the old id drains, and the server carries on under a new one. The requests it was running finish with their results discarded, since they're failed back, and keep their concurrency slots until then
