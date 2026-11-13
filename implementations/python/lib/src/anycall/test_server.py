@@ -117,11 +117,12 @@ def process(adapter: FakeRedisAdapter, item: str) -> None:
 
 def test_request_with_unknown_field_is_answered_on_its_own_queue():
     adapter = FakeRedisAdapter()
-    item = json.dumps({"requestId": "r1", "methodName": "echo", "payload": "{}", "extra": 1})
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "echo", "payload": "{}", "extra": 1})
 
     process(adapter, item)
 
-    response = adapter.responses["anycall:responses:r1"]
+    response = adapter.responses["anycall:responses:c1"]
+    assert response["requestId"] == "r1"
     assert response["payload"] is None
     assert response["error"]
     assert adapter.released == [item]
@@ -129,11 +130,11 @@ def test_request_with_unknown_field_is_answered_on_its_own_queue():
 
 def test_request_missing_a_field_is_answered_on_its_own_queue():
     adapter = FakeRedisAdapter()
-    item = json.dumps({"requestId": "r1", "methodName": "echo"})
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "echo"})
 
     process(adapter, item)
 
-    assert adapter.responses["anycall:responses:r1"]["error"]
+    assert adapter.responses["anycall:responses:c1"]["error"]
 
 
 @pytest.mark.parametrize("item", [
@@ -142,6 +143,7 @@ def test_request_missing_a_field_is_answered_on_its_own_queue():
     json.dumps({"methodName": "echo", "payload": "{}"}),
     json.dumps({"requestId": "", "methodName": "echo", "payload": "{}", "extra": 1}),
     json.dumps({"requestId": 7, "methodName": "echo", "payload": "{}", "extra": 1}),
+    json.dumps({"requestId": "r1", "methodName": "echo", "payload": "{}", "extra": 1}),  # no clientId
 ])
 def test_request_with_no_readable_request_id_is_dropped_unanswered(item):
     adapter = FakeRedisAdapter()
@@ -176,7 +178,7 @@ def test_results_of_requests_taken_under_a_draining_id_are_discarded():
     adapter.declared_dead.add(taker.server_id)
     server._heartbeat()
 
-    item = json.dumps({"requestId": "r1", "methodName": "echo", "payload": "{}"})
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "echo", "payload": "{}"})
     server._process_request(server.method_handlers["echo"], item, taker)
 
     assert adapter.responses == {}

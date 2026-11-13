@@ -143,4 +143,13 @@ public interface AnyCallClient {
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if operation already registered with different type
      */
     void registerType(String operation, Class<?> responseType);
+
+    /**
+     * The same calls, returning a {@code CompletableFuture} instead of blocking:
+     * {@code client.async().call(...)}. They share this client's response queue, registered
+     * types and settings.
+     *
+     * @return the asynchronous view of this client
+     */
+    AsyncCalls async();
 }

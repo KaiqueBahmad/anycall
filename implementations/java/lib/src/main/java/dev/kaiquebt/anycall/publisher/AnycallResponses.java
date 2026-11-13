@@ -35,18 +35,16 @@ public final class AnycallResponses {
     /**
      * Writes a server's response and drops its request from the server's processing list.
      *
+     * @param clientId the client that made the call, whose queue the response goes to
      * @param processingKey the processing list the request was taken onto
      * @param item the request json exactly as it was taken
      */
     public static void pushAndRelease(RedisCommands<String, String> commands, AnyCallResponse response,
-                                      String processingKey, String item) throws JsonProcessingException {
+                                      String clientId, String processingKey, String item)
+            throws JsonProcessingException {
         commands.eval(PUSH_AND_RELEASE_SCRIPT, ScriptOutputType.INTEGER,
-            new String[] {responseQueue(response), processingKey},
+            new String[] {AnycallQueues.responseQueue(clientId), processingKey},
             OBJECT_MAPPER.writeValueAsString(response),
             String.valueOf(AnycallQueues.RESPONSE_TTL.getSeconds()), item);
-    }
-
-    private static String responseQueue(AnyCallResponse response) {
-        return AnycallQueues.RESPONSE_QUEUE_PREFIX + response.requestId();
     }
 }

@@ -623,15 +623,18 @@ public class AnyCallServerImpl implements AnyCallServer {
      */
     private void processRequest(String requestJson, MethodHandler handler, Identity taker) {
         String requestId = null;
+        String clientId = null;
         String methodName = null;
 
         try {
             AnyCallRequest request = OBJECT_MAPPER.readValue(requestJson, AnyCallRequest.class);
             // Jackson fills a missing field with null instead of failing.
-            if (request.requestId() == null || request.methodName() == null || request.payload() == null) {
+            if (request.requestId() == null || request.clientId() == null || request.methodName() == null
+                    || request.payload() == null) {
                 throw new IllegalArgumentException("Request is missing a field: " + requestJson);
             }
             requestId = request.requestId();
+            clientId = request.clientId();
             methodName = request.methodName();
             inFlightRequestIds.add(requestId);
 
@@ -645,24 +648,26 @@ public class AnyCallServerImpl implements AnyCallServer {
             String resultJson = OBJECT_MAPPER.writeValueAsString(result);
 
             AnyCallResponse response = AnyCallResponse.success(requestId, resultJson);
-            sendResponse(response, requestJson, taker);
+            sendResponse(response, clientId, requestJson, taker);
 
             log.debug("Request {} processed successfully", requestId);
         } catch (Exception e) {
-            if (requestId == null) {
-                requestId = AnyCallRequest.readRequestId(requestJson);
-            }
-            if (requestId == null) {
-                log.warn("Dropped a request with no readable requestId: {}", e.getMessage());
-                release(requestJson, taker);
-                return;
+            if (requestId == null || clientId == null) {
+                AnyCallRequest.ReplyAddress address = AnyCallRequest.readReplyAddress(requestJson);
+                if (address == null) {
+                    log.warn("Dropped a request with no readable requestId or clientId: {}", e.getMessage());
+                    release(requestJson, taker);
+                    return;
+                }
+                requestId = address.requestId();
+                clientId = address.clientId();
             }
             log.error("Error processing request: {}", requestId, e);
             AnyCallResponse response = AnyCallResponse.error(
                 requestId,
                 e.getMessage() != null ? e.getMessage() : e.getClass().getName()
             );
-            sendResponse(response, requestJson, taker);
+            sendResponse(response, clientId, requestJson, taker);
         } finally {
             if (requestId != null) {
                 inFlightRequestIds.remove(requestId);
@@ -694,18 +699,19 @@ public class AnyCallServerImpl implements AnyCallServer {
      * request is still on the list to be failed back.
      *
      * @param response the response to send
+     * @param clientId the client that made the call, whose queue the response goes to
      * @param requestJson the request json exactly as it was taken
      * @param taker the identity it was taken under; a draining one's result is discarded,
      *              since reapers fail its requests back
      */
-    private void sendResponse(AnyCallResponse response, String requestJson, Identity taker) {
+    private void sendResponse(AnyCallResponse response, String clientId, String requestJson, Identity taker) {
         if (taker != identity) {
             log.debug("Discarded the result of request {}, taken under draining id {}",
                 response.requestId(), taker.serverId);
             return;
         }
         try {
-            AnycallResponses.pushAndRelease(writeCommands, response, taker.processingKey, requestJson);
+            AnycallResponses.pushAndRelease(writeCommands, response, clientId, taker.processingKey, requestJson);
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
         }

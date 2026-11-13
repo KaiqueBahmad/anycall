@@ -20,10 +20,10 @@ HEARTBEAT_KEY = "anycall:servers:alive"
 # liveness check will disagree with the server's own pruning.
 HEARTBEAT_TTL_SECONDS = 8
 
-# Expiry on every response queue, set when a response is written (by a server
-# or a reaper). A waiting client pops it within milliseconds and deletes the
-# queue; this only matters when nobody reads it (the client timed out or died,
-# or a server pruned as dead answered late), so it doesn't sit in Redis forever.
+# Expiry on every response queue, set again whenever a response is written (by
+# a server or a reaper). A client reads its queue all the time, so this only
+# matters once nobody does (the client died): its queue goes 60s after the
+# last response written to it, so it doesn't sit in Redis forever.
 RESPONSE_TTL_SECONDS = 60
 
 # Expiry on a tombstone: the string a dead server's processing list becomes
@@ -49,6 +49,7 @@ def processing_list(server_id: str) -> str:
     return f"{PROCESSING_PREFIX}{server_id}"
 
 
-def response_queue(request_id: str) -> str:
-    """Generate response queue key for a request."""
-    return f"{RESPONSE_QUEUE_PREFIX}{request_id}"
+def response_queue(client_id: str) -> str:
+    """The response queue of a client: every response to its calls goes
+    there, and the client hands each to its call by requestId."""
+    return f"{RESPONSE_QUEUE_PREFIX}{client_id}"

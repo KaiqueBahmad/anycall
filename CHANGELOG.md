@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Calls without blocking: `client.async()` in Java, returning a `CompletableFuture`, and `client.aio` in Python, to `await`
+
+### Changed
+- Each client reads one response queue, `anycall:responses:<client id>`, instead of one per call: requests carry the client's id (`clientId`)
+
 ## [0.8] - 2026-11-13
 
 ### Changed

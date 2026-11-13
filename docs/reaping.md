@@ -12,7 +12,7 @@ Reaping never runs the request again. It only fails it back to its client.
 |---|---|---|
 | `anycall:processing:<server>` | servers, reapers | the requests that server is processing (see [taking-requests.md](taking-requests.md)); once a dead server is reaped, a tombstone |
 | `anycall:servers:alive` | servers | every server's last heartbeat, by Redis's clock |
-| `anycall:responses:<id>` | servers, reapers | the response a client waits on |
+| `anycall:responses:<client>` | servers, reapers | every response to that client's calls; the client hands each to its call by requestId |
 
 A server heartbeats every 2s and counts as dead when its heartbeat is over 8s
 old. A dead server stays in `anycall:servers:alive` until it's reaped, because
@@ -26,11 +26,11 @@ one at a time, each in a transaction of its own:
 ```
 WATCH  anycall:processing:<server>
 LINDEX anycall:processing:<server> -1       -- the next request, not removed
-                                            -- (its requestId is read by the reaper)
+                                            -- (the reaper reads its requestId and clientId)
 MULTI
 LTRIM  anycall:processing:<server> 0 -2     -- drops the last one: the request read
-LPUSH  anycall:responses:<requestId> <server-lost error>
-EXPIRE anycall:responses:<requestId> 60
+LPUSH  anycall:responses:<clientId> <server-lost error for requestId>
+EXPIRE anycall:responses:<clientId> 60
 EXEC
 ```
 

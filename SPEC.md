@@ -6,7 +6,9 @@
 - **SHOULD** / **SHOULD NOT**: expected, unless there is a good reason not to.
 - **MAY**: allowed, not required.
 
-- **Client**: a process that calls methods.
+- **Client**: a process that calls methods. Each client instance has a
+  **client id**: a random lowercase UUID, made when it's created and never
+  reused. Every response to its calls goes to its own response queue.
 - **Server**: a process that registers methods and answers calls. Each
   instance has a **server id**: a random lowercase UUID, made on every start
   and whenever the server is declared dead, and never reused.
@@ -25,7 +27,7 @@ talk RESP2: Redis 5.0 has no `HELLO`, so no RESP3.
 |---|---|---|---|---|
 | `anycall:requests:<method>` | List | clients (`LPUSH`) | servers (`BLMOVE` or `BRPOPLPUSH`) | none |
 | `anycall:processing:<server id>` | List; a string once reaped (a tombstone) | its server; reapers | its server, reapers | none; a tombstone `TOMBSTONE_TTL` |
-| `anycall:responses:<request id>` | List | server or reaper (`LPUSH`) | the caller (`BRPOP`) | `RESPONSE_TTL`, set on every write |
+| `anycall:responses:<client id>` | List: every response to that client's calls | server or reaper (`LPUSH`) | the client (`BRPOP`) | `RESPONSE_TTL`, set on every write |
 | `anycall:servers:alive` | Sorted set: server id → now of its last heartbeat | servers | everyone | none |
 
 Implementations MUST NOT write any other key under `anycall:`.
@@ -37,10 +39,12 @@ JSON objects, UTF-8, one List entry each.
 **Request**
 
 ```json
-{"requestId": "<uuid>", "methodName": "<method>", "payload": "<json text>"}
+{"requestId": "<uuid>", "clientId": "<client id>", "methodName": "<method>", "payload": "<json text>"}
 ```
 
 - `requestId` MUST be a fresh random UUID.
+- `clientId` MUST be the calling client's id: the response goes to
+  `anycall:responses:<clientId>`.
 - `methodName` MUST match the queue it is pushed to.
 - `payload` is the argument serialized to JSON, stored as a **string**.
 
@@ -206,17 +210,18 @@ clock.
   remote error.
 - A response MUST be written in one round trip (a pipeline or a script), in
   this order:
-  1. `LPUSH anycall:responses:<request id> <response>`
-  2. `EXPIRE anycall:responses:<request id> RESPONSE_TTL`
+  1. `LPUSH anycall:responses:<client id> <response>`
+  2. `EXPIRE anycall:responses:<client id> RESPONSE_TTL`
   3. `LREM anycall:processing:<server id> 1 <request>`, with the request
      exactly as taken.
 - A request that is invalid (not JSON, a missing or unknown field, a
   `payload` that doesn't fit the parameter) MUST get a remote error on its
-  own response queue, as long as its `requestId` is readable: the entry is a
-  JSON object whose `requestId` is a non-empty string. A server SHOULD read
-  the `requestId` on its own only after the full read fails.
-- A request whose `requestId` isn't readable MUST NOT be answered. The server
-  MUST `LREM` it from its processing list and SHOULD log it.
+  client's response queue, as long as its `requestId` and `clientId` are
+  readable: the entry is a JSON object in which both are non-empty strings. A
+  server SHOULD read them on their own only after the full read fails.
+- A request whose `requestId` or `clientId` isn't readable MUST NOT be
+  answered. The server MUST `LREM` it from its processing list and SHOULD log
+  it.
 
 ### 6.5 Concurrency
 
@@ -241,13 +246,14 @@ back one at a time, each in a transaction of its own, until none is left:
    - a string: it's a tombstone, the server was reaped before. Stop.
    - none: the list is empty. Run TOMBSTONE; if it returns `0`, start again
      from step 1, else stop.
-2. `LINDEX anycall:processing:<server id> -1`, and read its `requestId` the way
-   a server does. Requests MUST NOT be read inside a script.
+2. `LINDEX anycall:processing:<server id> -1`, and read its `requestId` and
+   `clientId` the way a server does. Requests MUST NOT be read inside a
+   script.
 3. `MULTI`, `LTRIM anycall:processing:<server id> 0 -2`, which drops the
    request read in step 2 (the `WATCH` guarantees it's still the last), and,
-   if its `requestId` is readable, a server-lost response with `LPUSH` +
-   `EXPIRE`, as a server writes a response. A request whose `requestId` isn't
-   readable is dropped.
+   if both are readable, a server-lost response to the client's queue with
+   `LPUSH` + `EXPIRE`, as a server writes a response. A request without them
+   is dropped.
 4. `EXEC`. If it was discarded, start again from step 1.
 
 A dead server never heartbeats again, so nothing about it needs checking
@@ -268,27 +274,36 @@ heartbeat that triggered it.
 2. **Queue depth**: if the call has a `max_queue_depth` (its own or the
    client's default) and `LLEN anycall:requests:<method>` is at least that,
    fail with `QueueFullError`.
-3. **Publish**: `LPUSH anycall:requests:<method> <request>`.
+3. **Publish**: `LPUSH anycall:requests:<method> <request>`. The call MUST be
+   waiting for its response (see Waiting) before the `LPUSH`, so a fast
+   response always finds it.
 
 Both checks are advisory.
 
 ### 8.2 Waiting
 
-- `BRPOP anycall:responses:<request id>` in slices of at most `WAIT_SLICE`,
-  until a response or the timeout.
-- Each slice MUST be whole seconds, rounded up: Redis before 6.0 rejects a
-  fractional timeout, and `0` would mean forever. A call may therefore time
-  out up to 1s late.
-- A timeout of zero means no limit, and is the default.
-- After each empty slice, the client MUST run STALE and reap every dead server
-  it returns.
-- The socket read timeout MUST be `WAIT_SLICE` plus a margin, whatever the
-  call timeout: no command blocks longer than a slice, so one that outlasts it
-  is stuck on a Redis that stopped answering.
+A client reads its own response queue with a single **reader** and hands each
+response to the call waiting for it, so any number of calls can wait at once.
+
+- The reader runs `BRPOP anycall:responses:<client id>` in slices of
+  `WAIT_SLICE`, whole seconds.
+- It reads each response's `requestId` on its own, like a server reads a
+  request's, and hands the response to the call waiting for that id. A
+  response with no readable `requestId`, or for a call no longer waiting (it
+  timed out), is dropped.
+- After each empty slice while calls are waiting, it MUST run STALE and reap
+  every dead server it returns.
+- Each call's timeout is measured by the client, on the call; zero means no
+  limit, and is the default. A call that times out stops waiting.
+- If a Redis command under the reader fails, every waiting call MUST fail
+  with `BrokerError` (`published` true), and the reader starts over.
+- The socket read timeout MUST be `WAIT_SLICE` plus a margin: no command
+  blocks longer than a slice, so one that outlasts it is stuck on a Redis
+  that stopped answering.
 - A command that fails while disconnected MUST fail at once, not wait for a
   reconnect.
-- When the call ends, the client MUST `DEL` its response queue, unless it
-  ended on a Redis failure.
+- A client never deletes its response queue: it's empty, and so gone, while
+  nothing waits in it, and `RESPONSE_TTL` removes it once the client is gone.
 
 ### 8.3 Outcome
 
@@ -297,7 +312,7 @@ Both checks are advisory.
 | nothing before the timeout | `TimeoutError` |
 | `lostServer` set | `ServerLostError`, with the server id |
 | non-null `error` | `RemoteException` |
-| null `payload` and null `error`, or invalid JSON | `SerializationError` |
+| null `payload` and null `error`, or an otherwise invalid response | `SerializationError` |
 | a `payload` that doesn't fit the expected type | `SerializationError` |
 | a Redis command failed (before the `LPUSH`, or from it on) | `BrokerError`, with `published` false, or true |
 | otherwise | returns `payload` as the expected type; `"null"` is null for any type |
@@ -329,6 +344,12 @@ its own language's style.
 | `register_type(method, type)` | once; the same type again is a no-op, a different one fails |
 | `get_queue_depth(method)` | `LLEN` of the method's queue |
 | default `max_queue_depth` | get and set; a per-call value wins |
+
+**Asynchronous calls.** `call` and `raw_call` MUST also be offered without
+blocking, returning the language's future or awaitable instead of the
+result: Java's `client.async()`, whose methods return a `CompletableFuture`,
+and Python's `client.aio`, whose methods are awaited. Same operations,
+registered types, timeout and errors, on the same response queue.
 
 **Server**
 

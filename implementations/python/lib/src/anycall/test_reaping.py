@@ -27,27 +27,34 @@ class DeadServerLists:
 
 
 def test_every_request_of_a_dead_server_gets_server_lost():
-    items = [json.dumps({"requestId": f"r{i}", "methodName": "m", "payload": "{}"}) for i in range(3)]
+    items = [json.dumps({"requestId": f"r{i}", "clientId": f"c{i}", "methodName": "m", "payload": "{}"}) for i in range(3)]
     lists = DeadServerLists(items)
 
     reap_dead_servers(lists, ["dead"])
 
-    assert set(lists.responses) == {"anycall:responses:r0", "anycall:responses:r1", "anycall:responses:r2"}
+    # Each goes to its own client's queue, carrying its requestId.
+    assert {queue: response["requestId"] for queue, response in lists.responses.items()} == {
+        "anycall:responses:c0": "r0", "anycall:responses:c1": "r1", "anycall:responses:c2": "r2",
+    }
     assert all(response["lostServer"] == "dead" for response in lists.responses.values())
     assert lists.items == [] and "dead" not in lists.alive
 
 
 def test_request_with_unknown_field_still_gets_server_lost():
-    item = json.dumps({"requestId": "r1", "methodName": "echo", "payload": "{}", "extra": 1})
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "echo", "payload": "{}", "extra": 1})
     lists = DeadServerLists([item])
 
     reap_dead_servers(lists, ["dead"])
 
-    assert lists.responses["anycall:responses:r1"]["lostServer"] == "dead"
+    assert lists.responses["anycall:responses:c1"]["lostServer"] == "dead"
 
 
 def test_request_with_no_readable_request_id_is_dropped():
-    lists = DeadServerLists(["not json", json.dumps({"methodName": "echo"})])
+    lists = DeadServerLists([
+        "not json",
+        json.dumps({"methodName": "echo"}),
+        json.dumps({"requestId": "r1", "methodName": "echo", "payload": "{}"}),  # no clientId
+    ])
 
     reap_dead_servers(lists, ["dead"])
 

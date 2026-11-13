@@ -95,6 +95,24 @@ without this, a request sitting in an empty queue would just wait out the
 full timeout with nothing to pop it. This only confirms *some* server is
 alive, not that one of them supports the method being called.
 
+### Call without blocking:
+`client.async()` has the same calls, returning a `CompletableFuture` instead of
+the result. Calls share the client's one response queue, so any number can
+wait at once without a thread each:
+```java
+CompletableFuture<Sentiment> future =
+    client.async().call("analyze-sentiment", request, Sentiment.class);
+future.thenAccept(s -> log.info("label: {}", s.label()));
+
+List<CompletableFuture<Sentiment>> futures = reviews.stream()
+    .map(r -> client.async().call("analyze-sentiment", new TextRequest(r), Sentiment.class))
+    .toList();
+CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+```
+Errors complete the future exceptionally, wrapped in a `CompletionException`
+as usual: `e.getCause()` is the same `TimeoutError`, `ServerLostError`, ...
+a blocking call would throw.
+
 ## Configuration
 
 ```java

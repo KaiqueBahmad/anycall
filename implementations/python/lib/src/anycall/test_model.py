@@ -6,16 +6,18 @@ from .model import AnyCallRequest, AnyCallResponse
 
 
 def test_request_reads_camel_case_fields():
-    request = AnyCallRequest.from_dict({"requestId": "r1", "methodName": "m", "payload": "{}"})
+    request = AnyCallRequest.from_dict({"requestId": "r1", "clientId": "c1", "methodName": "m", "payload": "{}"})
 
-    assert (request.request_id, request.method_name, request.payload) == ("r1", "m", "{}")
+    assert (request.request_id, request.client_id, request.method_name, request.payload) == ("r1", "c1", "m", "{}")
 
 
 @pytest.mark.parametrize("data", [
-    {"request_id": "r1", "methodName": "m", "payload": "{}"},
-    {"requestId": "r1", "method_name": "m", "payload": "{}"},
-    {"requestId": "r1", "methodName": "m", "payload": "{}", "request_id": "r2"},
-    {"requestId": "r1", "methodName": "m"},
+    {"request_id": "r1", "clientId": "c1", "methodName": "m", "payload": "{}"},
+    {"requestId": "r1", "client_id": "c1", "methodName": "m", "payload": "{}"},
+    {"requestId": "r1", "clientId": "c1", "method_name": "m", "payload": "{}"},
+    {"requestId": "r1", "clientId": "c1", "methodName": "m", "payload": "{}", "request_id": "r2"},
+    {"requestId": "r1", "clientId": "c1", "methodName": "m"},
+    {"requestId": "r1", "methodName": "m", "payload": "{}"},
 ])
 def test_request_rejects_other_field_names_and_missing_fields(data):
     with pytest.raises(TypeError):

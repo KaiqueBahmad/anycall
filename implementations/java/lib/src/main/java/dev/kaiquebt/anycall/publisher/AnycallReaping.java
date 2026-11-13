@@ -115,7 +115,8 @@ public final class AnycallReaping {
                 log.warn("Failed back {} request(s) of dead server {} to their clients", answered, serverId);
             }
             if (dropped > 0) {
-                log.warn("Dropped {} request(s) with no readable requestId of dead server {}", dropped, serverId);
+                log.warn("Dropped {} request(s) with no readable requestId or clientId of dead server {}",
+                    dropped, serverId);
             }
         }
     }
@@ -176,15 +177,17 @@ public final class AnycallReaping {
         if (request == null) {
             return Step.RETRY;  // emptied meanwhile: the next look tombstones it
         }
-        String requestId = AnyCallRequest.readRequestId(request);
-        String response = requestId == null ? null
-            : OBJECT_MAPPER.writeValueAsString(AnyCallResponse.serverLost(requestId, serverId));
+        // Only where it goes is needed, so a request the server couldn't have parsed (an
+        // unknown field, say) still reaches its client.
+        AnyCallRequest.ReplyAddress address = AnyCallRequest.readReplyAddress(request);
+        String response = address == null ? null
+            : OBJECT_MAPPER.writeValueAsString(AnyCallResponse.serverLost(address.requestId(), serverId));
 
         commands.multi();
         try {
             commands.ltrim(processingKey, 0, -2);
-            if (requestId != null) {
-                String responseQueue = AnycallQueues.RESPONSE_QUEUE_PREFIX + requestId;
+            if (address != null) {
+                String responseQueue = AnycallQueues.responseQueue(address.clientId());
                 commands.lpush(responseQueue, response);
                 commands.expire(responseQueue, AnycallQueues.RESPONSE_TTL.getSeconds());
             }
@@ -195,7 +198,7 @@ public final class AnycallReaping {
         if (commands.exec().wasDiscarded()) {
             return Step.RETRY;
         }
-        return requestId == null ? Step.DROPPED : Step.ANSWERED;
+        return address == null ? Step.DROPPED : Step.ANSWERED;
     }
 
     /**

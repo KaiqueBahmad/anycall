@@ -15,10 +15,18 @@ public class AnycallQueues {
     public static String REQUEST_QUEUE_PREFIX = "anycall:requests:";
 
     /**
-     * Prefix for response queues. Request ID is appended to create the full queue key.
-     * Format: {@code anycall:responses:<request-id>}
+     * Prefix for response queues, one per client. Client id is appended to create the full
+     * queue key. Format: {@code anycall:responses:<client-id>}
      */
     public static String RESPONSE_QUEUE_PREFIX = "anycall:responses:";
+
+    /**
+     * The response queue of a client: every response to its calls goes there, and the client
+     * hands each to its call by request id.
+     */
+    public static String responseQueue(String clientId) {
+        return RESPONSE_QUEUE_PREFIX + clientId;
+    }
 
     /**
      * Prefix for processing lists. Server id is appended to create the full key.

@@ -13,7 +13,7 @@ import redis.exceptions
 from . import queues
 from .context import AnycallContext
 from .exceptions import AnyCallError
-from .model import AnyCallRequest, AnyCallResponse, read_request_id
+from .model import AnyCallRequest, AnyCallResponse, read_reply_address
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
@@ -455,8 +455,8 @@ class AnyCallServerImpl(AnyCallServer):
         the request fails to deserialize here.
 
         A request the strict read rejects still gets its error, as long as its
-        `requestId` can be read on its own. One with no readable `requestId`
-        has no response queue: it's dropped from the processing list, and
+        `requestId` and `clientId` can be read on their own. One without them
+        has nowhere to be answered: it's dropped from the processing list, and
         nothing is answered.
 
         `taker` is the identity it was taken under. If it's draining by the
@@ -464,9 +464,11 @@ class AnyCallServerImpl(AnyCallServer):
         is discarded and the old list left to them.
         """
         request_id = None
+        client_id = None
         try:
             rpc_request = deserialize(item, AnyCallRequest)
             request_id = rpc_request.request_id
+            client_id = rpc_request.client_id
             with self._in_flight_lock:
                 self._in_flight_request_ids.add(request_id)
 
@@ -479,13 +481,14 @@ class AnyCallServerImpl(AnyCallServer):
             response = AnyCallResponse.success(rpc_request.request_id, result_json)
 
         except Exception as e:
-            if request_id is None:
-                request_id = read_request_id(item)
-            if request_id is None:
-                logger.warning(f"Dropped a request with no readable requestId: {e}")
-                if taker is self._identity:
-                    self.redis.release(taker.processing_key, item)
-                return
+            if request_id is None or client_id is None:
+                address = read_reply_address(item)
+                if address is None:
+                    logger.warning(f"Dropped a request with no readable requestId or clientId: {e}")
+                    if taker is self._identity:
+                        self.redis.release(taker.processing_key, item)
+                    return
+                request_id, client_id = address
             logger.exception(f"Error invoking method: {e}")
             response = AnyCallResponse.error(request_id, str(e))
         finally:
@@ -499,7 +502,7 @@ class AnyCallServerImpl(AnyCallServer):
                 f"draining id {taker.server_id}"
             )
             return
-        response_queue = queues.response_queue(response.request_id)
+        response_queue = queues.response_queue(client_id)
         response_json = serialize(response)
         self.redis.respond(
             response_queue, response_json, queues.RESPONSE_TTL_SECONDS, taker.processing_key, item

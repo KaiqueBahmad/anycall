@@ -43,7 +43,7 @@ For details on how to use as a supplier or consumer, see [USAGE.md](USAGE.md).
 ### lib
 Core library implementing an RPC framework via Redis (Lists as queues). Uses the `AnyCall` factory class to create clients and servers:
 
-- **AnyCall Client**: Synchronous interface for invoking remote methods. Serializes the request to JSON, publishes to a Redis queue, waits for the response on a callback queue. Supports a configurable timeout and a default queue-depth limit, both passed to `AnyCall.client(...)`.
+- **AnyCall Client**: Interface for invoking remote methods, blocking or not (`client.aio`). Serializes the request to JSON and publishes it to a Redis queue; every response comes back on the client's own queue, where a single reader hands it to the call waiting for it. Supports a configurable timeout and a default queue-depth limit, both passed to `AnyCall.client(...)`.
   
 - **AnyCall Server**: Listener that processes requests from Redis. Each registered method gets its own read loop, and taken requests run on a shared worker pool. Methods are discovered via the `@supply` decorator on registered classes. Each method's concurrency is optionally capped by `@supply(max_concurrency=...)` (default `1`), with an optional server-wide cap via `AnyCall.server(redis_uri, max_concurrency=...)`.
 

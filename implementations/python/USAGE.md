@@ -89,6 +89,19 @@ sentiment = client.call("analyze-sentiment", request)
 response = client.raw_call("analyze-sentiment", request)
 ```
 
+### Call without blocking (asyncio):
+`client.aio` has the same calls, to `await`. Calls share the client's one
+response queue, so any number can wait at once:
+```python
+sentiment = await client.aio.call("analyze-sentiment", request, Sentiment)
+
+results = await asyncio.gather(*(
+    client.aio.call("analyze-sentiment", TextRequest(r), Sentiment) for r in reviews
+))
+```
+They raise the same errors as a blocking call, `TimeoutError` included
+(AnyCall's, not asyncio's).
+
 ### Fail fast if no server is available:
 ```python
 from anycall.exceptions import NoServerAvailableError

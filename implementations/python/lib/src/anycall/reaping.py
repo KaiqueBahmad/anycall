@@ -2,7 +2,7 @@ import logging
 from typing import Iterable, Optional, Tuple
 
 from . import queues
-from .model import AnyCallResponse, read_request_id
+from .model import AnyCallResponse, read_reply_address
 from .serialization import serialize
 
 logger = logging.getLogger(__name__)
@@ -47,20 +47,21 @@ def reap_dead_servers(redis, dead: Iterable[str]) -> None:
         if answered:
             logger.warning(f"Failed back {answered} request(s) of dead server {server_id} to their clients")
         if dropped:
-            logger.warning(f"Dropped {dropped} request(s) with no readable requestId of dead server {server_id}")
+            logger.warning(f"Dropped {dropped} request(s) with no readable requestId or clientId of dead server {server_id}")
 
 
 def _server_lost(item: str, server_id: str) -> Optional[Tuple[str, str]]:
     """The response queue and server-lost response for a request of a dead
-    server, or None if its requestId can't be read.
+    server, or None if its requestId or clientId can't be read.
 
-    Only the requestId is needed, so a request the server couldn't have
-    parsed (an unknown field, say) still reaches its client.
+    Only those two are needed, so a request the server couldn't have parsed
+    (an unknown field, say) still reaches its client.
     """
-    request_id = read_request_id(item)
-    if request_id is None:
+    address = read_reply_address(item)
+    if address is None:
         return None
+    request_id, client_id = address
     return (
-        queues.response_queue(request_id),
+        queues.response_queue(client_id),
         serialize(AnyCallResponse.server_lost(request_id, server_id)),
     )
