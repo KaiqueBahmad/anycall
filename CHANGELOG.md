@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.9] - 2026-11-14
 
 ### Added
 - Calls without blocking: `client.async()` in Java, returning a `CompletableFuture`, and `client.aio` in Python, to `await`

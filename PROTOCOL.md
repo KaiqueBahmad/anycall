@@ -1,4 +1,4 @@
-# AnyCall Protocol — Contract 0.8
+# AnyCall Protocol — Contract 0.9
 
 ## 1. Conventions
 
