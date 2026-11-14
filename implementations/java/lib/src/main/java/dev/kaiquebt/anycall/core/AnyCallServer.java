@@ -66,8 +66,8 @@ public interface AnyCallServer {
     java.util.List<String> methods();
 
     /**
-     * A snapshot of one registered method: its concurrency cap, and how many of its requests
-     * are running right now.
+     * A snapshot of one registered method: its concurrency cap, how many of its requests are
+     * running right now, and how its object declared it.
      *
      * @throws IllegalArgumentException if no method is registered under that name
      */

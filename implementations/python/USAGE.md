@@ -54,8 +54,18 @@ until fewer than the new cap do.
 Each method's own cap can change the same way:
 ```python
 server.methods                                    # ['analyze-sentiment', 'echo']
-server.method("analyze-sentiment")                # MethodInfo(name='analyze-sentiment', max_concurrency=4, running=2)
+server.method("analyze-sentiment")                # MethodInfo(max_concurrency=4, running=2, declared=SupplyMethod(name='analyze-sentiment', ...))
+server.method("analyze-sentiment").declared.max_concurrency  # as @supply says, whatever it is now
 server.set_max_concurrency("analyze-sentiment", 8)
+```
+
+The same view of an object before registering it, checked the way `register`
+checks it:
+```python
+from anycall import utils
+
+utils.methods(SentimentAnalyzer())                          # ['analyze-sentiment']
+utils.method(SentimentAnalyzer(), "analyze-sentiment")       # SupplyMethod(..., max_concurrency=4, request_type=TextRequest, response_type=Sentiment)
 ```
 
 ### Key prefix

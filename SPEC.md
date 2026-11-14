@@ -391,11 +391,19 @@ registered types, timeout and errors, on the same response queue.
 | `options` | the server's options, each setting set |
 | `update_options(options)` | while it runs: what `options` set replaces the server's, what they leave out stays; a lower `max_concurrency` lets what's running finish |
 | `methods` | the names of every registered method, sorted |
-| `method(name)` | a registered method's `max_concurrency` and how many of its requests are running now; fails if none |
+| `method(name)` | a registered method's `max_concurrency`, how many of its requests are running now, and the method as declared (as `method(object, name)` gives it); fails if none |
 | `set_max_concurrency(method, n)` | while it runs, at least 1; a registered method only; lower lets what's running finish |
 
 A supply method takes the context and the request, deserialized to its
 parameter's type.
+
+**Utilities.** Without a server, an implementation MUST offer the same view
+of a supplier object a server takes when registering it, accepting and
+rejecting the same objects: `methods(object)`, the names of its supply
+methods, sorted; and `method(object, name)`, that method as declared (its
+name, `max_concurrency`, request type and declared return type, the last only
+informative), failing if it has none by that name. What it returns is its own type, not the running method's: Java's
+`AnycallUtils` returns a `SupplyMethod`, as does Python's `anycall.utils`.
 
 **Errors**
 

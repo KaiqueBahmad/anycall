@@ -1,7 +1,6 @@
 package dev.kaiquebt.anycall.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnycallContext;
 import dev.kaiquebt.anycall.core.MethodInfo;
@@ -25,7 +24,6 @@ import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -259,7 +257,8 @@ public class AnyCallServerImpl implements AnyCallServer {
         if (!methodHandlers.containsKey(name)) {
             throw new IllegalArgumentException("No method registered as '" + name + "'");
         }
-        return new MethodInfo(name, methodConcurrencyLimiters.get(name).capacity(), runningRequests.get(name).get());
+        return new MethodInfo(methodConcurrencyLimiters.get(name).capacity(), runningRequests.get(name).get(),
+            methodHandlers.get(name).declared());
     }
 
     @Override
@@ -292,52 +291,19 @@ public class AnyCallServerImpl implements AnyCallServer {
         return this;
     }
     private void scanAndRegisterSupplier(Object supplier) {
-        Class<?> supplierClass = supplier.getClass();
-
-        for (Method method : supplierClass.getDeclaredMethods()) {
-            Supply supplyAnnotation = method.getAnnotation(Supply.class);
-
-            if (supplyAnnotation != null) {
-                String methodName = supplyAnnotation.methodName();
-
-                if (method.getParameterCount() != 2) {
-                    throw new IllegalStateException(
-                        "Method " + method.getName() + " annotated with @Supply must have exactly two parameters: "
-                            + "(AnycallContext, <request type>)"
-                    );
+        for (MethodHandler handler : SupplyScanner.scan(supplier)) {
+            String methodName = handler.methodName();
+            synchronized (this) {
+                methodConcurrencyLimiters.put(methodName, new ConcurrencyLimit(handler.maxConcurrency()));
+                runningRequests.computeIfAbsent(methodName, name -> new AtomicInteger());
+                // Replacing a handler makes the old one's loop exit on its next
+                // iteration; the new one gets a loop of its own.
+                methodHandlers.put(methodName, handler);
+                if (running.get()) {
+                    startReader(methodName, handler);
                 }
-
-                if (method.getParameterTypes()[0] != AnycallContext.class) {
-                    throw new IllegalStateException(
-                        "Method " + method.getName() + " annotated with @Supply must declare AnycallContext "
-                            + "as its first parameter"
-                    );
-                }
-
-                int maxConcurrency = supplyAnnotation.maxConcurrency();
-                if (maxConcurrency < 1) {
-                    throw new IllegalStateException(
-                        "Method " + method.getName() + " annotated with @Supply has invalid maxConcurrency "
-                            + maxConcurrency + "; it must be at least 1"
-                    );
-                }
-
-                Class<?> parameterType = method.getParameterTypes()[1];
-                method.setAccessible(true);
-
-                MethodHandler handler = new MethodHandler(supplier, method, parameterType, maxConcurrency);
-                synchronized (this) {
-                    methodConcurrencyLimiters.put(methodName, new ConcurrencyLimit(maxConcurrency));
-                    runningRequests.computeIfAbsent(methodName, name -> new AtomicInteger());
-                    // Replacing a handler makes the old one's loop exit on its next
-                    // iteration; the new one gets a loop of its own.
-                    methodHandlers.put(methodName, handler);
-                    if (running.get()) {
-                        startReader(methodName, handler);
-                    }
-                }
-                log.debug("Registered supplier method: {} (maxConcurrency={})", methodName, maxConcurrency);
             }
+            log.debug("Registered supplier method: {} (maxConcurrency={})", methodName, handler.maxConcurrency());
         }
     }
 

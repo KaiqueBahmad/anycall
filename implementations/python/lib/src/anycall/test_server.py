@@ -15,7 +15,7 @@ from .exceptions import AnyCallError
 from .redis_adapter import RedisQueueAdapter
 from .options import ServerOptions
 from .queues import Queues
-from .server import AnyCallServer, AnyCallServerImpl, MethodInfo
+from .server import AnyCallServer, AnyCallServerImpl, MethodInfo, SupplyMethod
 
 
 class Echo:
@@ -318,7 +318,7 @@ def test_methods_lists_every_registered_name():
 def test_method_reads_one_methods_cap_and_running_count():
     server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter())).register(Slow(), Echo())
 
-    assert server.method("slow") == MethodInfo("slow", 2, 0)
+    assert server.method("slow") == MethodInfo(2, 0, SupplyMethod("slow", 2, dict, dict))
     with pytest.raises(KeyError):
         server.method("missing")
 
@@ -329,6 +329,7 @@ def test_set_max_concurrency_changes_one_methods_cap():
     server.set_max_concurrency("slow", 5)
 
     assert server.method("slow").max_concurrency == 5
+    assert server.method("slow").declared.max_concurrency == 2
     assert server.method("echo").max_concurrency == 1
 
 

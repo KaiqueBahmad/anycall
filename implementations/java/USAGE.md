@@ -36,8 +36,16 @@ until fewer than the new cap do.
 Each method's own cap can change the same way:
 ```java
 server.methods();                             // [analyze-sentiment, echo]
-server.method("analyze-sentiment");           // MethodInfo[name=analyze-sentiment, maxConcurrency=4, running=2]
+server.method("analyze-sentiment");           // MethodInfo[maxConcurrency=4, running=2, declared=SupplyMethod[name=analyze-sentiment, ...]]
+server.method("analyze-sentiment").declared().maxConcurrency();   // as @Supply says, whatever it is now
 server.setMaxConcurrency("analyze-sentiment", 8);
+```
+
+The same view of an object before registering it, checked the way `register`
+checks it:
+```java
+AnycallUtils.methods(new SentimentAnalyzer());                          // [analyze-sentiment]
+AnycallUtils.method(new SentimentAnalyzer(), "analyze-sentiment");      // SupplyMethod[..., maxConcurrency=4, requestType=class TextRequest, responseType=class Sentiment]
 ```
 
 ### Key prefix

@@ -93,14 +93,33 @@ class ConcurrencyLimiter:
 
 
 @dataclass(frozen=True)
+class SupplyMethod:
+    """A supply method as its object declares it, from `method`: what a
+    server would serve if the object were registered. For a method a server
+    is running, with values that can change, see `MethodInfo`."""
+    # The name it's served under, from @supply.
+    name: str
+    # Its @supply max_concurrency.
+    max_concurrency: int
+    # The type a request's payload is read into: the annotation of the
+    # method's request parameter.
+    request_type: Any
+    # The method's return annotation, or None without one. Only informative:
+    # a server sends back whatever the method returns.
+    response_type: Any
+
+
+@dataclass(frozen=True)
 class MethodInfo:
     """A snapshot of one method a server serves, from `server.method(name)`."""
-    name: str
     # How many of its requests the server processes at once: its @supply
     # max_concurrency, unless changed with `set_max_concurrency`.
     max_concurrency: int
     # How many of its requests the server is processing right now.
     running: int
+    # The method as its object declared it when registered: its name,
+    # @supply values and its request and response types.
+    declared: SupplyMethod
 
 
 class _Count:
@@ -122,10 +141,53 @@ class _Count:
 @dataclass
 class MethodHandler:
     """Holder for registered method metadata."""
+    method_name: str
     bean: Any
     method: Callable
     parameter_type: type
     max_concurrency: int = 1
+
+    def declared(self) -> SupplyMethod:
+        """The method as declared: its @supply values and its request and
+        response types."""
+        returns = inspect.signature(self.method).return_annotation
+        response_type = None if returns is inspect.Signature.empty else returns
+        return SupplyMethod(self.method_name, self.max_concurrency, self.parameter_type, response_type)
+
+
+def scan_supplier(supplier: Any) -> list[MethodHandler]:
+    """The @supply methods of `supplier`, checked the way a server checks
+    them when it registers the object. Shared by the server and
+    `anycall.utils`, so both see the same methods and reject the same
+    mistakes.
+
+    Raises:
+        ValueError: If one doesn't take (AnycallContext, <request>) with the
+            request's type annotated
+    """
+    handlers = []
+    for name, method in inspect.getmembers(supplier, predicate=inspect.ismethod):
+        if not hasattr(method, "_supply_method_name"):
+            continue
+        params = list(inspect.signature(method).parameters.values())
+        if len(params) != 2:
+            raise ValueError(
+                f"Method {name} must have exactly 2 parameters (AnycallContext, <request type>), "
+                f"got {len(params)}"
+            )
+        if params[0].annotation is not AnycallContext:
+            raise ValueError(f"Method {name} must declare AnycallContext as its first parameter")
+        parameter_type = params[1].annotation
+        if parameter_type == inspect.Parameter.empty:
+            raise ValueError(f"Method {name} parameter must have a type annotation")
+        handlers.append(MethodHandler(
+            method_name=method._supply_method_name,
+            bean=supplier,
+            method=method,
+            parameter_type=parameter_type,
+            max_concurrency=getattr(method, "_supply_max_concurrency", 1),
+        ))
+    return handlers
 
 
 class AnyCallServer(ABC):
@@ -183,8 +245,9 @@ class AnyCallServer(ABC):
 
     @abstractmethod
     def method(self, name: str) -> MethodInfo:
-        """A snapshot of one registered method: its concurrency cap, and how
-        many of its requests are running right now.
+        """A snapshot of one registered method: its concurrency cap, how many
+        of its requests are running right now, and how its object declared
+        it.
 
         Raises:
             KeyError: If no method is registered under that name
@@ -288,7 +351,11 @@ class AnyCallServerImpl(AnyCallServer):
         with self._running_lock:
             if name not in self.method_handlers:
                 raise KeyError(f"No method registered as {name!r}")
-            return MethodInfo(name, self._method_limiters[name].capacity, self._running_requests[name].value)
+            return MethodInfo(
+                self._method_limiters[name].capacity,
+                self._running_requests[name].value,
+                self.method_handlers[name].declared(),
+            )
 
     def set_max_concurrency(self, method_name: str, max_concurrency: int) -> None:
         if isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int):
@@ -315,46 +382,15 @@ class AnyCallServerImpl(AnyCallServer):
 
     def _register_supplier(self, supplier: Any) -> None:
         """Scan supplier for @supply methods and register them."""
-        for name, method in inspect.getmembers(supplier, predicate=inspect.ismethod):
-            if not hasattr(method, "_supply_method_name"):
-                continue
-
-            method_name = method._supply_method_name
-            sig = inspect.signature(method)
-            params = list(sig.parameters.values())
-
-            if len(params) != 2:
-                raise ValueError(
-                    f"Method {name} must have exactly 2 parameters (AnycallContext, <request type>), "
-                    f"got {len(params)}"
-                )
-
-            if params[0].annotation is not AnycallContext:
-                raise ValueError(
-                    f"Method {name} must declare AnycallContext as its first parameter"
-                )
-
-            param = params[1]
-            parameter_type = param.annotation
-            if parameter_type == inspect.Parameter.empty:
-                raise ValueError(f"Method {name} parameter must have a type annotation")
-
-            max_concurrency = getattr(method, "_supply_max_concurrency", 1)
-
-            handler = MethodHandler(
-                bean=supplier,
-                method=method,
-                parameter_type=parameter_type,
-                max_concurrency=max_concurrency,
-            )
+        for handler in scan_supplier(supplier):
             with self._running_lock:
-                self._method_limiters[method_name] = ConcurrencyLimiter(max_concurrency)
-                self._running_requests.setdefault(method_name, _Count())
+                self._method_limiters[handler.method_name] = ConcurrencyLimiter(handler.max_concurrency)
+                self._running_requests.setdefault(handler.method_name, _Count())
                 # Replacing a handler makes the old one's loop exit on its next
                 # iteration; the new one gets a loop of its own.
-                self.method_handlers[method_name] = handler
+                self.method_handlers[handler.method_name] = handler
                 if self._running:
-                    self._start_reader(method_name, handler)
+                    self._start_reader(handler.method_name, handler)
 
     def start(self) -> "AnyCallServer":
         """Start the server.

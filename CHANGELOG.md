@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `close()` stops a client at once: waiting calls fail with `ClientClosedError`. Java clients are `AutoCloseable`, Python ones work with `with`
 - A key prefix other than `anycall`, set when a client or server is created
 - `updateOptions` / `update_options` changes a server's concurrency limit while it runs, and `options` reads it
-- A server lists its methods (`methods`), describes one with its concurrency limit and running requests (`method`), and `setMaxConcurrency` / `set_max_concurrency` changes a method's limit while it runs
+- `AnycallUtils` / `anycall.utils`: the supply methods an object has, and one of them as declared (`SupplyMethod`), without a server
+- A server lists its methods (`methods`), describes one with its concurrency limit, running requests and declaration (`method`), and `setMaxConcurrency` / `set_max_concurrency` changes a method's limit while it runs
 
 ### Changed
 - Each client reads one response queue, `anycall:responses:<client id>`, instead of one per call: requests carry the client's id (`clientId`)

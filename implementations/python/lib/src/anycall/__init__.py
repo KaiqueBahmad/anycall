@@ -4,6 +4,6 @@ from .core import AnyCall
 from .exceptions import AnyCallError
 from .options import CallOptions, ServerOptions
 from .registry import TypeRegistry
-from .server import MethodInfo
+from .server import MethodInfo, SupplyMethod
 
-__all__ = ["AnyCall", "AnyCallError", "AnycallContext", "CallOptions", "MethodInfo", "ServerOptions", "TypeRegistry", "supply"]
+__all__ = ["AnyCall", "AnyCallError", "AnycallContext", "CallOptions", "MethodInfo", "ServerOptions", "SupplyMethod", "TypeRegistry", "supply"]
