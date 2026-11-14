@@ -11,13 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Calls without blocking: `client.async()` in Java, returning a `CompletableFuture`, and `client.aio` in Python, to `await`
-- Settings for one call, `CallOverrides`: its own timeout or queue limit, in place of the client's
+- `CallOptions`: a call's timeout and queue limit, as the client's defaults or for one call
+- `updateDefaults` / `update_defaults` changes a client's defaults while it runs, and `defaults` reads them
 
 ### Changed
 - Each client reads one response queue, `anycall:responses:<client id>`, instead of one per call: requests carry the client's id (`clientId`)
-- A call's queue limit moves from an argument of its own into `CallOverrides`, and a queue limit below 1 is rejected instead of turning every call away
+- `AnyCall.client` takes `CallOptions` and `AnyCall.server` takes `ServerOptions`, instead of a timeout, queue limit or concurrency limit of their own
+- A queue limit below 1 is rejected instead of turning every call away
 - Java: `AnycallContext` is a record, read with `requestId()` and `methodName()`
 - Python: `get_queue_depth` is now `queue_depth`
+
+### Removed
+- `setDefaultMaxQueueDepth` / `getDefaultMaxQueueDepth`: use `updateDefaults` and `defaults`
 
 ## [0.8] - 2026-11-13
 

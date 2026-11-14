@@ -332,28 +332,32 @@ its own language's style.
 
 | Operation | Parameters (default) |
 |---|---|
-| client | Redis URI; timeout (no limit); default `max_queue_depth`, at least 1 (none) |
-| server | Redis URI; server-wide `max_concurrency` (none) |
+| client | Redis URL; call options, the defaults of every call (none: no limits) |
+| server | Redis URL; server options: server-wide `max_concurrency`, at least 1 (none) |
 
 **Client**
 
 | Operation | Behavior |
 |---|---|
-| `call(method, request, type[, overrides])` | returns the payload as `type` |
-| `call(method, request[, overrides])` | uses the type registered for `method`; fails if none |
-| `raw_call(method, request[, overrides])` | returns the payload as a native map |
+| `call(method, request, type[, options])` | returns the payload as `type` |
+| `call(method, request[, options])` | uses the type registered for `method`; fails if none |
+| `raw_call(method, request[, options])` | returns the payload as a native map |
 | `register_type(method, type)` | once; the same type again is a no-op, a different one fails |
 | `queue_depth(method)` | `LLEN` of the method's queue |
-| default `max_queue_depth` | get and set; at least 1, or none; a call's overrides win |
+| `defaults` | the client's call options, both settings set |
+| `update_defaults(options)` | for calls made after: what `options` set replaces the client's, what they leave out stays |
 
-**Overrides.** Settings for one call that replace the client's: its
-`timeout` and its `max_queue_depth`. A setting left out keeps the client's;
-each can also be set to no limit. A timeout MUST be positive and a
-`max_queue_depth` at least 1, rejected when the overrides are made. Java
-builds them with `CallOverrides.builder()` (`noTimeout()`, `noQueueLimit()`
-for no limit); Python makes `CallOverrides(timeout=..., max_queue_depth=...)`,
-`None` meaning no limit. The response type isn't an override: it stays an
-argument of its own, so the call's return type follows it.
+**Call options.** A call's `timeout` and `max_queue_depth`, each of which can
+be set to no limit. Given to the factory, they're the defaults of every call,
+and a setting left out has no limit; given to one call, they replace the
+client's, and a setting left out keeps the client's. A timeout MUST be
+positive and a `max_queue_depth` at least 1, rejected when the options are
+made. Java makes them from `CallOptions.DEFAULT` with `withTimeout`,
+`withMaxQueueDepth`, `withNoTimeout()` and `withNoQueueLimit()`, each
+returning a copy; Python makes `CallOptions(timeout=..., max_queue_depth=...)`,
+`None` meaning no limit. The response type isn't an option: it stays an
+argument of its own, so the call's return type follows it. Server options are
+`ServerOptions` in both, made the same way.
 
 **Asynchronous calls.** `call` and `raw_call` MUST also be offered without
 blocking, returning the language's future or awaitable instead of the

@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import redis
 
+from .options import DEFAULT_CALL_OPTIONS, DEFAULT_SERVER_OPTIONS, CallOptions, ServerOptions
 from .client import WAITER_REAP_SLICE_SECONDS, AnyCallClient, AnyCallClientImpl
 from .redis_adapter import RedisQueueAdapter
 from .server import AnyCallServer, AnyCallServerImpl
@@ -25,46 +26,35 @@ class AnyCall:
     """Factory for creating AnyCall clients and servers."""
 
     @staticmethod
-    def client(
-        redis_uri: str,
-        timeout: timedelta = timedelta(0),
-        default_max_queue_depth: int | None = None,
-    ) -> AnyCallClient:
+    def client(redis_url: str, defaults: CallOptions = DEFAULT_CALL_OPTIONS) -> AnyCallClient:
         """Create an AnyCall client.
 
         Args:
-            redis_uri: Redis connection URI (e.g., redis://localhost:16379)
-            timeout: How long a call waits for its response; timedelta(0)
-                (the default) waits with no limit
-            default_max_queue_depth: Default backlog limit applied to every
-                call made by this client (see AnyCallClient.call's
-                max_queue_depth); None means unbounded
+            redis_url: Redis connection URL (e.g., redis://localhost:16379)
+            defaults: The settings of every call the client makes; a setting
+                left out means no limit, and a call's own CallOptions replace
+                them
 
         Returns:
             AnyCallClient instance
         """
         redis_client = redis.from_url(
-            redis_uri, decode_responses=False, socket_timeout=CLIENT_SOCKET_TIMEOUT, protocol=REDIS_PROTOCOL
+            redis_url, decode_responses=False, socket_timeout=CLIENT_SOCKET_TIMEOUT, protocol=REDIS_PROTOCOL
         )
         redis_adapter = RedisQueueAdapter(redis_client)
-        return AnyCallClientImpl(redis_adapter, timeout, default_max_queue_depth)
+        return AnyCallClientImpl(redis_adapter, defaults)
 
     @staticmethod
-    def server(
-        redis_uri: str,
-        max_concurrency: int | None = None,
-    ) -> AnyCallServer:
+    def server(redis_url: str, options: ServerOptions = DEFAULT_SERVER_OPTIONS) -> AnyCallServer:
         """Create an AnyCall server.
 
         Args:
-            redis_uri: Redis connection URI (e.g., redis://localhost:16379)
-            max_concurrency: Server-wide cap on requests processed at the same
-                time, across every registered @supply method combined; None
-                means uncapped
+            redis_url: Redis connection URL (e.g., redis://localhost:16379)
+            options: The server's settings; see ServerOptions
 
         Returns:
             AnyCallServer instance
         """
-        redis_client = redis.from_url(redis_uri, decode_responses=False, protocol=REDIS_PROTOCOL)
+        redis_client = redis.from_url(redis_url, decode_responses=False, protocol=REDIS_PROTOCOL)
         redis_adapter = RedisQueueAdapter(redis_client)
-        return AnyCallServerImpl(redis_adapter, max_concurrency)
+        return AnyCallServerImpl(redis_adapter, options.max_concurrency)

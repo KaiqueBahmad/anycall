@@ -234,11 +234,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         loops.submit(() -> readMethod(methodName, handler));
     }
 
-    public AnyCallServer register(Object supplier) {
-        scanAndRegisterSupplier(supplier);
-        return this;
-    }
-
     public AnyCallServer register(Object... suppliers) {
         for (Object supplier : suppliers) {
             scanAndRegisterSupplier(supplier);

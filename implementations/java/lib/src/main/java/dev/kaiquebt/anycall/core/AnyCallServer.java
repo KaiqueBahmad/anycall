@@ -31,16 +31,6 @@ public interface AnyCallServer {
     boolean isRunning();
 
     /**
-     * Registers a new supplier with the server.
-     * Scans the supplier for methods annotated with @Supply and registers them as remote callable methods.
-     * If the server is already running, immediately starts listening for requests on the new methods.
-     *
-     * @param supplier the object containing methods annotated with @Supply
-     * @return this server instance for method chaining
-     */
-    AnyCallServer register(Object supplier);
-
-    /**
      * Registers multiple suppliers with the server.
      * Each supplier is scanned for methods annotated with @Supply.
      * If the server is already running, immediately starts listening for requests on the new methods.
@@ -54,8 +44,8 @@ public interface AnyCallServer {
      * Unregisters a supplier method from the server.
      * Stops the listener thread for the specified method.
      *
-     * @param methodName the name of the method to unregister (as specified in @Supply)
+     * @param method the name of the method to unregister (as specified in @Supply)
      * @return this server instance for method chaining
      */
-    AnyCallServer unregister(String methodName);
+    AnyCallServer unregister(String method);
 }

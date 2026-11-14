@@ -22,11 +22,11 @@ public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
 }
 ```
 
-Pass `maxConcurrency` to `AnyCall.server(...)` for a server-wide cap across every
+Pass `ServerOptions` to `AnyCall.server(...)` for a server-wide cap across every
 registered method instead:
 
 ```java
-AnyCallServer server = AnyCall.server(redisUri, 16);
+AnyCallServer server = AnyCall.server(redisUri, ServerOptions.DEFAULT.withMaxConcurrency(16));
 ```
 
 2. **Register and start the server:**
@@ -113,31 +113,35 @@ Errors complete the future exceptionally, wrapped in a `CompletionException`
 as usual: `e.getCause()` is the same `TimeoutError`, `ServerLostError`, ...
 a blocking call would throw.
 
-### Settings for one call:
-`CallOverrides` replaces the client's timeout or queue limit for one call;
-what it leaves out stays the client's. It's immutable, so it can be built once
-and reused:
+### Settings:
+`CallOptions` holds a call's timeout and queue limit. Given to
+`AnyCall.client`, they're the defaults of every call, and what they leave out
+has no limit; passed to one call, they replace the client's, and what they
+leave out stays the client's. They're immutable: every `with` returns a copy,
+so they can be made once and reused:
 ```java
-CallOverrides urgent = CallOverrides.builder()
-    .timeout(Duration.ofSeconds(5))
-    .noQueueLimit()
-    .build();
+AnyCallClient client = AnyCall.client(redisUri, CallOptions.DEFAULT
+    .withTimeout(Duration.ofSeconds(60))
+    .withMaxQueueDepth(100));   // QueueFullError past 100 waiting
+
+CallOptions urgent = CallOptions.DEFAULT
+    .withTimeout(Duration.ofSeconds(5))
+    .withNoQueueLimit();
 Sentiment s = client.call("analyze-sentiment", request, Sentiment.class, urgent);
-
-client.call("analyze-sentiment", request, Sentiment.class,
-    CallOverrides.builder().maxQueueDepth(100).build());   // QueueFullError past 100 waiting
+client.async().call("analyze-sentiment", request, Sentiment.class, urgent);
 ```
-A timeout must be positive and a queue limit at least 1; the builder rejects
-anything else. The async calls take the same overrides.
+A timeout must be positive and a queue limit at least 1; anything else is an
+`IllegalArgumentException` when the options are made. With no `CallOptions`,
+a call waits with no limit and is published however full its queue is.
 
-## Configuration
-
+The client's defaults can change while it runs; what the options set replaces
+the client's, what they leave out stays. Calls already waiting keep theirs:
 ```java
-// Custom timeout
-AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60));
-
-// Custom timeout and a default queue-depth limit for every call
-AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(60), 100L);
+client.updateDefaults(CallOptions.DEFAULT.withMaxQueueDepth(200));   // only the queue limit
+client.defaults();   // CallOptions{timeout=PT1M, maxQueueDepth=200}
 ```
 
-By default a call waits for its response with no limit (`Duration.ZERO`).
+### Check the current backlog:
+```java
+long depth = client.getQueueDepth("analyze-sentiment");  // LLEN of the request queue
+```

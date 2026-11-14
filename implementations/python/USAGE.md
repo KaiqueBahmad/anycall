@@ -39,10 +39,12 @@ server.register(SentimentAnalyzer())
 server.start()
 ```
 
-Pass `max_concurrency` to `AnyCall.server(...)` for a server-wide cap across every
+Pass `ServerOptions` to `AnyCall.server(...)` for a server-wide cap across every
 registered method combined:
 ```python
-server = AnyCall.server("redis://localhost:16379", max_concurrency=16)
+from anycall import ServerOptions
+
+server = AnyCall.server("redis://localhost:16379", ServerOptions(max_concurrency=16))
 ```
 
 ### If a server dies mid-request
@@ -117,57 +119,38 @@ without this, a request sitting in an empty queue would just wait out the
 full `timeout` with nothing to pop it. This only confirms *some* server is
 alive, not that one of them supports the method being called.
 
-### Reject when the backlog is too deep:
-A client-wide limit applies to every call:
+### Settings:
+`CallOptions` holds a call's timeout and queue limit; `None` means no limit.
+Given to `AnyCall.client`, they're the defaults of every call, and what they
+leave out has no limit; passed to one call, they replace the client's, and
+what they leave out stays the client's. They can be made once and reused:
 ```python
+from datetime import timedelta
+from anycall import CallOptions
 from anycall.exceptions import QueueFullError
 
-client = AnyCall.client(redis_uri, default_max_queue_depth=100)
+client = AnyCall.client(redis_uri, CallOptions(timeout=timedelta(seconds=60), max_queue_depth=100))
 try:
     sentiment = client.call("analyze-sentiment", request, Sentiment)
 except QueueFullError:
     ...  # the request queue already had >= 100 waiting requests; not submitted
 
-client.set_default_max_queue_depth(200)  # change it later
-client.get_default_max_queue_depth()     # -> 200
-```
-A limit must be at least 1; `None` means no limit.
-
-### Settings for one call:
-`CallOverrides` replaces the client's timeout or queue limit for one call;
-what it leaves out stays the client's, and `None` means no limit. It can be
-made once and reused:
-```python
-from anycall import CallOverrides
-
-urgent = CallOverrides(timeout=timedelta(seconds=5), max_queue_depth=None)
+urgent = CallOptions(timeout=timedelta(seconds=5), max_queue_depth=None)
 sentiment = client.call("analyze-sentiment", request, Sentiment, urgent)
-
-client.call("analyze-sentiment", request, Sentiment, CallOverrides(max_queue_depth=100))
 await client.aio.call("analyze-sentiment", request, Sentiment, urgent)
 ```
 A timeout must be positive and a queue limit at least 1; anything else is a
-`ValueError` when the overrides are made.
+`ValueError` when the options are made. With no `CallOptions`, a call waits
+with no limit and is published however full its queue is.
+
+The client's defaults can change while it runs; what the options set replaces
+the client's, what they leave out stays. Calls already waiting keep theirs:
+```python
+client.update_defaults(CallOptions(max_queue_depth=200))  # only the queue limit
+client.defaults  # CallOptions(timeout=datetime.timedelta(seconds=60), max_queue_depth=200)
+```
 
 ### Check the current backlog:
 ```python
 depth = client.queue_depth("analyze-sentiment")  # LLEN of the request queue
 ```
-
-## Configuration
-
-```python
-from datetime import timedelta
-
-# Custom timeout
-client = AnyCall.client(redis_uri, timeout=timedelta(seconds=60))
-
-# Custom timeout and a default queue-depth limit for every call
-client = AnyCall.client(
-    redis_uri,
-    timeout=timedelta(seconds=60),
-    default_max_queue_depth=100,
-)
-```
-
-By default a call waits for its response with no limit (`timedelta(0)`).

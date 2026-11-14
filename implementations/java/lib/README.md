@@ -51,10 +51,10 @@ Clients and servers are configured through the `AnyCall` factory:
 
 ```java
 // Wait up to 30s for each response (the default, Duration.ZERO, waits with no limit)
-AnyCallClient client = AnyCall.client(redisUri, Duration.ofSeconds(30));
+AnyCallClient client = AnyCall.client(redisUri, CallOptions.DEFAULT.withTimeout(Duration.ofSeconds(30)));
 
 // Cap the whole server at 16 requests at a time, across every method
-AnyCallServer server = AnyCall.server(redisUri, 16);
+AnyCallServer server = AnyCall.server(redisUri, ServerOptions.DEFAULT.withMaxConcurrency(16));
 ```
 
 See [USAGE.md](../USAGE.md) for every option.
