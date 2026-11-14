@@ -60,8 +60,8 @@ class Queues:
     @property
     def heartbeat_key(self) -> str:
         """Sorted set of server ids heartbeating, scored by Redis's own TIME.
-        Written by servers, read by clients to tell whether any server is
-        alive before publishing a request. Members are never pruned by age
+        Written by servers, read by reapers to find dead servers. Members are
+        never pruned by age
         alone: a dead server leaves only when it is reaped (see `reaping`), so
         its entry is how its processing list gets found."""
         return f"{self._prefix}:servers:alive"

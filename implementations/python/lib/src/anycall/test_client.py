@@ -68,9 +68,6 @@ class MockRedisAdapter:
     def length(self, queue_key: str) -> int:
         return self.queue_depth
 
-    def alive_count(self, key: str, ttl_seconds: int) -> int:
-        return 1
-
     def stale_members(self, key: str, ttl_seconds: int) -> set[str]:
         return set()
 
@@ -162,10 +159,6 @@ class FailingRedisAdapter(MockRedisAdapter):
     def _maybe_fail(self, command: str) -> None:
         if command == self.fails:
             raise redis.exceptions.ConnectionError("Connection refused")
-
-    def alive_count(self, key: str, ttl_seconds: int) -> int:
-        self._maybe_fail("alive_count")
-        return 1
 
     def length(self, queue_key: str) -> int:
         self._maybe_fail("length")
@@ -472,15 +465,15 @@ class TestPrefix:
         adapter = MockRedisAdapter()
         seen: list[str] = []
         adapter.push = lambda queue_key, value: seen.append(queue_key) or 1
-        alive_count = adapter.alive_count
-        adapter.alive_count = lambda key, ttl: seen.append(key) or alive_count(key, ttl)
-        client = AnyCallClientImpl(adapter, CallOptions(timeout=QUICK_TIMEOUT), Queues("billing"))
+        length = adapter.length
+        adapter.length = lambda key: seen.append(key) or length(key)
+        client = AnyCallClientImpl(adapter, CallOptions(timeout=QUICK_TIMEOUT, max_queue_depth=10), Queues("billing"))
         _clients.append(client)
 
         with pytest.raises(TimeoutError):
             client.raw_call("echo", {})
 
-        assert seen == ["billing:servers:alive", "billing:requests:echo"]
+        assert seen == ["billing:requests:echo", "billing:requests:echo"]
         assert client._response_queue.startswith("billing:responses:")
 
 
@@ -714,9 +707,8 @@ class TestInvalidJson:
 class TestBrokerError:
     """A Redis failure during a call is a BrokerError saying whether the request may have left."""
 
-    @pytest.mark.parametrize("fails", ["alive_count", "length"])
-    def test_failure_before_publishing_is_not_published(self, fails):
-        client = make_client(FailingRedisAdapter(fails), max_queue_depth=10)
+    def test_failure_before_publishing_is_not_published(self):
+        client = make_client(FailingRedisAdapter("length"), max_queue_depth=10)
 
         with pytest.raises(BrokerError) as exc_info:
             client.raw_call("my-op", {})

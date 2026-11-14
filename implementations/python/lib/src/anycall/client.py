@@ -19,7 +19,6 @@ from .exceptions import (
     AnyCallError,
     BrokerError,
     ClientClosedError,
-    NoServerAvailableError,
     QueueFullError,
     RemoteException,
     ServerLostError,
@@ -74,7 +73,6 @@ class AnyCallClient(ABC):
 
         Raises:
             QueueFullError: If the request queue is already full
-            NoServerAvailableError: If no server is currently alive
             BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout, remote error, or missing type in registry
         """
@@ -98,7 +96,6 @@ class AnyCallClient(ABC):
 
         Raises:
             QueueFullError: If the request queue is already full
-            NoServerAvailableError: If no server is currently alive
             BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
@@ -257,7 +254,6 @@ class AnyCallClientImpl(AnyCallClient):
 
         Raises:
             QueueFullError: If the request queue is already full
-            NoServerAvailableError: If no server is currently alive
             BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout, remote error, or missing type in registry
         """
@@ -280,7 +276,6 @@ class AnyCallClientImpl(AnyCallClient):
 
         Raises:
             QueueFullError: If the request queue is already full
-            NoServerAvailableError: If no server is currently alive
             BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
@@ -378,7 +373,6 @@ class AnyCallClientImpl(AnyCallClient):
 
         Raises:
             SerializationError: If the request can't be serialized
-            NoServerAvailableError: If no server is currently alive
             QueueFullError: If the request queue is already full
             BrokerError: If a Redis command fails
             ClientClosedError: If the client is closed
@@ -394,8 +388,6 @@ class AnyCallClientImpl(AnyCallClient):
         request_queue = self._keys.request_queue(method_name)
 
         try:
-            if self.redis.alive_count(self._keys.heartbeat_key, queues.HEARTBEAT_TTL_SECONDS) == 0:
-                raise NoServerAvailableError(method_name)
             if effective_max_queue_depth is not None:
                 queue_depth = self.redis.length(request_queue)
                 if queue_depth >= effective_max_queue_depth:

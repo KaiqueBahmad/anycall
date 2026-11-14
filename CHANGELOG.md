@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - `setDefaultMaxQueueDepth` / `getDefaultMaxQueueDepth`: use `updateDefaults` and `defaults`
+- `NoServerAvailableError`: a call no longer checks for a live server first, and waits in its queue until one takes it
 
 ## [0.8] - 2026-11-13
 

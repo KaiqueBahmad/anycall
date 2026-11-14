@@ -13,7 +13,6 @@ import dev.kaiquebt.anycall.publisher.AnycallReaping;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.KeyValue;
-import io.lettuce.core.Range;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisException;
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -23,7 +22,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -310,7 +308,6 @@ public class AnyCallClientImpl implements AnyCallClient {
     private CompletableFuture<String> publish(String methodName, AnyCallRequest request, Long maxQueueDepth) {
         String requestQueue = queues.requestQueue(methodName);
         try {
-            checkServerAvailable(methodName);
             if (maxQueueDepth != null) {
                 long queueDepth = commands.llen(requestQueue);
                 if (queueDepth >= maxQueueDepth) {
@@ -389,32 +386,6 @@ public class AnyCallClientImpl implements AnyCallClient {
             Thread.currentThread().interrupt();
             throw new AnyCallError("Interrupted while waiting for a call", e);
         }
-    }
-
-    /**
-     * Fails fast, before publishing, if no server has heartbeated recently enough to be
-     * considered alive. Mirrors a connection-refused error over plain HTTP: without this,
-     * a request would be queued and the caller would silently wait out the full timeout
-     * with no server around to ever pop it.
-     *
-     * @throws NoServerAvailableError if no server is alive
-     */
-    private void checkServerAvailable(String methodName) {
-        Long aliveCount = commands.zcount(queues.heartbeatKey(), aliveRange(commands));
-        if (aliveCount == null || aliveCount == 0) {
-            throw new NoServerAvailableError(methodName);
-        }
-    }
-
-    /**
-     * Heartbeat scores still within {@link AnycallQueues#HEARTBEAT_TTL} of Redis's own
-     * clock ({@code TIME}), so skew between hosts can't make a live server look dead.
-     */
-    private static Range<Double> aliveRange(RedisCommands<String, String> commands) {
-        List<String> time = commands.time();
-        double now = Double.parseDouble(time.get(0)) + Double.parseDouble(time.get(1)) / 1_000_000.0;
-        double since = now - AnycallQueues.HEARTBEAT_TTL.getSeconds();
-        return Range.create(since, Double.POSITIVE_INFINITY);
     }
 
     /** Starts the reader on the first call. */

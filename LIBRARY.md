@@ -100,7 +100,6 @@ publish error at once.
 |---|---|---|
 | `AnyCallError` | — | base of all; also a call with no conversion given or registered |
 | `PublishError` | `AnyCallError` | the call couldn't be delivered or answered |
-| `NoServerAvailableError` | `PublishError` | no live server; carries the method |
 | `QueueFullError` | `PublishError` | the queue is at its limit; carries method, depth, limit |
 | `TimeoutError` | `PublishError` | no response before the timeout; carries the request id |
 | `ServerLostError` | `PublishError` | the server died with the request; carries the request and server ids |

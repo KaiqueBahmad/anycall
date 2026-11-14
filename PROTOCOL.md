@@ -28,7 +28,7 @@ talk RESP2: Redis 5.0 has no `HELLO`, so no RESP3.
 | `anycall:requests:<method>` | List | clients (`LPUSH`) | servers (`BLMOVE` or `BRPOPLPUSH`) | none |
 | `anycall:processing:<server id>` | List; a string once reaped (a tombstone) | its server; reapers | its server, reapers | none; a tombstone `TOMBSTONE_TTL` |
 | `anycall:responses:<client id>` | List: every response to that client's calls | server or reaper (`LPUSH`) | the client (`BRPOP`) | `RESPONSE_TTL`, set on every write |
-| `anycall:servers:alive` | Sorted set: server id → now of its last heartbeat | servers | everyone | none |
+| `anycall:servers:alive` | Sorted set: server id → now of its last heartbeat | servers | servers, reapers | none |
 
 Every key starts with a prefix, `anycall` unless another is given when a
 client or server is created; this spec writes keys with the default. A
@@ -273,16 +273,16 @@ heartbeat that triggered it.
 
 ### 8.1 Calling
 
-1. **Liveness**: `TIME`, then `ZCOUNT anycall:servers:alive` from now −
-   `HEARTBEAT_TTL`. If zero, fail with `NoServerAvailableError`.
-2. **Queue depth**: if the call has a `max_queue_depth` (its overrides' or
-   the client's default) and `LLEN anycall:requests:<method>` is at least that,
+1. **Queue depth**: if the call has a `max_queue_depth` (its own or the
+   client's default) and `LLEN anycall:requests:<method>` is at least that,
    fail with `QueueFullError`.
-3. **Publish**: `LPUSH anycall:requests:<method> <request>`. The call MUST be
+2. **Publish**: `LPUSH anycall:requests:<method> <request>`. The call MUST be
    waiting for its response (see Waiting) before the `LPUSH`, so a fast
    response always finds it.
 
-Both checks are advisory.
+The check is advisory. A call doesn't look for a live server first: a
+request waits in its queue until a server takes it, so calls made while every
+server restarts still go through. A caller that can't wait sets a timeout.
 
 ### 8.2 Waiting
 
@@ -297,7 +297,7 @@ response to the call waiting for it, so any number of calls can wait at once.
   timed out), is dropped.
 - After each empty slice while calls are waiting, it MUST run STALE and reap
   every dead server it returns.
-- Each call's timeout (its overrides' or the client's) is measured by the
+- Each call's timeout (its own or the client's) is measured by the
   client, on the call; the client's defaults to no limit. A call that times
   out stops waiting.
 - If a Redis command under the reader fails, every waiting call MUST fail

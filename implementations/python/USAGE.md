@@ -134,21 +134,6 @@ results = await asyncio.gather(*(
 They raise the same errors as a blocking call, `TimeoutError` included
 (AnyCall's, not asyncio's).
 
-### Fail fast if no server is available:
-```python
-from anycall.exceptions import NoServerAvailableError
-
-try:
-    sentiment = client.call("analyze-sentiment", request, Sentiment)
-except NoServerAvailableError:
-    ...  # no server has heartbeated recently; not submitted
-```
-Every call checks the heartbeat registry before publishing the request, the
-same way a plain HTTP call would get connection-refused instead of hanging:
-without this, a request sitting in an empty queue would just wait out the
-full `timeout` with nothing to pop it. This only confirms *some* server is
-alive, not that one of them supports the method being called.
-
 ### Settings:
 `CallOptions` holds a call's timeout and queue limit; `None` means no limit.
 Given to `AnyCall.client`, they're the defaults of every call, and what they

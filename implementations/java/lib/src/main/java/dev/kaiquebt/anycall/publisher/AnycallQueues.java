@@ -61,8 +61,7 @@ public final class AnycallQueues {
     /**
      * Sorted set of server ids heartbeating, {@code <prefix>:servers:alive}, scored by Redis's
      * own {@code TIME}. Written by {@link dev.kaiquebt.anycall.server.AnyCallServerImpl}, read
-     * by clients to tell whether any server is currently alive before publishing a request.
-     * Members are never pruned by age alone: a dead server leaves only when it is reaped (see
+     * by reapers to find dead servers. Members are never pruned by age alone: a dead server leaves only when it is reaped (see
      * {@link AnycallReaping}), so its entry is how its processing list gets found.
      */
     public String heartbeatKey() {
