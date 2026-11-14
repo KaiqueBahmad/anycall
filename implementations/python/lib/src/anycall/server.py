@@ -14,6 +14,7 @@ from . import queues
 from .context import AnycallContext
 from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse, read_reply_address
+from .queues import Queues
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
 from .serialization import deserialize, serialize
@@ -25,10 +26,9 @@ logger = logging.getLogger(__name__)
 # take to reach an idle loop; an idle loop costs one command per this period.
 TAKE_BLOCK_SECONDS = 2
 
-# Liveness registry. Hardcoded on purpose -- edit here to change it; there is no
-# configuration surface for these. HEARTBEAT_KEY/HEARTBEAT_TTL_SECONDS live in
-# `queues` so the client can share them for its own liveness check.
-HEARTBEAT_KEY = queues.HEARTBEAT_KEY
+# Liveness timings. Hardcoded on purpose -- edit here to change them; there is
+# no configuration surface for these. HEARTBEAT_TTL_SECONDS lives in `queues`
+# so the client can share it for its own liveness check.
 HEARTBEAT_PERIOD_SECONDS = 2  # how often a live server refreshes its entry
 HEARTBEAT_TTL_SECONDS = queues.HEARTBEAT_TTL_SECONDS
 
@@ -39,9 +39,9 @@ class _Identity:
     `AnyCallServerImpl._drain`): requests taken under it are failed back by
     reapers, so their results are discarded."""
 
-    def __init__(self) -> None:
+    def __init__(self, keys: Queues) -> None:
         self.server_id = str(uuid.uuid4())
-        self.processing_key = queues.processing_list(self.server_id)
+        self.processing_key = keys.processing_list(self.server_id)
         # Whether its first heartbeat went through: no request is taken
         # under an id before that.
         self.registered = False
@@ -146,6 +146,7 @@ class AnyCallServerImpl(AnyCallServer):
         self,
         redis_adapter: RedisQueueAdapter,
         max_concurrency: Optional[int] = None,
+        keys: Queues = queues.DEFAULT,
     ):
         """
         Args:
@@ -155,6 +156,7 @@ class AnyCallServerImpl(AnyCallServer):
                 the `max_concurrency` argument of `supply`). None means
                 uncapped -- the sum of each method's own max_concurrency
                 applies instead.
+            keys: The keys this server takes from and writes to
         """
         if max_concurrency is not None and max_concurrency < 1:
             raise ValueError("AnyCall Server: max_concurrency must be at least 1")
@@ -166,8 +168,9 @@ class AnyCallServerImpl(AnyCallServer):
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
         self._threads: list[threading.Thread] = []
+        self._keys = keys
         self._global_limiter = ConcurrencyLimiter(max_concurrency) if max_concurrency else None
-        self._identity = _Identity()
+        self._identity = _Identity(keys)
         # Guards `_identity`, `_draining` and every identity's `active_takes`:
         # a read loop counts its take under the same lock a drain switches
         # ids under, so once an id drains, no new take can start on it.
@@ -242,7 +245,7 @@ class AnyCallServerImpl(AnyCallServer):
 
             # A restart starts clean: the last run's id ages out with an empty list.
             if self._identity.registered:
-                self._identity = _Identity()
+                self._identity = _Identity(self._keys)
                 self._registered.clear()
             logger.info(f"Starting AnyCall server {self._identity.server_id}")
             try:
@@ -282,7 +285,7 @@ class AnyCallServerImpl(AnyCallServer):
     @property
     def server_id(self) -> str:
         """This server's current id -- the member it registers under in
-        `HEARTBEAT_KEY`. A new one is generated on every start, and whenever
+        the heartbeat set. A new one is generated on every start, and whenever
         the server is declared dead; an id is never reused."""
         return self._identity.server_id
 
@@ -294,7 +297,7 @@ class AnyCallServerImpl(AnyCallServer):
             return set(self._in_flight_request_ids)
 
     def _emit_heartbeats(self) -> None:
-        """Keeps this server's entry in the `HEARTBEAT_KEY` sorted set fresh, so
+        """Keeps this server's entry in the heartbeat sorted set fresh, so
         clients and external tooling can tell it's alive by reading back the
         members scored within HEARTBEAT_TTL_SECONDS of Redis's current time
         (`TIME`).
@@ -325,7 +328,7 @@ class AnyCallServerImpl(AnyCallServer):
         itself fails; reaping failures only log."""
         identity = self._identity
         dead = self.redis.heartbeat(
-            HEARTBEAT_KEY, identity.server_id, HEARTBEAT_TTL_SECONDS, first=not identity.registered
+            self._keys.heartbeat_key, identity.server_id, HEARTBEAT_TTL_SECONDS, first=not identity.registered
         )
         if dead is None:
             self._drain(identity)
@@ -335,7 +338,7 @@ class AnyCallServerImpl(AnyCallServer):
         if identity is self._identity:
             self._registered.set()
 
-        reap_dead_servers(self.redis, dead)
+        reap_dead_servers(self.redis, self._keys, dead)
 
         # A draining id with no take left on it can't get anything on its list
         # anymore: make sure its list was reaped, then delete its tombstone.
@@ -344,7 +347,7 @@ class AnyCallServerImpl(AnyCallServer):
             for old in idle:
                 self._draining.remove(old)
         for old in idle:
-            reap_dead_servers(self.redis, [old.server_id])
+            reap_dead_servers(self.redis, self._keys, [old.server_id])
             self.redis.drop_tombstone(old.processing_key)
 
     def _drain(self, old: _Identity) -> None:
@@ -361,7 +364,7 @@ class AnyCallServerImpl(AnyCallServer):
         with self._identity_lock:
             if self._identity is not old:
                 return
-            fresh = _Identity()
+            fresh = _Identity(self._keys)
             self._identity = fresh
             self._draining.append(old)
             self._registered.clear()
@@ -378,7 +381,7 @@ class AnyCallServerImpl(AnyCallServer):
         method is unregistered (or registered again, which starts a new loop).
         Waits for a free slot of the method before every take, so it never
         takes a request it has no room to run."""
-        queue_key = queues.request_queue(method_name)
+        queue_key = self._keys.request_queue(method_name)
         limiter = self._method_limiters[method_name]
         logger.info(f"Started reading queue {queue_key}")
 
@@ -502,7 +505,7 @@ class AnyCallServerImpl(AnyCallServer):
                 f"draining id {taker.server_id}"
             )
             return
-        response_queue = queues.response_queue(client_id)
+        response_queue = self._keys.response_queue(client_id)
         response_json = serialize(response)
         self.redis.respond(
             response_queue, response_json, queues.RESPONSE_TTL_SECONDS, taker.processing_key, item

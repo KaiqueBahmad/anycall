@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .poller import Event, InflightInfo, MethodInfo, PollerThread, ReapEstimate, ServerInfo, Snapshot
+from anycall.queues import Queues
 
 WINDOW_TITLE = "AnyCall Visualizer"
 MAX_LOG_LINES = 1000
@@ -241,7 +242,7 @@ def _unpinnable_reason() -> str:
 
 
 class VisualizerApp(QMainWindow):
-    def __init__(self, redis_uri: str, interval: float = 1.0):
+    def __init__(self, redis_uri: str, prefix: str = "anycall", interval: float = 1.0):
         super().__init__()
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(1200, 760)
@@ -257,7 +258,7 @@ class VisualizerApp(QMainWindow):
         # instead so "click elsewhere" always deselects the font size field.
         QApplication.instance().installEventFilter(self)
 
-        self._poller = PollerThread(redis_uri, interval=interval, parent=self)
+        self._poller = PollerThread(redis_uri, Queues(prefix), interval=interval, parent=self)
         self._poller.snapshot_ready.connect(self._on_snapshot)
         self._poller.start()
 

@@ -29,6 +29,15 @@ registered method instead:
 AnyCallServer server = AnyCall.server(redisUri, ServerOptions.DEFAULT.withMaxConcurrency(16));
 ```
 
+### Key prefix
+Every key starts with `anycall` unless another prefix is given. A client and
+a server see each other only under the same prefix, and it's fixed once they're
+created:
+```java
+AnyCallServer server = AnyCall.server(redisUri, "billing");
+AnyCallClient client = AnyCall.client(redisUri, "billing", CallOptions.DEFAULT.withTimeout(Duration.ofSeconds(30)));
+```
+
 2. **Register and start the server:**
 ```java
 String redisUri = System.getenv("REDIS_URI");

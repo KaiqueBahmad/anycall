@@ -3,51 +3,71 @@ package dev.kaiquebt.anycall.publisher;
 import java.time.Duration;
 
 /**
- * Constants for Redis queue names used by AnyCall.
- * Defines the prefixes for request and response queues.
+ * The Redis keys AnyCall uses, all under one prefix ({@value #DEFAULT_PREFIX} unless set at
+ * creation), and the timings every implementation shares. Clients and servers find each other
+ * only under the same prefix.
  */
-public class AnycallQueues {
+public final class AnycallQueues {
+
+    /** The prefix of every key unless another is given at creation. */
+    public static final String DEFAULT_PREFIX = "anycall";
+
+    /** The keys under {@value #DEFAULT_PREFIX}. */
+    public static final AnycallQueues DEFAULT = new AnycallQueues(DEFAULT_PREFIX);
+
+    private final String prefix;
 
     /**
-     * Prefix for request queues. Method name is appended to create the full queue key.
-     * Format: {@code anycall:requests:<method-name>}
+     * @param prefix the first part of every key: {@code <prefix>:requests:<method>} and so on
+     * @throws IllegalArgumentException if it's null or blank
      */
-    public static String REQUEST_QUEUE_PREFIX = "anycall:requests:";
+    public AnycallQueues(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            throw new IllegalArgumentException("prefix must not be null or blank; got " + (prefix == null ? null : "'" + prefix + "'"));
+        }
+        this.prefix = prefix;
+    }
 
-    /**
-     * Prefix for response queues, one per client. Client id is appended to create the full
-     * queue key. Format: {@code anycall:responses:<client-id>}
-     */
-    public static String RESPONSE_QUEUE_PREFIX = "anycall:responses:";
+    public String prefix() {
+        return prefix;
+    }
 
-    /**
-     * The response queue of a client: every response to its calls goes there, and the client
-     * hands each to its call by request id.
-     */
-    public static String responseQueue(String clientId) {
-        return RESPONSE_QUEUE_PREFIX + clientId;
+    /** A method's request queue: {@code <prefix>:requests:<method>}. */
+    public String requestQueue(String methodName) {
+        return prefix + ":requests:" + methodName;
     }
 
     /**
-     * Prefix for processing lists. Server id is appended to create the full key.
-     * Format: {@code anycall:processing:<server-id>}
-     * <p>
-     * One List per server, holding the requests it is processing. A server moves a request
-     * here from its method's queue with one {@code BLMOVE} (or {@code BRPOPLPUSH}), so a request is always in its
-     * queue or in exactly one of these: the key name is the record of who has it. The server
-     * removes it once the response is written; whoever finds the server dead fails back
-     * whatever is left (see {@link AnycallReaping}).
+     * The response queue of a client, {@code <prefix>:responses:<client id>}: every response
+     * to its calls goes there, and the client hands each to its call by request id.
      */
-    public static final String PROCESSING_PREFIX = "anycall:processing:";
+    public String responseQueue(String clientId) {
+        return prefix + ":responses:" + clientId;
+    }
 
     /**
-     * Sorted set of server ids heartbeating, scored by Redis's own {@code TIME}. Written by
-     * {@link dev.kaiquebt.anycall.server.AnyCallServerImpl}, read by clients to tell whether
-     * any server is currently alive before publishing a request. Members are never pruned
-     * by age alone: a dead server leaves only when it is reaped (see {@link AnycallReaping}),
-     * so its entry is how its processing list gets found.
+     * A server's processing list, {@code <prefix>:processing:<server id>}.
+     * <p>
+     * One List per server, holding the requests it is processing. A server moves a request
+     * here from its method's queue with one {@code BLMOVE} (or {@code BRPOPLPUSH}), so a
+     * request is always in its queue or in exactly one of these: the key name is the record
+     * of who has it. The server removes it once the response is written; whoever finds the
+     * server dead fails back whatever is left (see {@link AnycallReaping}).
      */
-    public static final String HEARTBEAT_KEY = "anycall:servers:alive";
+    public String processingList(String serverId) {
+        return prefix + ":processing:" + serverId;
+    }
+
+    /**
+     * Sorted set of server ids heartbeating, {@code <prefix>:servers:alive}, scored by Redis's
+     * own {@code TIME}. Written by {@link dev.kaiquebt.anycall.server.AnyCallServerImpl}, read
+     * by clients to tell whether any server is currently alive before publishing a request.
+     * Members are never pruned by age alone: a dead server leaves only when it is reaped (see
+     * {@link AnycallReaping}), so its entry is how its processing list gets found.
+     */
+    public String heartbeatKey() {
+        return prefix + ":servers:alive";
+    }
 
     /**
      * How long a heartbeat entry is considered live. Must match the TTL argument the server

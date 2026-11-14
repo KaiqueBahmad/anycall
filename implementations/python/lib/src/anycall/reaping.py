@@ -2,13 +2,14 @@ import logging
 from typing import Iterable, Optional, Tuple
 
 from . import queues
+from .queues import Queues
 from .model import AnyCallResponse, read_reply_address
 from .serialization import serialize
 
 logger = logging.getLogger(__name__)
 
 
-def reap_dead_servers(redis, dead: Iterable[str]) -> None:
+def reap_dead_servers(redis, keys: Queues, dead: Iterable[str]) -> None:
     """For each server that stopped heartbeating, push a server-lost error to
     the response queue of every request still on its processing list, so
     their clients stop waiting.
@@ -29,12 +30,12 @@ def reap_dead_servers(redis, dead: Iterable[str]) -> None:
         try:
             while True:
                 outcome = redis.fail_back_next(
-                    queues.HEARTBEAT_KEY,
-                    queues.processing_list(server_id),
+                    keys.heartbeat_key,
+                    keys.processing_list(server_id),
                     server_id,
                     queues.RESPONSE_TTL_SECONDS,
                     queues.TOMBSTONE_TTL_SECONDS,
-                    lambda item: _server_lost(item, server_id),
+                    lambda item: _server_lost(keys, item, server_id),
                 )
                 if outcome is None:
                     break
@@ -50,7 +51,7 @@ def reap_dead_servers(redis, dead: Iterable[str]) -> None:
             logger.warning(f"Dropped {dropped} request(s) with no readable requestId or clientId of dead server {server_id}")
 
 
-def _server_lost(item: str, server_id: str) -> Optional[Tuple[str, str]]:
+def _server_lost(keys: Queues, item: str, server_id: str) -> Optional[Tuple[str, str]]:
     """The response queue and server-lost response for a request of a dead
     server, or None if its requestId or clientId can't be read.
 
@@ -62,6 +63,6 @@ def _server_lost(item: str, server_id: str) -> Optional[Tuple[str, str]]:
         return None
     request_id, client_id = address
     return (
-        queues.response_queue(client_id),
+        keys.response_queue(client_id),
         serialize(AnyCallResponse.server_lost(request_id, server_id)),
     )

@@ -1,19 +1,8 @@
-REQUEST_QUEUE_PREFIX = "anycall:requests:"
-RESPONSE_QUEUE_PREFIX = "anycall:responses:"
+"""The Redis keys AnyCall uses, all under one prefix ("anycall" unless set at
+creation), and the timings every implementation shares. Clients and servers
+find each other only under the same prefix."""
 
-# One List per server, holding the requests it is processing. A server moves
-# a request here from its method's queue with one BLMOVE (or BRPOPLPUSH), so a request is
-# always in its queue or in exactly one of these -- the key name is the record
-# of who has it. The server removes it once the response is written; whoever
-# finds the server dead fails back whatever is left (see `reaping`).
-PROCESSING_PREFIX = "anycall:processing:"
-
-# Sorted set of server ids heartbeating, scored by Redis's own TIME. Written by
-# AnyCallServerImpl, read by clients to tell whether any server is currently
-# alive before publishing a request. Members are never pruned by age alone: a
-# dead server leaves only when it is reaped (see `reaping`), so its entry is
-# how its processing list gets found.
-HEARTBEAT_KEY = "anycall:servers:alive"
+DEFAULT_PREFIX = "anycall"
 
 # How long a heartbeat entry is considered live. Must match the ttl_seconds
 # argument the server passes into the heartbeat script, or a client's
@@ -34,22 +23,73 @@ RESPONSE_TTL_SECONDS = 60
 TOMBSTONE_TTL_SECONDS = 30 * 24 * 3600
 
 
-def request_queue(method_name: str) -> str:
-    """Generate request queue key for a method."""
-    return f"{REQUEST_QUEUE_PREFIX}{method_name}"
+
+class Queues:
+    """Every key under one prefix: `<prefix>:requests:<method>` and so on."""
+
+    __slots__ = ("_prefix",)
+
+    def __init__(self, prefix: str = DEFAULT_PREFIX):
+        """
+        Raises:
+            ValueError: If the prefix is empty or blank
+            TypeError: If the prefix isn't a str
+        """
+        if not isinstance(prefix, str):
+            raise TypeError(f"prefix must be a str; got {type(prefix).__name__}")
+        if not prefix.strip():
+            raise ValueError(f"prefix must not be empty or blank; got {prefix!r}")
+        self._prefix = prefix
+
+    @property
+    def prefix(self) -> str:
+        return self._prefix
+
+    @property
+    def request_queue_prefix(self) -> str:
+        return f"{self._prefix}:requests:"
+
+    @property
+    def response_queue_prefix(self) -> str:
+        return f"{self._prefix}:responses:"
+
+    @property
+    def processing_prefix(self) -> str:
+        return f"{self._prefix}:processing:"
+
+    @property
+    def heartbeat_key(self) -> str:
+        """Sorted set of server ids heartbeating, scored by Redis's own TIME.
+        Written by servers, read by clients to tell whether any server is
+        alive before publishing a request. Members are never pruned by age
+        alone: a dead server leaves only when it is reaped (see `reaping`), so
+        its entry is how its processing list gets found."""
+        return f"{self._prefix}:servers:alive"
+
+    def request_queue(self, method_name: str) -> str:
+        """A method's request queue."""
+        return f"{self.request_queue_prefix}{method_name}"
+
+    def method_name_from_queue(self, queue_key: str) -> str:
+        """Recover the method name from a request queue key."""
+        return queue_key[len(self.request_queue_prefix):]
+
+    def processing_list(self, server_id: str) -> str:
+        """A server's processing list: the requests it is processing. A server
+        moves a request here from its method's queue with one BLMOVE (or
+        BRPOPLPUSH), so a request is always in its queue or in exactly one of
+        these -- the key name is the record of who has it. The server removes
+        it once the response is written; whoever finds the server dead fails
+        back whatever is left (see `reaping`)."""
+        return f"{self.processing_prefix}{server_id}"
+
+    def response_queue(self, client_id: str) -> str:
+        """The response queue of a client: every response to its calls goes
+        there, and the client hands each to its call by requestId."""
+        return f"{self.response_queue_prefix}{client_id}"
+
+    def __repr__(self) -> str:
+        return f"Queues({self._prefix!r})"
 
 
-def method_name_from_queue(queue_key: str) -> str:
-    """Recover the method name from a request queue key."""
-    return queue_key[len(REQUEST_QUEUE_PREFIX):]
-
-
-def processing_list(server_id: str) -> str:
-    """Generate the processing list key for a server."""
-    return f"{PROCESSING_PREFIX}{server_id}"
-
-
-def response_queue(client_id: str) -> str:
-    """The response queue of a client: every response to its calls goes
-    there, and the client hands each to its call by requestId."""
-    return f"{RESPONSE_QUEUE_PREFIX}{client_id}"
+DEFAULT = Queues()

@@ -73,13 +73,13 @@ public final class AnycallReaping {
     }
 
     /**
-     * Every server in {@link AnycallQueues#HEARTBEAT_KEY} whose heartbeat is older than
+     * Every server in the heartbeat set ({@link AnycallQueues#heartbeatKey()}) whose heartbeat is older than
      * {@link AnycallQueues#HEARTBEAT_TTL} by Redis's own clock: the dead servers not reaped
      * yet.
      */
-    public static List<String> staleServers(RedisCommands<String, String> commands) {
+    public static List<String> staleServers(RedisCommands<String, String> commands, AnycallQueues queues) {
         return commands.eval(STALE_SCRIPT, ScriptOutputType.MULTI,
-            new String[] {AnycallQueues.HEARTBEAT_KEY}, String.valueOf(AnycallQueues.HEARTBEAT_TTL.getSeconds()));
+            new String[] {queues.heartbeatKey()}, String.valueOf(AnycallQueues.HEARTBEAT_TTL.getSeconds()));
     }
 
     /**
@@ -95,13 +95,14 @@ public final class AnycallReaping {
      * @param commands a connection nothing else uses meanwhile: {@code WATCH} and
      *                 {@code MULTI} belong to the connection, not the caller
      */
-    public static void reapDeadServers(RedisCommands<String, String> commands, Collection<String> dead) {
+    public static void reapDeadServers(RedisCommands<String, String> commands, AnycallQueues queues,
+                                       Collection<String> dead) {
         for (String serverId : dead) {
             int answered = 0;
             int dropped = 0;
             try {
-                for (Step step = failBackNext(commands, serverId); step != Step.DONE;
-                        step = failBackNext(commands, serverId)) {
+                for (Step step = failBackNext(commands, queues, serverId); step != Step.DONE;
+                        step = failBackNext(commands, queues, serverId)) {
                     if (step == Step.ANSWERED) {
                         answered++;
                     } else {
@@ -126,9 +127,10 @@ public final class AnycallReaping {
      * its processing key isn't one. For a server that drained, once nothing can take onto
      * its old list anymore.
      */
-    public static void dropTombstone(RedisCommands<String, String> commands, String serverId) {
+    public static void dropTombstone(RedisCommands<String, String> commands, AnycallQueues queues,
+                                     String serverId) {
         commands.eval(DROP_TOMBSTONE_SCRIPT, ScriptOutputType.INTEGER,
-            new String[] {AnycallQueues.PROCESSING_PREFIX + serverId});
+            new String[] {queues.processingList(serverId)});
     }
 
     /**
@@ -141,17 +143,17 @@ public final class AnycallReaping {
      * </ul>
      * {@code WATCH} on the key makes any change by another reaper meanwhile restart the step.
      */
-    private static Step failBackNext(RedisCommands<String, String> commands, String serverId)
+    private static Step failBackNext(RedisCommands<String, String> commands, AnycallQueues queues, String serverId)
             throws Exception {
-        String processingKey = AnycallQueues.PROCESSING_PREFIX + serverId;
+        String processingKey = queues.processingList(serverId);
         while (true) {
             commands.watch(processingKey);
             Step step;
             try {
                 step = switch (commands.type(processingKey)) {
                     case "string" -> Step.DONE;
-                    case "list" -> failBackLast(commands, serverId, processingKey);
-                    default -> tombstone(commands, serverId, processingKey);
+                    case "list" -> failBackLast(commands, queues, serverId, processingKey);
+                    default -> tombstone(commands, queues, serverId, processingKey);
                 };
             } finally {
                 commands.unwatch();  // a no-op after EXEC, which already dropped the WATCH
@@ -171,7 +173,7 @@ public final class AnycallReaping {
      * the transaction runs, so it's removed by position ({@code LTRIM}), with nothing to
      * compare or send back; if another reaper took it first, the transaction is discarded.
      */
-    private static Step failBackLast(RedisCommands<String, String> commands, String serverId,
+    private static Step failBackLast(RedisCommands<String, String> commands, AnycallQueues queues, String serverId,
                                      String processingKey) throws Exception {
         String request = commands.lindex(processingKey, -1);
         if (request == null) {
@@ -187,7 +189,7 @@ public final class AnycallReaping {
         try {
             commands.ltrim(processingKey, 0, -2);
             if (address != null) {
-                String responseQueue = AnycallQueues.responseQueue(address.clientId());
+                String responseQueue = queues.responseQueue(address.clientId());
                 commands.lpush(responseQueue, response);
                 commands.expire(responseQueue, AnycallQueues.RESPONSE_TTL.getSeconds());
             }
@@ -206,10 +208,10 @@ public final class AnycallReaping {
      * removes it from the live set and turns its processing key into a tombstone. If a
      * request landed on the list meanwhile, the script changes nothing, and reaping goes on.
      */
-    private static Step tombstone(RedisCommands<String, String> commands, String serverId,
+    private static Step tombstone(RedisCommands<String, String> commands, AnycallQueues queues, String serverId,
                                   String processingKey) {
         Long done = commands.eval(TOMBSTONE_SCRIPT, ScriptOutputType.INTEGER,
-            new String[] {AnycallQueues.HEARTBEAT_KEY, processingKey},
+            new String[] {queues.heartbeatKey(), processingKey},
             serverId, String.valueOf(AnycallQueues.TOMBSTONE_TTL.getSeconds()));
         return done == 1 ? Step.DONE : Step.RETRY;
     }

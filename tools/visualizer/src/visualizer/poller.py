@@ -31,15 +31,12 @@ from typing import Optional
 
 import redis
 import redis.exceptions
-from anycall import queues as anycall_queues
+from anycall.queues import Queues
 from anycall.model import AnyCallRequest
 from anycall.client import WAITER_REAP_SLICE_SECONDS
-from anycall.server import HEARTBEAT_KEY, HEARTBEAT_PERIOD_SECONDS, HEARTBEAT_TTL_SECONDS
+from anycall.server import HEARTBEAT_PERIOD_SECONDS, HEARTBEAT_TTL_SECONDS
 from PyQt6.QtCore import QThread, pyqtSignal
 
-RESPONSE_QUEUE_PATTERN = f"{anycall_queues.RESPONSE_QUEUE_PREFIX}*"
-REQUEST_QUEUE_PATTERN = f"{anycall_queues.REQUEST_QUEUE_PREFIX}*"
-PROCESSING_LIST_PATTERN = f"{anycall_queues.PROCESSING_PREFIX}*"
 ENTRY_PEEK_COUNT = 20
 PREVIEW_MAX_LEN = 60
 
@@ -127,11 +124,11 @@ def _entry_key(raw_json: str | bytes) -> str:
         return f"content:{hash(raw_json)}"
 
 
-def _method_name(queue_key: str) -> str:
-    return queue_key[len(anycall_queues.REQUEST_QUEUE_PREFIX):]
+def _method_name(keys: Queues, queue_key: str) -> str:
+    return keys.method_name_from_queue(queue_key)
 
 
-def _collect_method(client: redis.Redis, queue_key: str) -> Optional[MethodInfo]:
+def _collect_method(client: redis.Redis, keys: Queues, queue_key: str) -> Optional[MethodInfo]:
     if not client.exists(queue_key):
         # Gone between the SCAN that found it and this call -- don't
         # fabricate a row for a queue that no longer exists in Redis.
@@ -146,10 +143,10 @@ def _collect_method(client: redis.Redis, queue_key: str) -> Optional[MethodInfo]
     # reverse them so index 0 of the preview is "next up".
     raw_entries = list(reversed(client.lrange(queue_key, -ENTRY_PEEK_COUNT, -1) or []))
     entries = {_entry_key(raw): _preview_request(raw) for raw in raw_entries}
-    return MethodInfo(name=_method_name(queue_key), backlog=backlog, entries=entries)
+    return MethodInfo(name=_method_name(keys, queue_key), backlog=backlog, entries=entries)
 
 
-def _collect_servers(client: redis.Redis, last_seen: dict[str, float]) -> tuple[list[ServerInfo], float]:
+def _collect_servers(client: redis.Redis, keys: Queues, last_seen: dict[str, float]) -> tuple[list[ServerInfo], float]:
     """Live servers, from the sorted set each server ZADDs itself into every
     HEARTBEAT_PERIOD_SECONDS. Members scored older than HEARTBEAT_TTL_SECONDS
     are servers that stopped refreshing their entry; they're filtered out here
@@ -165,7 +162,7 @@ def _collect_servers(client: redis.Redis, last_seen: dict[str, float]) -> tuple[
     """
     seconds, microseconds = client.time()
     now = seconds + microseconds / 1_000_000
-    members = client.zrangebyscore(HEARTBEAT_KEY, "-inf", "+inf", withscores=True) or []
+    members = client.zrangebyscore(keys.heartbeat_key, "-inf", "+inf", withscores=True) or []
     for member, score in members:
         last_seen[member] = max(score, last_seen.get(member, score))
     servers = [
@@ -179,15 +176,15 @@ def _collect_servers(client: redis.Redis, last_seen: dict[str, float]) -> tuple[
     return servers, now
 
 
-def _collect_inflight(client: redis.Redis, alive: set[str]) -> list[InflightInfo]:
+def _collect_inflight(client: redis.Redis, keys: Queues, alive: set[str]) -> list[InflightInfo]:
     """Requests some server took off a queue and hasn't answered yet: every
     entry of every server's processing list."""
     inflight = []
-    for processing_key in client.scan_iter(match=PROCESSING_LIST_PATTERN, count=200):
+    for processing_key in client.scan_iter(match=f"{keys.processing_prefix}*", count=200):
         # A dead server's emptied list is a tombstone string: nothing in flight.
         if client.type(processing_key) != "list":
             continue
-        owner = processing_key[len(anycall_queues.PROCESSING_PREFIX):]
+        owner = processing_key[len(keys.processing_prefix):]
         for raw in client.lrange(processing_key, 0, -1) or []:
             inflight.append(InflightInfo(request_id=_entry_key(raw), owner=owner, owner_alive=owner in alive))
     inflight.sort(key=lambda entry: (entry.owner, entry.request_id))
@@ -221,22 +218,22 @@ def estimate_reaping(any_alive: bool, owner_last_seen: Optional[float], now: flo
     )
 
 
-def collect_snapshot(client: redis.Redis, redis_uri: str, last_seen: dict[str, float]) -> Snapshot:
+def collect_snapshot(client: redis.Redis, keys: Queues, redis_uri: str, last_seen: dict[str, float]) -> Snapshot:
     info = client.info()
 
     methods = [
         method
         for method in (
-            _collect_method(client, queue_key)
-            for queue_key in sorted(client.scan_iter(match=REQUEST_QUEUE_PATTERN, count=200))
+            _collect_method(client, keys, queue_key)
+            for queue_key in sorted(client.scan_iter(match=f"{keys.request_queue_prefix}*", count=200))
         )
         if method is not None
     ]
-    inflight_responses = sum(1 for _ in client.scan_iter(match=RESPONSE_QUEUE_PATTERN, count=200))
+    inflight_responses = sum(1 for _ in client.scan_iter(match=f"{keys.response_queue_prefix}*", count=200))
 
     taken_at = time.time()
-    servers, now = _collect_servers(client, last_seen)
-    inflight = _collect_inflight(client, {server.server_id for server in servers})
+    servers, now = _collect_servers(client, keys, last_seen)
+    inflight = _collect_inflight(client, keys, {server.server_id for server in servers})
     orphans = [entry for entry in inflight if not entry.owner_alive]
     for entry in orphans:
         entry.reap = estimate_reaping(bool(servers), last_seen.get(entry.owner), now)
@@ -338,9 +335,10 @@ class PollerThread(QThread):
 
     snapshot_ready = pyqtSignal(object, object)  # Snapshot, list[Event]
 
-    def __init__(self, redis_uri: str, interval: float = 1.0, parent=None):
+    def __init__(self, redis_uri: str, keys: Queues, interval: float = 1.0, parent=None):
         super().__init__(parent)
         self._redis_uri = redis_uri
+        self._keys = keys
         self._interval = interval
         self._stop_event = threading.Event()
         self._tracker = ActivityTracker()
@@ -367,7 +365,7 @@ class PollerThread(QThread):
                     socket_connect_timeout=2,
                     socket_timeout=2,
                 )
-            return collect_snapshot(self._client, self._redis_uri, self._last_seen)
+            return collect_snapshot(self._client, self._keys, self._redis_uri, self._last_seen)
         except redis.exceptions.RedisError as e:
             self._client = None
             return Snapshot(connected=False, taken_at=time.time(), redis_uri=self._redis_uri, error=str(e))

@@ -12,6 +12,7 @@ from .annotation import supply
 from .context import AnycallContext
 from .exceptions import AnyCallError
 from .redis_adapter import RedisQueueAdapter
+from .queues import Queues
 from .server import AnyCallServer, AnyCallServerImpl
 
 
@@ -233,3 +234,24 @@ def test_a_take_that_hits_its_tombstone_drains_at_once():
         assert (new_id, True) in adapter.heartbeats
     finally:
         server.stop()
+
+
+def test_server_takes_and_heartbeats_under_its_prefix():
+    adapter = FakeRedisAdapter()
+    keys: list[str] = []
+    take = adapter.take
+    adapter.take = lambda queue_key, processing_key, timeout: keys.append(queue_key) or take(queue_key, processing_key, timeout)
+    heartbeat = adapter.heartbeat
+    adapter.heartbeat = lambda key, member, ttl, first: keys.append(key) or heartbeat(key, member, ttl, first)
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, adapter), keys=Queues("billing")).register(Echo())
+    server.start()
+    try:
+        deadline = time.monotonic() + 1
+        while "billing:requests:echo" not in keys and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        server.stop()
+
+    assert "billing:servers:alive" in keys
+    assert "billing:requests:echo" in keys
+    assert server._identity.processing_key.startswith("billing:processing:")

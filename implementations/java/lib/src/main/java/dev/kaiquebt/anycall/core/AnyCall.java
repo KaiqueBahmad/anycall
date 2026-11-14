@@ -1,15 +1,22 @@
 package dev.kaiquebt.anycall.core;
 
 import dev.kaiquebt.anycall.client.AnyCallClientImpl;
+import dev.kaiquebt.anycall.publisher.AnycallQueues;
 import dev.kaiquebt.anycall.server.AnyCallServerImpl;
 
+/**
+ * Creates clients and servers. Both find each other through the keys under one prefix,
+ * {@value AnycallQueues#DEFAULT_PREFIX} unless another is given; the prefix is fixed for the
+ * life of a client or server, while a client's defaults can change (see
+ * {@link AnyCallClient#updateDefaults}).
+ */
 public final class AnyCall {
     private AnyCall() {
     }
 
     /** A client whose calls wait with no limit and are published however full the queue is. */
     public static AnyCallClient client(String redisUrl) {
-        return new AnyCallClientImpl(redisUrl, CallOptions.DEFAULT);
+        return client(redisUrl, AnycallQueues.DEFAULT_PREFIX, CallOptions.DEFAULT);
     }
 
     /**
@@ -17,15 +24,41 @@ public final class AnyCall {
      *                 no limit, and a call's own {@link CallOptions} replace them
      */
     public static AnyCallClient client(String redisUrl, CallOptions defaults) {
-        return new AnyCallClientImpl(redisUrl, defaults);
+        return client(redisUrl, AnycallQueues.DEFAULT_PREFIX, defaults);
+    }
+
+    /**
+     * @param prefix the first part of every key the client uses ({@code <prefix>:requests:...});
+     *               a server answers it only under the same prefix
+     */
+    public static AnyCallClient client(String redisUrl, String prefix) {
+        return client(redisUrl, prefix, CallOptions.DEFAULT);
+    }
+
+    public static AnyCallClient client(String redisUrl, String prefix, CallOptions defaults) {
+        return new AnyCallClientImpl(redisUrl, new AnycallQueues(prefix), defaults);
     }
 
     /** A server with no server-wide concurrency limit. */
     public static AnyCallServer server(String redisUrl) {
-        return new AnyCallServerImpl(redisUrl, null);
+        return server(redisUrl, AnycallQueues.DEFAULT_PREFIX, ServerOptions.DEFAULT);
     }
 
+    /** @param options the server's settings; a setting left out means no limit */
     public static AnyCallServer server(String redisUrl, ServerOptions options) {
-        return new AnyCallServerImpl(redisUrl, (options == null ? ServerOptions.DEFAULT : options).maxConcurrency());
+        return server(redisUrl, AnycallQueues.DEFAULT_PREFIX, options);
+    }
+
+    /**
+     * @param prefix the first part of every key the server uses ({@code <prefix>:requests:...});
+     *               it serves only clients under the same prefix
+     */
+    public static AnyCallServer server(String redisUrl, String prefix) {
+        return server(redisUrl, prefix, ServerOptions.DEFAULT);
+    }
+
+    public static AnyCallServer server(String redisUrl, String prefix, ServerOptions options) {
+        return new AnyCallServerImpl(redisUrl, new AnycallQueues(prefix),
+            (options == null ? ServerOptions.DEFAULT : options).maxConcurrency());
     }
 }

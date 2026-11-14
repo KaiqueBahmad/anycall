@@ -13,7 +13,9 @@ import pytest
 import redis.exceptions
 
 from .client import AnyCallClientImpl
+from . import queues
 from .options import CallOptions, ServerOptions
+from .queues import Queues
 from .exceptions import (
     AnyCallError,
     BrokerError,
@@ -443,6 +445,42 @@ class TestCallOptions:
             ServerOptions(max_concurrency=0)
         with pytest.raises(TypeError):
             ServerOptions(max_concurrency="16")
+
+
+class TestPrefix:
+    """Every key the client uses is under its prefix."""
+
+    def test_keys_under_a_prefix(self):
+        keys = Queues("billing")
+
+        assert keys.request_queue("echo") == "billing:requests:echo"
+        assert keys.response_queue("c1") == "billing:responses:c1"
+        assert keys.processing_list("s1") == "billing:processing:s1"
+        assert keys.heartbeat_key == "billing:servers:alive"
+        assert keys.method_name_from_queue("billing:requests:echo") == "echo"
+
+    def test_default_prefix_is_anycall(self):
+        assert queues.DEFAULT.request_queue("echo") == "anycall:requests:echo"
+
+    @pytest.mark.parametrize("prefix", ["", "   "])
+    def test_blank_prefix_is_rejected(self, prefix):
+        with pytest.raises(ValueError):
+            Queues(prefix)
+
+    def test_client_uses_its_prefix(self):
+        adapter = MockRedisAdapter()
+        seen: list[str] = []
+        adapter.push = lambda queue_key, value: seen.append(queue_key) or 1
+        alive_count = adapter.alive_count
+        adapter.alive_count = lambda key, ttl: seen.append(key) or alive_count(key, ttl)
+        client = AnyCallClientImpl(adapter, CallOptions(timeout=QUICK_TIMEOUT), Queues("billing"))
+        _clients.append(client)
+
+        with pytest.raises(TimeoutError):
+            client.raw_call("echo", {})
+
+        assert seen == ["billing:servers:alive", "billing:requests:echo"]
+        assert client._response_queue.startswith("billing:responses:")
 
 
 class ClosingAdapter(MockRedisAdapter):

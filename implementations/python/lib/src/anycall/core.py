@@ -2,6 +2,8 @@ from datetime import timedelta
 
 import redis
 
+from . import queues
+from .queues import Queues
 from .options import DEFAULT_CALL_OPTIONS, DEFAULT_SERVER_OPTIONS, CallOptions, ServerOptions
 from .client import WAITER_REAP_SLICE_SECONDS, AnyCallClient, AnyCallClientImpl
 from .redis_adapter import RedisQueueAdapter
@@ -26,35 +28,51 @@ class AnyCall:
     """Factory for creating AnyCall clients and servers."""
 
     @staticmethod
-    def client(redis_url: str, defaults: CallOptions = DEFAULT_CALL_OPTIONS) -> AnyCallClient:
+    def client(
+        redis_url: str,
+        defaults: CallOptions = DEFAULT_CALL_OPTIONS,
+        prefix: str = queues.DEFAULT_PREFIX,
+    ) -> AnyCallClient:
         """Create an AnyCall client.
 
         Args:
             redis_url: Redis connection URL (e.g., redis://localhost:16379)
             defaults: The settings of every call the client makes; a setting
                 left out means no limit, and a call's own CallOptions replace
-                them
+                them. They can change later with `update_defaults`.
+            prefix: The first part of every key the client uses
+                (`<prefix>:requests:...`); a server answers it only under the
+                same prefix. Fixed for the client's life.
 
         Returns:
             AnyCallClient instance
         """
+        keys = Queues(prefix)
         redis_client = redis.from_url(
             redis_url, decode_responses=False, socket_timeout=CLIENT_SOCKET_TIMEOUT, protocol=REDIS_PROTOCOL
         )
         redis_adapter = RedisQueueAdapter(redis_client)
-        return AnyCallClientImpl(redis_adapter, defaults)
+        return AnyCallClientImpl(redis_adapter, defaults, keys)
 
     @staticmethod
-    def server(redis_url: str, options: ServerOptions = DEFAULT_SERVER_OPTIONS) -> AnyCallServer:
+    def server(
+        redis_url: str,
+        options: ServerOptions = DEFAULT_SERVER_OPTIONS,
+        prefix: str = queues.DEFAULT_PREFIX,
+    ) -> AnyCallServer:
         """Create an AnyCall server.
 
         Args:
             redis_url: Redis connection URL (e.g., redis://localhost:16379)
             options: The server's settings; see ServerOptions
+            prefix: The first part of every key the server uses
+                (`<prefix>:requests:...`); it serves only clients under the
+                same prefix. Fixed for the server's life.
 
         Returns:
             AnyCallServer instance
         """
+        keys = Queues(prefix)
         redis_client = redis.from_url(redis_url, decode_responses=False, protocol=REDIS_PROTOCOL)
         redis_adapter = RedisQueueAdapter(redis_client)
-        return AnyCallServerImpl(redis_adapter, options.max_concurrency)
+        return AnyCallServerImpl(redis_adapter, options.max_concurrency, keys)

@@ -47,6 +47,15 @@ from anycall import ServerOptions
 server = AnyCall.server("redis://localhost:16379", ServerOptions(max_concurrency=16))
 ```
 
+### Key prefix
+Every key starts with `anycall` unless another prefix is given. A client and
+a server see each other only under the same prefix, and it's fixed once they're
+created:
+```python
+server = AnyCall.server(redis_uri, prefix="billing")
+client = AnyCall.client(redis_uri, CallOptions(timeout=timedelta(seconds=30)), prefix="billing")
+```
+
 ### If a server dies mid-request
 
 If a server crashes while processing a request, another live server notices

@@ -28,6 +28,7 @@ from .exceptions import (
 )
 from .model import AnyCallRequest, AnyCallResponse, read_response_request_id
 from .options import DEFAULT_CALL_OPTIONS, CallOptions
+from .queues import Queues
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueuePort
 from .registry import TypeRegistry
@@ -190,19 +191,26 @@ class AnyCallClientImpl(AnyCallClient):
     """RPC client implementation.
 
     Every response to this client's calls goes to one queue of its own,
-    `anycall:responses:<client id>`. A single reader thread blocks on it and
+    `<prefix>:responses:<client id>`. A single reader thread blocks on it and
     hands each response to the call waiting for it, by its requestId, so any
     number of calls can wait at once without a connection each: a sync call
     waits on its future, an async one (see `aio`) awaits it.
     """
 
-    def __init__(self, redis_adapter: RedisQueuePort, defaults: CallOptions = DEFAULT_CALL_OPTIONS):
+    def __init__(
+        self,
+        redis_adapter: RedisQueuePort,
+        defaults: CallOptions = DEFAULT_CALL_OPTIONS,
+        keys: Queues = queues.DEFAULT,
+    ):
         """
         Args:
             redis_adapter: Redis queue adapter
             defaults: The settings of every call; a setting left out means no
                 limit, and a call's own CallOptions replace them
+            keys: The keys this client publishes to and reads from
         """
+        self._keys = keys
         self.redis = redis_adapter
         # Every call's settings, unless the call's own options replace them;
         # None means no limit. Each is read once per call; update_defaults
@@ -212,7 +220,7 @@ class AnyCallClientImpl(AnyCallClient):
         self.update_defaults(defaults)
         self._registry = TypeRegistry()
         self._client_id = str(uuid.uuid4())
-        self._response_queue = queues.response_queue(self._client_id)
+        self._response_queue = keys.response_queue(self._client_id)
         self._pending: dict[str, _Pending] = {}
         self._lock = threading.Lock()
         self._reader: Optional[threading.Thread] = None
@@ -221,7 +229,7 @@ class AnyCallClientImpl(AnyCallClient):
 
     @property
     def client_id(self) -> str:
-        """This client's id: its response queue is `anycall:responses:<id>`."""
+        """This client's id: its response queue is `<prefix>:responses:<id>`."""
         return self._client_id
 
     @property
@@ -308,7 +316,7 @@ class AnyCallClientImpl(AnyCallClient):
         """Read the current backlog of a method's request queue (LLEN)."""
         if self._closed:
             raise self._closed_error(method_name)
-        return self.redis.length(queues.request_queue(method_name))
+        return self.redis.length(self._keys.request_queue(method_name))
 
     def close(self) -> None:
         """Close the client at once. Calls still waiting fail with
@@ -383,10 +391,10 @@ class AnyCallClientImpl(AnyCallClient):
         except (TypeError, ValueError) as e:
             raise SerializationError(method_name, f"Failed to serialize request: {e}")
         rpc_request = AnyCallRequest.create(method_name, payload, self._client_id)
-        request_queue = queues.request_queue(method_name)
+        request_queue = self._keys.request_queue(method_name)
 
         try:
-            if self.redis.alive_count(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS) == 0:
+            if self.redis.alive_count(self._keys.heartbeat_key, queues.HEARTBEAT_TTL_SECONDS) == 0:
                 raise NoServerAvailableError(method_name)
             if effective_max_queue_depth is not None:
                 queue_depth = self.redis.length(request_queue)
@@ -545,8 +553,8 @@ class AnyCallClientImpl(AnyCallClient):
         when no server is dead. Failures only log: the reader goes back to
         reading either way."""
         try:
-            dead = self.redis.stale_members(queues.HEARTBEAT_KEY, queues.HEARTBEAT_TTL_SECONDS)
-            reap_dead_servers(self.redis, dead)
+            dead = self.redis.stale_members(self._keys.heartbeat_key, queues.HEARTBEAT_TTL_SECONDS)
+            reap_dead_servers(self.redis, self._keys, dead)
         except Exception as e:
             logger.warning(f"Failed to reap dead servers: {e}")
 

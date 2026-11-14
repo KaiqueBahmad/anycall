@@ -73,7 +73,8 @@ public class AnyCallClientImpl implements AnyCallClient {
     private volatile Long maxQueueDepth;
     private final TypeRegistry registry;
     private final String clientId = UUID.randomUUID().toString();
-    private final String responseQueue = AnycallQueues.responseQueue(clientId);
+    private final AnycallQueues queues;
+    private final String responseQueue;
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
     private final AsyncCalls asyncCalls = new AsyncView();
     private Thread reader;
@@ -83,10 +84,16 @@ public class AnyCallClientImpl implements AnyCallClient {
     private volatile StatefulRedisConnection<String, String> reapConnection;
     private volatile boolean closed;
 
-    public AnyCallClientImpl(String redisUri, CallOptions defaults) {
+    /**
+     * @param queues   the keys this client publishes to and reads from
+     * @param defaults every call's settings; a setting left out means no limit
+     */
+    public AnyCallClientImpl(String redisUri, AnycallQueues queues, CallOptions defaults) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Client: redisUri must not be null or blank");
         }
+        this.queues = queues == null ? AnycallQueues.DEFAULT : queues;
+        this.responseQueue = this.queues.responseQueue(clientId);
         updateDefaults(defaults);
         this.registry = new TypeRegistry();
 
@@ -156,7 +163,7 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     @Override
     public long getQueueDepth(String methodName) {
-        return commands.llen(AnycallQueues.REQUEST_QUEUE_PREFIX + methodName);
+        return commands.llen(queues.requestQueue(methodName));
     }
 
     @Override
@@ -301,7 +308,7 @@ public class AnyCallClientImpl implements AnyCallClient {
      * anyone waits for it.
      */
     private CompletableFuture<String> publish(String methodName, AnyCallRequest request, Long maxQueueDepth) {
-        String requestQueue = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+        String requestQueue = queues.requestQueue(methodName);
         try {
             checkServerAvailable(methodName);
             if (maxQueueDepth != null) {
@@ -393,7 +400,7 @@ public class AnyCallClientImpl implements AnyCallClient {
      * @throws NoServerAvailableError if no server is alive
      */
     private void checkServerAvailable(String methodName) {
-        Long aliveCount = commands.zcount(AnycallQueues.HEARTBEAT_KEY, aliveRange(commands));
+        Long aliveCount = commands.zcount(queues.heartbeatKey(), aliveRange(commands));
         if (aliveCount == null || aliveCount == 0) {
             throw new NoServerAvailableError(methodName);
         }
@@ -498,9 +505,9 @@ public class AnyCallClientImpl implements AnyCallClient {
      * server does on its heartbeat, one script call when no server is dead. Failures only
      * log; the reader goes back to reading either way.
      */
-    private static void reap(RedisCommands<String, String> reap) {
+    private void reap(RedisCommands<String, String> reap) {
         try {
-            AnycallReaping.reapDeadServers(reap, AnycallReaping.staleServers(reap));
+            AnycallReaping.reapDeadServers(reap, queues, AnycallReaping.staleServers(reap, queues));
         } catch (Exception e) {
             log.warn("Failed to reap dead servers: {}", e.getMessage());
         }

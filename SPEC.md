@@ -30,7 +30,11 @@ talk RESP2: Redis 5.0 has no `HELLO`, so no RESP3.
 | `anycall:responses:<client id>` | List: every response to that client's calls | server or reaper (`LPUSH`) | the client (`BRPOP`) | `RESPONSE_TTL`, set on every write |
 | `anycall:servers:alive` | Sorted set: server id → now of its last heartbeat | servers | everyone | none |
 
-Implementations MUST NOT write any other key under `anycall:`.
+Every key starts with a prefix, `anycall` unless another is given when a
+client or server is created; this spec writes keys with the default. A
+client and a server see each other only under the same prefix, and neither's
+prefix changes once created. Implementations MUST NOT write any other key
+under `<prefix>:`.
 
 ## 3. Messages
 
@@ -332,8 +336,8 @@ its own language's style.
 
 | Operation | Parameters (default) |
 |---|---|
-| client | Redis URL; call options, the defaults of every call (none: no limits) |
-| server | Redis URL; server options: server-wide `max_concurrency`, at least 1 (none) |
+| client | Redis URL; call options, the defaults of every call (none: no limits); key prefix (`anycall`) |
+| server | Redis URL; server options: server-wide `max_concurrency`, at least 1 (none); key prefix (`anycall`) |
 
 **Client**
 

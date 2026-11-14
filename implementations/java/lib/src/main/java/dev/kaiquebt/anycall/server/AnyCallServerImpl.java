@@ -75,7 +75,6 @@ public class AnyCallServerImpl implements AnyCallServer {
     // command per this period.
     private static final long TAKE_BLOCK_SECONDS = 2;
 
-    private static final String HEARTBEAT_KEY = AnycallQueues.HEARTBEAT_KEY;
     private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
     private static final Duration HEARTBEAT_TTL = AnycallQueues.HEARTBEAT_TTL;
     // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds,
@@ -105,9 +104,9 @@ public class AnyCallServerImpl implements AnyCallServer {
      * when the server is declared dead, and the old one drains (see {@link #drain}): requests taken under it
      * one are failed back by reapers, so their results are discarded.
      */
-    private static final class Identity {
+    private final class Identity {
         final String serverId = UUID.randomUUID().toString();
-        final String processingKey = AnycallQueues.PROCESSING_PREFIX + serverId;
+        final String processingKey = queues.processingList(serverId);
         // Whether its first heartbeat went through: no request is taken under an id before.
         volatile boolean registered;
         // Takes started under this id and not returned yet, guarded by identityLock. Once it
@@ -143,31 +142,32 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Map<String, Semaphore> methodConcurrencyLimiters;
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
+    private final AnycallQueues queues;
     private final Semaphore globalConcurrencyLimiter;
-    private volatile Identity identity = new Identity();
+    private volatile Identity identity;
     // Read loops and the heartbeat, apart from the workers so stop() can wait for every
     // loop to exit before the worker pool stops taking requests.
     private ExecutorService loops;
     private ExecutorService workers;
 
-    public AnyCallServerImpl(String redisUri) {
-        this(redisUri, null);
-    }
-
     /**
+     * @param queues         the keys this server takes from and writes to
      * @param maxConcurrency server-wide cap on how many requests may be processed at
      *                       the same time, across every registered method combined
      *                       (see {@link dev.kaiquebt.anycall.annotation.Supply#maxConcurrency()});
      *                       {@code null} means uncapped — the sum of each method's own
      *                       {@code maxConcurrency} applies instead
      */
-    public AnyCallServerImpl(String redisUri, Integer maxConcurrency) {
+    public AnyCallServerImpl(String redisUri, AnycallQueues queues, Integer maxConcurrency) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Server: redisUri must not be null or blank");
         }
+        this.queues = queues == null ? AnycallQueues.DEFAULT : queues;
+        this.identity = new Identity();
         if (maxConcurrency != null && maxConcurrency < 1) {
             throw new IllegalArgumentException("AnyCall Server: maxConcurrency must be at least 1");
         }
+        this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
         this.redisClient = RedisClient.create(redisUri);
         // RESP2: Redis 5 has no HELLO, so no RESP3.
         this.redisClient.setOptions(ClientOptions.builder().protocolVersion(ProtocolVersion.RESP2).build());
@@ -179,7 +179,6 @@ public class AnyCallServerImpl implements AnyCallServer {
         this.methodConcurrencyLimiters = new ConcurrentHashMap<>();
         this.inFlightRequestIds = ConcurrentHashMap.newKeySet();
         this.running = new AtomicBoolean(false);
-        this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
     }
 
     /**
@@ -358,7 +357,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     }
 
     /**
-     * Keeps this server's entry in the {@link #HEARTBEAT_KEY} sorted set fresh, so clients
+     * Keeps this server's entry in the heartbeat sorted set fresh, so clients
      * and external tooling can tell it's alive by reading back the members scored within
      * {@link #HEARTBEAT_TTL} of Redis's current time ({@code TIME}).
      * <p>
@@ -429,7 +428,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private void heartbeat() throws Exception {
         Identity current = identity;
         RedisFuture<List<Object>> future = heartbeatCommands.eval(HEARTBEAT_SCRIPT, ScriptOutputType.MULTI,
-            new String[] {HEARTBEAT_KEY}, current.serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()),
+            new String[] {queues.heartbeatKey()}, current.serverId, String.valueOf(HEARTBEAT_TTL.getSeconds()),
             current.registered ? "0" : "1");
         List<Object> result = future.get(HEARTBEAT_PERIOD.toMillis(), TimeUnit.MILLISECONDS);
 
@@ -448,7 +447,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             dead.add((String) member);
         }
         RedisCommands<String, String> reap = reapConnection.sync();
-        AnycallReaping.reapDeadServers(reap, dead);
+        AnycallReaping.reapDeadServers(reap, queues, dead);
 
         // A draining id with no take left on it can't get anything on its list anymore: make
         // sure its list was reaped, then delete its tombstone.
@@ -462,8 +461,8 @@ public class AnyCallServerImpl implements AnyCallServer {
             draining.removeAll(idle);
         }
         for (Identity old : idle) {
-            AnycallReaping.reapDeadServers(reap, List.of(old.serverId));
-            AnycallReaping.dropTombstone(reap, old.serverId);
+            AnycallReaping.reapDeadServers(reap, queues, List.of(old.serverId));
+            AnycallReaping.dropTombstone(reap, queues, old.serverId);
         }
     }
 
@@ -500,7 +499,7 @@ public class AnyCallServerImpl implements AnyCallServer {
      * to run. Holds a connection of its own, since a take blocks it.
      */
     private void readMethod(String methodName, MethodHandler handler) {
-        String queueKey = AnycallQueues.REQUEST_QUEUE_PREFIX + methodName;
+        String queueKey = queues.requestQueue(methodName);
         Semaphore methodLimiter = methodConcurrencyLimiters.get(methodName);
         log.info("Started reading queue {}", queueKey);
 
@@ -706,7 +705,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             return;
         }
         try {
-            AnycallResponses.pushAndRelease(writeCommands, response, clientId, taker.processingKey, requestJson);
+            AnycallResponses.pushAndRelease(writeCommands, queues, response, clientId, taker.processingKey, requestJson);
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
         }

@@ -20,9 +20,10 @@ share the same Redis protocol.
 ./run.sh                                    # redis://localhost:16379
 ./run.sh --redis-uri redis://host:16379      # custom instance
 ./run.sh --interval 0.5                     # faster polling
+./run.sh --prefix billing                   # keys under billing: instead of anycall:
 ```
 
-Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`.
+Or set `ANYCALL_REDIS_URI` instead of `--redis-uri`, and `ANYCALL_PREFIX` instead of `--prefix`.
 
 ## What it shows
 

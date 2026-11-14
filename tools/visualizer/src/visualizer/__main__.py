@@ -48,6 +48,11 @@ def main() -> None:
         help="Redis connection URI (default: redis://localhost:16379, or $ANYCALL_REDIS_URI)",
     )
     parser.add_argument(
+        "--prefix",
+        default=os.environ.get("ANYCALL_PREFIX", "anycall"),
+        help="Key prefix the clients and servers use (default: anycall, or $ANYCALL_PREFIX)",
+    )
+    parser.add_argument(
         "--interval",
         type=float,
         default=1.0,
@@ -61,7 +66,7 @@ def main() -> None:
     # blend in system/GTK theme colors, which is what caused the low-contrast
     # dark-on-dark look before this was set explicitly.
     app.setStyle("Fusion")
-    window = VisualizerApp(redis_uri=args.redis_uri, interval=args.interval)
+    window = VisualizerApp(redis_uri=args.redis_uri, prefix=args.prefix, interval=args.interval)
     window.show()
     sys.exit(app.exec())
 
