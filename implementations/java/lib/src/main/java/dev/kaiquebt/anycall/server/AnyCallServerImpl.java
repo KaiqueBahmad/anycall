@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.MethodInfo;
 import dev.kaiquebt.anycall.core.ServerOptions;
 import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
@@ -39,6 +40,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Internal implementation of AnyCallServer.
@@ -140,7 +142,11 @@ public class AnyCallServerImpl implements AnyCallServer {
     private volatile boolean useBlmove;
 
     private final Map<String, MethodHandler> methodHandlers;
-    private final Map<String, Semaphore> methodConcurrencyLimiters;
+    // Each method's cap, changed by setMaxConcurrency while requests run.
+    private final Map<String, ConcurrencyLimit> methodConcurrencyLimiters;
+    // Each method's requests being processed by a worker right now. Kept across a method
+    // registered again, whose old requests may still be running.
+    private final Map<String, AtomicInteger> runningRequests = new ConcurrentHashMap<>();
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
     private final AnycallQueues queues;
@@ -243,6 +249,30 @@ public class AnyCallServerImpl implements AnyCallServer {
         globalConcurrencyLimiter.setCapacity(options.maxConcurrencyOr(globalConcurrencyLimiter.capacity()));
     }
 
+    @Override
+    public synchronized List<String> methods() {
+        return methodHandlers.keySet().stream().sorted().toList();
+    }
+
+    @Override
+    public synchronized MethodInfo method(String name) {
+        if (!methodHandlers.containsKey(name)) {
+            throw new IllegalArgumentException("No method registered as '" + name + "'");
+        }
+        return new MethodInfo(name, methodConcurrencyLimiters.get(name).capacity(), runningRequests.get(name).get());
+    }
+
+    @Override
+    public synchronized void setMaxConcurrency(String method, int maxConcurrency) {
+        if (maxConcurrency < 1) {
+            throw new IllegalArgumentException("maxConcurrency must be at least 1; got " + maxConcurrency);
+        }
+        if (!methodHandlers.containsKey(method)) {
+            throw new IllegalArgumentException("No method registered as '" + method + "'");
+        }
+        methodConcurrencyLimiters.get(method).setCapacity(maxConcurrency);
+    }
+
     public AnyCallServer register(Object... suppliers) {
         for (Object supplier : suppliers) {
             scanAndRegisterSupplier(supplier);
@@ -297,7 +327,8 @@ public class AnyCallServerImpl implements AnyCallServer {
 
                 MethodHandler handler = new MethodHandler(supplier, method, parameterType, maxConcurrency);
                 synchronized (this) {
-                    methodConcurrencyLimiters.put(methodName, new Semaphore(maxConcurrency));
+                    methodConcurrencyLimiters.put(methodName, new ConcurrencyLimit(maxConcurrency));
+                    runningRequests.computeIfAbsent(methodName, name -> new AtomicInteger());
                     // Replacing a handler makes the old one's loop exit on its next
                     // iteration; the new one gets a loop of its own.
                     methodHandlers.put(methodName, handler);
@@ -510,14 +541,14 @@ public class AnyCallServerImpl implements AnyCallServer {
      */
     private void readMethod(String methodName, MethodHandler handler) {
         String queueKey = queues.requestQueue(methodName);
-        Semaphore methodLimiter = methodConcurrencyLimiters.get(methodName);
+        ConcurrencyLimit methodLimiter = methodConcurrencyLimiters.get(methodName);
         log.info("Started reading queue {}", queueKey);
 
         while (isCurrent(methodName, handler)) {
             try (StatefulRedisConnection<String, String> connection = redisClient.connect()) {
                 RedisCommands<String, String> commands = connection.sync();
                 while (isCurrent(methodName, handler)) {
-                    if (!methodLimiter.tryAcquire(TAKE_BLOCK_SECONDS, TimeUnit.SECONDS)) {
+                    if (!methodLimiter.tryAcquire(TimeUnit.SECONDS.toMillis(TAKE_BLOCK_SECONDS))) {
                         continue;
                     }
                     Identity taker;
@@ -563,7 +594,7 @@ public class AnyCallServerImpl implements AnyCallServer {
                         methodLimiter.release();
                         continue;
                     }
-                    dispatch(item, handler, methodLimiter, taker);
+                    dispatch(methodName, item, handler, methodLimiter, taker);
                 }
             } catch (InterruptedException e) {
                 // Only from shutdownNow(): whatever was taken stays on the processing list,
@@ -593,7 +624,8 @@ public class AnyCallServerImpl implements AnyCallServer {
      * Hands a taken request to the worker pool. Waits for a server-wide permit first, if
      * there's a cap: see the class docs for why that happens after taking, not before.
      */
-    private void dispatch(String item, MethodHandler handler, Semaphore methodLimiter, Identity taker)
+    private void dispatch(String methodName, String item, MethodHandler handler, ConcurrencyLimit methodLimiter,
+                          Identity taker)
             throws InterruptedException {
         try {
             globalConcurrencyLimiter.acquire();
@@ -601,10 +633,13 @@ public class AnyCallServerImpl implements AnyCallServer {
             methodLimiter.release();
             throw e;
         }
+        AtomicInteger runningNow = runningRequests.get(methodName);
         workers.submit(() -> {
+            runningNow.incrementAndGet();
             try {
                 processRequest(item, handler, taker);
             } finally {
+                runningNow.decrementAndGet();
                 globalConcurrencyLimiter.release();
                 methodLimiter.release();
             }

@@ -30,7 +30,11 @@ TAKE_BLOCK_SECONDS = 2
 # Liveness timings. Hardcoded on purpose -- edit here to change them; there is
 # no configuration surface for these. HEARTBEAT_TTL_SECONDS lives in `queues`
 # so the client can share it for its own liveness check.
-HEARTBEAT_PERIOD_SECONDS = 2  # how often a live server refreshes its entry
+HEARTBEAT_PERIOD_SECONDS = 2
+
+# Bound on the worker pool's threads, kept out of the way of the limiters,
+# which are what decide how many requests run (see `start`).
+MAX_WORKERS = 10_000  # how often a live server refreshes its entry
 HEARTBEAT_TTL_SECONDS = queues.HEARTBEAT_TTL_SECONDS
 
 
@@ -86,6 +90,33 @@ class ConcurrencyLimiter:
         with self._condition:
             self._in_use -= 1
             self._condition.notify()
+
+
+@dataclass(frozen=True)
+class MethodInfo:
+    """A snapshot of one method a server serves, from `server.method(name)`."""
+    name: str
+    # How many of its requests the server processes at once: its @supply
+    # max_concurrency, unless changed with `set_max_concurrency`.
+    max_concurrency: int
+    # How many of its requests the server is processing right now.
+    running: int
+
+
+class _Count:
+    """A counter several threads change."""
+
+    def __init__(self) -> None:
+        self._value = 0
+        self._lock = threading.Lock()
+
+    def add(self, delta: int) -> None:
+        with self._lock:
+            self._value += delta
+
+    @property
+    def value(self) -> int:
+        return self._value
 
 
 @dataclass
@@ -144,6 +175,35 @@ class AnyCallServer(ABC):
         """
         pass
 
+    @property
+    @abstractmethod
+    def methods(self) -> list[str]:
+        """The names of every registered method, sorted."""
+        pass
+
+    @abstractmethod
+    def method(self, name: str) -> MethodInfo:
+        """A snapshot of one registered method: its concurrency cap, and how
+        many of its requests are running right now.
+
+        Raises:
+            KeyError: If no method is registered under that name
+        """
+        pass
+
+    @abstractmethod
+    def set_max_concurrency(self, method_name: str, max_concurrency: int) -> None:
+        """Change how many requests of one method this server processes at
+        once, while it runs. Raising it lets the method take more at once;
+        lowering it lets the requests already running finish, and takes no
+        new one until fewer than the new cap run.
+
+        Raises:
+            ValueError: If it's below 1
+            KeyError: If no method is registered under that name
+        """
+        pass
+
 
 class AnyCallServerImpl(AnyCallServer):
     """RPC server implementation.
@@ -195,6 +255,9 @@ class AnyCallServerImpl(AnyCallServer):
         self.redis = redis_adapter
         self.method_handlers: Dict[str, MethodHandler] = {}
         self._method_limiters: Dict[str, ConcurrencyLimiter] = {}
+        # Each method's requests being processed by a worker right now. Kept
+        # across a method registered again, whose old requests may still run.
+        self._running_requests: Dict[str, _Count] = {}
         self._running = False
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
@@ -215,6 +278,27 @@ class AnyCallServerImpl(AnyCallServer):
         self._heartbeat_wake = threading.Event()
         self._in_flight_request_ids: set[str] = set()
         self._in_flight_lock = threading.Lock()
+
+    @property
+    def methods(self) -> list[str]:
+        with self._running_lock:
+            return sorted(self.method_handlers)
+
+    def method(self, name: str) -> MethodInfo:
+        with self._running_lock:
+            if name not in self.method_handlers:
+                raise KeyError(f"No method registered as {name!r}")
+            return MethodInfo(name, self._method_limiters[name].capacity, self._running_requests[name].value)
+
+    def set_max_concurrency(self, method_name: str, max_concurrency: int) -> None:
+        if isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int):
+            raise TypeError(f"max_concurrency must be an int; got {type(max_concurrency).__name__}")
+        if max_concurrency < 1:
+            raise ValueError(f"max_concurrency must be at least 1; got {max_concurrency}")
+        with self._running_lock:
+            if method_name not in self.method_handlers:
+                raise KeyError(f"No method registered as {method_name!r}")
+            self._method_limiters[method_name].set_capacity(max_concurrency)
 
     @property
     def options(self) -> ServerOptions:
@@ -265,6 +349,7 @@ class AnyCallServerImpl(AnyCallServer):
             )
             with self._running_lock:
                 self._method_limiters[method_name] = ConcurrencyLimiter(max_concurrency)
+                self._running_requests.setdefault(method_name, _Count())
                 # Replacing a handler makes the old one's loop exit on its next
                 # iteration; the new one gets a loop of its own.
                 self.method_handlers[method_name] = handler
@@ -305,8 +390,11 @@ class AnyCallServerImpl(AnyCallServer):
                 ) from e
 
             self._running = True
-            worker_count = sum(h.max_concurrency for h in self.method_handlers.values())
-            self._executor = ThreadPoolExecutor(max_workers=max(worker_count, 1))
+            # The limiters bound how many requests run; the pool only reuses
+            # threads, starting one when none is idle. Its bound has to stay
+            # out of the way, since caps can rise and methods can be
+            # registered while it runs.
+            self._executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
             self._start_thread(self._emit_heartbeats, "anycall-heartbeat")
             for method_name, handler in self.method_handlers.items():
                 self._start_reader(method_name, handler)
@@ -465,7 +553,9 @@ class AnyCallServerImpl(AnyCallServer):
             # class docstring. The request is already on the processing list.
             self._global_limiter.acquire()
             try:
-                self._executor.submit(self._process_message, item, handler, limiter, taker)
+                self._executor.submit(
+                    self._process_message, item, handler, limiter, taker, self._running_requests[method_name]
+                )
             except RuntimeError:
                 # The worker pool shut down under us (`stop` joins the loops first,
                 # so this shouldn't happen). The request stays on the processing
@@ -478,13 +568,20 @@ class AnyCallServerImpl(AnyCallServer):
         method_limiter.release()
 
     def _process_message(
-        self, item: str, handler: MethodHandler, method_limiter: ConcurrencyLimiter, taker: _Identity
+        self,
+        item: str,
+        handler: MethodHandler,
+        method_limiter: ConcurrencyLimiter,
+        taker: _Identity,
+        running: _Count,
     ) -> None:
+        running.add(1)
         try:
             self._process_request(handler, item, taker)
         except Exception as e:
             logger.exception(f"Error processing request: {e}")
         finally:
+            running.add(-1)
             self._release_slots(method_limiter)
 
     def _process_request(self, handler: MethodHandler, item: str, taker: _Identity) -> None:

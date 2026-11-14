@@ -390,6 +390,9 @@ registered types, timeout and errors, on the same response queue.
 | server id | the instance's id |
 | `options` | the server's options, each setting set |
 | `update_options(options)` | while it runs: what `options` set replaces the server's, what they leave out stays; a lower `max_concurrency` lets what's running finish |
+| `methods` | the names of every registered method, sorted |
+| `method(name)` | a registered method's `max_concurrency` and how many of its requests are running now; fails if none |
+| `set_max_concurrency(method, n)` | while it runs, at least 1; a registered method only; lower lets what's running finish |
 
 A supply method takes the context and the request, deserialized to its
 parameter's type.

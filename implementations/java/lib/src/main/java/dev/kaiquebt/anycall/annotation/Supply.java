@@ -49,11 +49,16 @@ public @interface Supply {
 
     /**
      * How many requests for this operation a single server instance may process at
-     * the same time. Composes with scaling out via multiple server processes and with
-     * the server-wide cap ({@code ServerOptions.withMaxConcurrency}),
+     * the same time, when it's registered. Composes with scaling out via multiple server
+     * processes and with the server-wide cap ({@code ServerOptions.withMaxConcurrency}),
      * if set. Defaults to {@code 1} (one at a time per instance).
+     * <p>
+     * Both can change while the server runs: this one with
+     * {@link dev.kaiquebt.anycall.core.AnyCallServer#setMaxConcurrency}, the server-wide
+     * one with {@link dev.kaiquebt.anycall.core.AnyCallServer#updateOptions}. Registering
+     * the method again starts it over from this value.
      *
-     * @return the number of requests this method may process concurrently
+     * @return the number of requests this method may process concurrently, at first
      */
     int maxConcurrency() default 1;
 }

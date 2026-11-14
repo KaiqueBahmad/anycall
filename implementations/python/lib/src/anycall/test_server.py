@@ -1,6 +1,7 @@
 """Unit tests for AnyCallServer: starting, and answering requests it can't parse."""
 
 import json
+import threading
 import time
 from typing import cast
 
@@ -14,7 +15,7 @@ from .exceptions import AnyCallError
 from .redis_adapter import RedisQueueAdapter
 from .options import ServerOptions
 from .queues import Queues
-from .server import AnyCallServer, AnyCallServerImpl
+from .server import AnyCallServer, AnyCallServerImpl, MethodInfo
 
 
 class Echo:
@@ -297,3 +298,73 @@ def test_no_cap_never_waits():
     limiter = server_module.ConcurrencyLimiter(None)
 
     assert all(limiter.acquire(0) for _ in range(1000))
+
+
+class Slow:
+    @supply("slow", max_concurrency=2)
+    def slow(self, ctx: AnycallContext, request: dict) -> dict:
+        return request
+
+
+def test_methods_lists_every_registered_name():
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter())).register(Slow(), Echo())
+
+    assert server.methods == ["echo", "slow"]
+
+    server.unregister("echo")
+    assert server.methods == ["slow"]
+
+
+def test_method_reads_one_methods_cap_and_running_count():
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter())).register(Slow(), Echo())
+
+    assert server.method("slow") == MethodInfo("slow", 2, 0)
+    with pytest.raises(KeyError):
+        server.method("missing")
+
+
+def test_set_max_concurrency_changes_one_methods_cap():
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter())).register(Slow(), Echo())
+
+    server.set_max_concurrency("slow", 5)
+
+    assert server.method("slow").max_concurrency == 5
+    assert server.method("echo").max_concurrency == 1
+
+
+def test_running_counts_requests_while_they_run():
+    started, release = threading.Event(), threading.Event()
+
+    class Blocking:
+        @supply("block")
+        def block(self, ctx: AnycallContext, request: dict) -> dict:
+            started.set()
+            release.wait(2)
+            return request
+
+    adapter = FakeRedisAdapter()
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, adapter)).register(Blocking())
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "block", "payload": "{}"})
+    server._method_limiters["block"].acquire(0)
+    server._global_limiter.acquire(0)
+    worker = threading.Thread(target=server._process_message, args=(
+        item, server.method_handlers["block"], server._method_limiters["block"], server._identity,
+        server._running_requests["block"]))
+    worker.start()
+    started.wait(2)
+
+    assert server.method("block").running == 1
+    release.set()
+    worker.join(2)
+    assert server.method("block").running == 0
+
+
+def test_set_max_concurrency_rejects_bad_values_and_unknown_methods():
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter())).register(Echo())
+
+    with pytest.raises(ValueError):
+        server.set_max_concurrency("echo", 0)
+    with pytest.raises(TypeError):
+        server.set_max_concurrency("echo", True)
+    with pytest.raises(KeyError):
+        server.set_max_concurrency("missing", 3)

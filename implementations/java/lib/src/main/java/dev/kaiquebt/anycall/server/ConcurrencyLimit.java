@@ -22,6 +22,20 @@ final class ConcurrencyLimit {
         inUse++;
     }
 
+    /** Like {@link #acquire}, giving up after {@code timeoutMillis}: returns whether it got in. */
+    synchronized boolean tryAcquire(long timeoutMillis) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (capacity != null && inUse >= capacity) {
+            long left = deadline - System.currentTimeMillis();
+            if (left <= 0) {
+                return false;
+            }
+            wait(left);
+        }
+        inUse++;
+        return true;
+    }
+
     synchronized void release() {
         inUse--;
         notifyAll();

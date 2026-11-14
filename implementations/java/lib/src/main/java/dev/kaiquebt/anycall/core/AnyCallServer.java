@@ -61,6 +61,28 @@ public interface AnyCallServer {
     void updateOptions(ServerOptions options);
 
     /**
+     * The names of every registered method, sorted.
+     */
+    java.util.List<String> methods();
+
+    /**
+     * A snapshot of one registered method: its concurrency cap, and how many of its requests
+     * are running right now.
+     *
+     * @throws IllegalArgumentException if no method is registered under that name
+     */
+    MethodInfo method(String name);
+
+    /**
+     * Changes how many requests of one method this server processes at once, while it runs.
+     * Raising it lets the method take more at once; lowering it lets the requests already
+     * running finish, and takes no new one until fewer than the new cap run.
+     *
+     * @throws IllegalArgumentException if it's below 1, or no method is registered under that name
+     */
+    void setMaxConcurrency(String method, int maxConcurrency);
+
+    /**
      * Unregisters a supplier method from the server.
      * Stops the listener thread for the specified method.
      *

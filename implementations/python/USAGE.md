@@ -51,6 +51,13 @@ server.update_options(ServerOptions(max_concurrency=32))  # while it runs
 Lowering the cap lets the requests already running finish; no new one runs
 until fewer than the new cap do.
 
+Each method's own cap can change the same way:
+```python
+server.methods                                    # ['analyze-sentiment', 'echo']
+server.method("analyze-sentiment")                # MethodInfo(name='analyze-sentiment', max_concurrency=4, running=2)
+server.set_max_concurrency("analyze-sentiment", 8)
+```
+
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and
 a server see each other only under the same prefix, and it's fixed once they're

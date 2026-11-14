@@ -33,6 +33,13 @@ server.updateOptions(ServerOptions.DEFAULT.withMaxConcurrency(32));   // while i
 Lowering the cap lets the requests already running finish; no new one runs
 until fewer than the new cap do.
 
+Each method's own cap can change the same way:
+```java
+server.methods();                             // [analyze-sentiment, echo]
+server.method("analyze-sentiment");           // MethodInfo[name=analyze-sentiment, maxConcurrency=4, running=2]
+server.setMaxConcurrency("analyze-sentiment", 8);
+```
+
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and
 a server see each other only under the same prefix, and it's fixed once they're

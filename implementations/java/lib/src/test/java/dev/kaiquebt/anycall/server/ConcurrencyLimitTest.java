@@ -58,4 +58,15 @@ class ConcurrencyLimitTest {
         }
         assertNull(limit.capacity());
     }
+
+    @Test
+    void tryAcquireGivesUpAtTheCapAndGetsInOnceRaised() throws Exception {
+        ConcurrencyLimit limit = new ConcurrencyLimit(1);
+        assertTrue(limit.tryAcquire(0));
+        assertFalse(limit.tryAcquire(50));
+
+        limit.setCapacity(2);
+
+        assertTrue(limit.tryAcquire(0));
+    }
 }
