@@ -126,7 +126,7 @@ class AnyCallClient(ABC):
         pass
 
     @abstractmethod
-    def get_queue_depth(self, method_name: str) -> int:
+    def queue_depth(self, method_name: str) -> int:
         """Read the current backlog of a method's request queue (LLEN).
 
         Read-only and non-destructive; safe to poll as a health gauge. A
@@ -292,7 +292,7 @@ class AnyCallClientImpl(AnyCallClient):
         """
         self._registry.register(operation, response_type)
 
-    def get_queue_depth(self, method_name: str) -> int:
+    def queue_depth(self, method_name: str) -> int:
         """Read the current backlog of a method's request queue (LLEN)."""
         return self.redis.length(queues.request_queue(method_name))
 

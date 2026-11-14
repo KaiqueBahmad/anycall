@@ -151,7 +151,7 @@ A timeout must be positive and a queue limit at least 1; anything else is a
 
 ### Check the current backlog:
 ```python
-depth = client.get_queue_depth("analyze-sentiment")  # LLEN of the request queue
+depth = client.queue_depth("analyze-sentiment")  # LLEN of the request queue
 ```
 
 ## Configuration

@@ -126,7 +126,7 @@ class AnyCallServerImpl(AnyCallServer):
 
     A loop only asks for its next request when its method has a free
     max_concurrency slot, so requests for a busy method stay in their queue
-    (an accurate backlog for `get_queue_depth`/`max_queue_depth`). The
+    (an accurate backlog for `queue_depth`/`max_queue_depth`). The
     server-wide `max_concurrency`, if set, gates running a request rather
     than taking it: a loop blocked in Redis can't hold a server-wide slot
     without starving the other methods, so a request taken while every slot

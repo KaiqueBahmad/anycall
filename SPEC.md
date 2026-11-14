@@ -343,7 +343,7 @@ its own language's style.
 | `call(method, request[, overrides])` | uses the type registered for `method`; fails if none |
 | `raw_call(method, request[, overrides])` | returns the payload as a native map |
 | `register_type(method, type)` | once; the same type again is a no-op, a different one fails |
-| `get_queue_depth(method)` | `LLEN` of the method's queue |
+| `queue_depth(method)` | `LLEN` of the method's queue |
 | default `max_queue_depth` | get and set; at least 1, or none; a call's overrides win |
 
 **Overrides.** Settings for one call that replace the client's: its

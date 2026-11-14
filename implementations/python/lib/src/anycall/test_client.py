@@ -328,8 +328,8 @@ class TestQueueDepth:
         with pytest.raises(QueueFullError):
             client.raw_call("my-op", {}, CallOverrides(max_queue_depth=2))
 
-    def test_get_queue_depth_reads_through_adapter(self):
-        assert make_client(MockRedisAdapter(queue_depth=7)).get_queue_depth("my-op") == 7
+    def test_queue_depth_reads_through_adapter(self):
+        assert make_client(MockRedisAdapter(queue_depth=7)).queue_depth("my-op") == 7
 
     def test_default_max_queue_depth_getter_and_setter(self, client):
         assert client.get_default_max_queue_depth() is None
