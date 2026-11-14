@@ -26,7 +26,7 @@ uv run pytest --cov=anycall --cov-report=html
 ### Run a single test class or test
 ```bash
 uv run pytest src/anycall/test_client.py::TestWaiterDrivenReaping
-uv run pytest -k max_queue_depth
+uv run pytest -k CallOverrides
 ```
 
 ## Test Structure

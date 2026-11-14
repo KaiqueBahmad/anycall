@@ -113,6 +113,23 @@ Errors complete the future exceptionally, wrapped in a `CompletionException`
 as usual: `e.getCause()` is the same `TimeoutError`, `ServerLostError`, ...
 a blocking call would throw.
 
+### Settings for one call:
+`CallOverrides` replaces the client's timeout or queue limit for one call;
+what it leaves out stays the client's. It's immutable, so it can be built once
+and reused:
+```java
+CallOverrides urgent = CallOverrides.builder()
+    .timeout(Duration.ofSeconds(5))
+    .noQueueLimit()
+    .build();
+Sentiment s = client.call("analyze-sentiment", request, Sentiment.class, urgent);
+
+client.call("analyze-sentiment", request, Sentiment.class,
+    CallOverrides.builder().maxQueueDepth(100).build());   // QueueFullError past 100 waiting
+```
+A timeout must be positive and a queue limit at least 1; the builder rejects
+anything else. The async calls take the same overrides.
+
 ## Configuration
 
 ```java

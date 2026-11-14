@@ -118,21 +118,36 @@ full `timeout` with nothing to pop it. This only confirms *some* server is
 alive, not that one of them supports the method being called.
 
 ### Reject when the backlog is too deep:
+A client-wide limit applies to every call:
 ```python
 from anycall.exceptions import QueueFullError
 
+client = AnyCall.client(redis_uri, default_max_queue_depth=100)
 try:
-    sentiment = client.call("analyze-sentiment", request, Sentiment, max_queue_depth=100)
+    sentiment = client.call("analyze-sentiment", request, Sentiment)
 except QueueFullError:
     ...  # the request queue already had >= 100 waiting requests; not submitted
-```
 
-A client-wide default can be set instead of passing `max_queue_depth` on every call:
-```python
-client = AnyCall.client(redis_uri, default_max_queue_depth=100)
 client.set_default_max_queue_depth(200)  # change it later
 client.get_default_max_queue_depth()     # -> 200
 ```
+A limit must be at least 1; `None` means no limit.
+
+### Settings for one call:
+`CallOverrides` replaces the client's timeout or queue limit for one call;
+what it leaves out stays the client's, and `None` means no limit. It can be
+made once and reused:
+```python
+from anycall import CallOverrides
+
+urgent = CallOverrides(timeout=timedelta(seconds=5), max_queue_depth=None)
+sentiment = client.call("analyze-sentiment", request, Sentiment, urgent)
+
+client.call("analyze-sentiment", request, Sentiment, CallOverrides(max_queue_depth=100))
+await client.aio.call("analyze-sentiment", request, Sentiment, urgent)
+```
+A timeout must be positive and a queue limit at least 1; anything else is a
+`ValueError` when the overrides are made.
 
 ### Check the current backlog:
 ```python

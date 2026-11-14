@@ -271,8 +271,8 @@ heartbeat that triggered it.
 
 1. **Liveness**: `TIME`, then `ZCOUNT anycall:servers:alive` from now −
    `HEARTBEAT_TTL`. If zero, fail with `NoServerAvailableError`.
-2. **Queue depth**: if the call has a `max_queue_depth` (its own or the
-   client's default) and `LLEN anycall:requests:<method>` is at least that,
+2. **Queue depth**: if the call has a `max_queue_depth` (its overrides' or
+   the client's default) and `LLEN anycall:requests:<method>` is at least that,
    fail with `QueueFullError`.
 3. **Publish**: `LPUSH anycall:requests:<method> <request>`. The call MUST be
    waiting for its response (see Waiting) before the `LPUSH`, so a fast
@@ -293,8 +293,9 @@ response to the call waiting for it, so any number of calls can wait at once.
   timed out), is dropped.
 - After each empty slice while calls are waiting, it MUST run STALE and reap
   every dead server it returns.
-- Each call's timeout is measured by the client, on the call; zero means no
-  limit, and is the default. A call that times out stops waiting.
+- Each call's timeout (its overrides' or the client's) is measured by the
+  client, on the call; the client's defaults to no limit. A call that times
+  out stops waiting.
 - If a Redis command under the reader fails, every waiting call MUST fail
   with `BrokerError` (`published` true), and the reader starts over.
 - The socket read timeout MUST be `WAIT_SLICE` plus a margin: no command
@@ -331,19 +332,28 @@ its own language's style.
 
 | Operation | Parameters (default) |
 |---|---|
-| client | Redis URI; timeout (zero); default `max_queue_depth` (none) |
+| client | Redis URI; timeout (no limit); default `max_queue_depth`, at least 1 (none) |
 | server | Redis URI; server-wide `max_concurrency` (none) |
 
 **Client**
 
 | Operation | Behavior |
 |---|---|
-| `call(method, request, type[, max_queue_depth])` | returns the payload as `type` |
-| `call(method, request[, max_queue_depth])` | uses the type registered for `method`; fails if none |
-| `raw_call(method, request[, max_queue_depth])` | returns the payload as a native map |
+| `call(method, request, type[, overrides])` | returns the payload as `type` |
+| `call(method, request[, overrides])` | uses the type registered for `method`; fails if none |
+| `raw_call(method, request[, overrides])` | returns the payload as a native map |
 | `register_type(method, type)` | once; the same type again is a no-op, a different one fails |
 | `get_queue_depth(method)` | `LLEN` of the method's queue |
-| default `max_queue_depth` | get and set; a per-call value wins |
+| default `max_queue_depth` | get and set; at least 1, or none; a call's overrides win |
+
+**Overrides.** Settings for one call that replace the client's: its
+`timeout` and its `max_queue_depth`. A setting left out keeps the client's;
+each can also be set to no limit. A timeout MUST be positive and a
+`max_queue_depth` at least 1, rejected when the overrides are made. Java
+builds them with `CallOverrides.builder()` (`noTimeout()`, `noQueueLimit()`
+for no limit); Python makes `CallOverrides(timeout=..., max_queue_depth=...)`,
+`None` meaning no limit. The response type isn't an override: it stays an
+argument of its own, so the call's return type follows it.
 
 **Asynchronous calls.** `call` and `raw_call` MUST also be offered without
 blocking, returning the language's future or awaitable instead of the

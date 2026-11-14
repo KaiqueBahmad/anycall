@@ -26,6 +26,7 @@ from .exceptions import (
     TimeoutError,
 )
 from .model import AnyCallRequest, AnyCallResponse, read_response_request_id
+from .overrides import NO_OVERRIDES, CallOverrides
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueuePort
 from .registry import TypeRegistry
@@ -42,6 +43,11 @@ WAITER_REAP_SLICE_SECONDS = 10
 T = TypeVar("T")
 
 
+def _check_max_queue_depth(max_queue_depth: int | None) -> None:
+    if max_queue_depth is not None and max_queue_depth < 1:
+        raise ValueError(f"max_queue_depth must be at least 1, or None for no limit; got {max_queue_depth}")
+
+
 class AnyCallClient(ABC):
     """Interface for RPC client."""
 
@@ -51,9 +57,9 @@ class AnyCallClient(ABC):
         method_name: str,
         request: Any,
         response_type: Type[T] | None = None,
-        max_queue_depth: int | None = None,
+        overrides: CallOverrides = NO_OVERRIDES,
     ) -> T | dict:
-        """Call a remote method with explicit type (typed raia).
+        """Call a remote method with explicit type (typed call).
 
         Overloaded behavior:
         - call(op, req, Type) → deserialize to Type
@@ -63,9 +69,8 @@ class AnyCallClient(ABC):
             method_name: Operation name
             request: Request object (will be serialized to JSON)
             response_type: Expected response type. If None, resolves from registry.
-            max_queue_depth: Reject with QueueFullError if the method's request
-                queue is already at or above this depth. Overrides the client's
-                default_max_queue_depth for this call only. None means unbounded.
+            overrides: Settings for this call only (timeout, queue limit)
+                that replace the client's; see CallOverrides
 
         Returns:
             Deserialized response object matching response_type
@@ -79,8 +84,8 @@ class AnyCallClient(ABC):
         pass
 
     @abstractmethod
-    def raw_call(self, method_name: str, request: Any, max_queue_depth: int | None = None) -> dict:
-        """Call a remote method, returning raw dict (raw raia).
+    def raw_call(self, method_name: str, request: Any, overrides: CallOverrides = NO_OVERRIDES) -> dict:
+        """Call a remote method, returning raw dict (raw call).
 
         Never resolves from registry; always returns native dict structure.
         Use when you want data without a model.
@@ -88,9 +93,8 @@ class AnyCallClient(ABC):
         Args:
             method_name: Operation name
             request: Request object (will be serialized to JSON)
-            max_queue_depth: Reject with QueueFullError if the method's request
-                queue is already at or above this depth. Overrides the client's
-                default_max_queue_depth for this call only. None means unbounded.
+            overrides: Settings for this call only (timeout, queue limit)
+                that replace the client's; see CallOverrides
 
         Returns:
             Raw dict (native Python structure)
@@ -139,13 +143,16 @@ class AnyCallClient(ABC):
 
     @abstractmethod
     def set_default_max_queue_depth(self, max_queue_depth: int | None) -> None:
-        """Change the default max_queue_depth applied to calls that don't pass
-        a per-call override. Takes effect immediately for subsequent calls;
-        in-flight calls are unaffected.
+        """Change the default max_queue_depth applied to calls whose
+        overrides don't set one. Takes effect immediately for subsequent
+        calls; in-flight calls are unaffected.
 
         Args:
-            max_queue_depth: New default backlog limit, or None to make calls
-                unbounded again
+            max_queue_depth: New default backlog limit, at least 1, or None
+                to make calls unbounded again
+
+        Raises:
+            ValueError: If max_queue_depth is below 1
         """
         pass
 
@@ -191,11 +198,16 @@ class AnyCallClientImpl(AnyCallClient):
             redis_adapter: Redis queue adapter
             timeout: How long a call waits for its response; timedelta(0)
                 waits with no limit
-            default_max_queue_depth: Default backlog limit for every call;
-                None means unbounded
+            default_max_queue_depth: Default backlog limit for every call, at
+                least 1; None means unbounded
+
+        Raises:
+            ValueError: If default_max_queue_depth is below 1
         """
+        _check_max_queue_depth(default_max_queue_depth)
         self.redis = redis_adapter
-        self._timeout = timeout
+        # None waits with no limit, as in CallOverrides.
+        self._timeout = timeout if timeout > timedelta(0) else None
         self._registry = TypeRegistry()
         self._default_max_queue_depth = default_max_queue_depth
         self._client_id = str(uuid.uuid4())
@@ -220,15 +232,16 @@ class AnyCallClientImpl(AnyCallClient):
         method_name: str,
         request: Any,
         response_type: Type[T] | None = None,
-        max_queue_depth: int | None = None,
+        overrides: CallOverrides = NO_OVERRIDES,
     ) -> T | dict:
-        """Call a remote method with explicit or registry-resolved type (typed raia).
+        """Call a remote method with explicit or registry-resolved type (typed call).
 
         Args:
             method_name: Operation name
             request: Request object (will be serialized to JSON)
             response_type: Expected response type. If None, resolves from registry.
-            max_queue_depth: Per-call override for the client's default_max_queue_depth.
+            overrides: Settings for this call only (timeout, queue limit)
+                that replace the client's; see CallOverrides
 
         Returns:
             Deserialized response object
@@ -240,17 +253,18 @@ class AnyCallClientImpl(AnyCallClient):
             AnyCallError: On timeout, remote error, or missing type in registry
         """
         resolved_type = self._resolve_type(method_name, response_type)
-        return self._call_sync(method_name, request, resolved_type, max_queue_depth)
+        return self._call_sync(method_name, request, resolved_type, overrides)
 
-    def raw_call(self, method_name: str, request: Any, max_queue_depth: int | None = None) -> dict:
-        """Call a remote method, returning raw dict (raw raia).
+    def raw_call(self, method_name: str, request: Any, overrides: CallOverrides = NO_OVERRIDES) -> dict:
+        """Call a remote method, returning raw dict (raw call).
 
         Never resolves from registry; always returns native dict structure.
 
         Args:
             method_name: Operation name
             request: Request object (will be serialized to JSON)
-            max_queue_depth: Per-call override for the client's default_max_queue_depth.
+            overrides: Settings for this call only (timeout, queue limit)
+                that replace the client's; see CallOverrides
 
         Returns:
             Raw dict (native Python structure)
@@ -261,7 +275,7 @@ class AnyCallClientImpl(AnyCallClient):
             BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
-        return self._call_sync(method_name, request, dict, max_queue_depth)
+        return self._call_sync(method_name, request, dict, overrides)
 
     def register_type(self, operation: str, response_type: Type) -> None:
         """Register response type for an operation.
@@ -284,6 +298,7 @@ class AnyCallClientImpl(AnyCallClient):
 
     def set_default_max_queue_depth(self, max_queue_depth: int | None) -> None:
         """Change the default max_queue_depth applied to future calls."""
+        _check_max_queue_depth(max_queue_depth)
         self._default_max_queue_depth = max_queue_depth
 
     def get_default_max_queue_depth(self) -> int | None:
@@ -308,21 +323,23 @@ class AnyCallClientImpl(AnyCallClient):
             )
         return resolved
 
-    def _timeout_seconds(self) -> Optional[float]:
-        seconds = self._timeout.total_seconds()
-        return seconds if seconds > 0 else None
+    def _timeout_seconds(self, overrides: CallOverrides) -> Optional[float]:
+        """The call's timeout in seconds: its override's, or the client's;
+        None waits with no limit."""
+        timeout = overrides.timeout_or(self._timeout)
+        return None if timeout is None else timeout.total_seconds()
 
-    def _call_sync(self, method_name: str, request: Any, response_type: Type, max_queue_depth: int | None) -> Any:
-        request_id, future = self._publish(method_name, request, max_queue_depth)
+    def _call_sync(self, method_name: str, request: Any, response_type: Type, overrides: CallOverrides) -> Any:
+        request_id, future = self._publish(method_name, request, overrides)
         try:
-            response_json = future.result(self._timeout_seconds())
+            response_json = future.result(self._timeout_seconds(overrides))
         except concurrent.futures.TimeoutError:
             self._forget(request_id)
             raise self._timed_out(method_name, request_id) from None
         return self._outcome(method_name, request_id, response_json, response_type)
 
     def _publish(
-        self, method_name: str, request: Any, max_queue_depth: int | None
+        self, method_name: str, request: Any, overrides: CallOverrides
     ) -> tuple[str, concurrent.futures.Future]:
         """Check, then publish a call, and return its request id and the
         future its response will complete. The future is in place before
@@ -334,9 +351,7 @@ class AnyCallClientImpl(AnyCallClient):
             QueueFullError: If the request queue is already full
             BrokerError: If a Redis command fails
         """
-        effective_max_queue_depth = (
-            max_queue_depth if max_queue_depth is not None else self._default_max_queue_depth
-        )
+        effective_max_queue_depth = overrides.max_queue_depth_or(self._default_max_queue_depth)
         try:
             payload = serialize(request)
         except (TypeError, ValueError) as e:
@@ -512,24 +527,24 @@ class AsyncCalls:
         method_name: str,
         request: Any,
         response_type: Type[T] | None = None,
-        max_queue_depth: int | None = None,
+        overrides: CallOverrides = NO_OVERRIDES,
     ) -> T | dict:
         """`AnyCallClient.call`, to await."""
         resolved_type = self._client._resolve_type(method_name, response_type)
-        return await self._call(method_name, request, resolved_type, max_queue_depth)
+        return await self._call(method_name, request, resolved_type, overrides)
 
-    async def raw_call(self, method_name: str, request: Any, max_queue_depth: int | None = None) -> dict:
+    async def raw_call(self, method_name: str, request: Any, overrides: CallOverrides = NO_OVERRIDES) -> dict:
         """`AnyCallClient.raw_call`, to await."""
-        return await self._call(method_name, request, dict, max_queue_depth)
+        return await self._call(method_name, request, dict, overrides)
 
-    async def _call(self, method_name: str, request: Any, response_type: Type, max_queue_depth: int | None) -> Any:
+    async def _call(self, method_name: str, request: Any, response_type: Type, overrides: CallOverrides) -> Any:
         client = self._client
         loop = asyncio.get_running_loop()
         request_id, future = await loop.run_in_executor(
-            None, client._publish, method_name, request, max_queue_depth
+            None, client._publish, method_name, request, overrides
         )
         try:
-            response_json = await asyncio.wait_for(asyncio.wrap_future(future), client._timeout_seconds())
+            response_json = await asyncio.wait_for(asyncio.wrap_future(future), client._timeout_seconds(overrides))
         except asyncio.TimeoutError:
             client._forget(request_id)
             raise client._timed_out(method_name, request_id) from None

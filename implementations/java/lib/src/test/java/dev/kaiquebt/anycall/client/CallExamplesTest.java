@@ -36,7 +36,7 @@ class CallExamplesTest {
     }
 
     @Test
-    @DisplayName("Example 1: call() with explicit type (typed raia)")
+    @DisplayName("Example 1: call() with explicit type (typed call)")
     void exampleCallWithExplicitType() {
         // Semantic test: show that explicit type is passed through
         TypeRegistry registry = new TypeRegistry();
@@ -50,7 +50,7 @@ class CallExamplesTest {
     }
 
     @Test
-    @DisplayName("Example 2: call() with registry (typed raia, registry-resolved)")
+    @DisplayName("Example 2: call() with registry (typed call, registry-resolved)")
     void exampleCallWithRegistry() {
         TypeRegistry registry = new TypeRegistry();
 
@@ -66,7 +66,7 @@ class CallExamplesTest {
     }
 
     @Test
-    @DisplayName("Example 3: rawCall() always returns Map (raw raia)")
+    @DisplayName("Example 3: rawCall() always returns Map (raw call)")
     void exampleRawCall() {
         // rawCall never touches registry
         // Always returns Map<String,Object>

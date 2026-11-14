@@ -11,9 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Calls without blocking: `client.async()` in Java, returning a `CompletableFuture`, and `client.aio` in Python, to `await`
+- Settings for one call, `CallOverrides`: its own timeout or queue limit, in place of the client's
 
 ### Changed
 - Each client reads one response queue, `anycall:responses:<client id>`, instead of one per call: requests carry the client's id (`clientId`)
+- A call's queue limit moves from an argument of its own into `CallOverrides`, and a queue limit below 1 is rejected instead of turning every call away
 
 ## [0.8] - 2026-11-13
 

@@ -17,7 +17,7 @@ class OrderResponse:
 
 
 def example_call_with_explicit_type():
-    """Example 1: call() with explicit type (typed raia)."""
+    """Example 1: call() with explicit type (typed call)."""
     print("\n=== Example 1: call() with explicit type ===")
     client = AnyCall.client("redis://localhost:16379")
 
@@ -33,7 +33,7 @@ def example_call_with_explicit_type():
 
 
 def example_call_with_registry():
-    """Example 2: call() with registry (typed raia, registry-resolved)."""
+    """Example 2: call() with registry (typed call, registry-resolved)."""
     print("\n=== Example 2: call() with registry ===")
     client = AnyCall.client("redis://localhost:16379")
 
@@ -49,7 +49,7 @@ def example_call_with_registry():
 
 
 def example_raw_call():
-    """Example 3: raw_call() always returns dict (raw raia)."""
+    """Example 3: raw_call() always returns dict (raw call)."""
     print("\n=== Example 3: raw_call() ===")
     client = AnyCall.client("redis://localhost:16379")
 

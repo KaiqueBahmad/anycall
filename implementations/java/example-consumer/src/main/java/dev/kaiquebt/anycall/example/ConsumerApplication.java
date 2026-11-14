@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import dev.kaiquebt.anycall.core.AnyCall;
 import dev.kaiquebt.anycall.core.AnyCallClient;
+import dev.kaiquebt.anycall.core.CallOverrides;
 import dev.kaiquebt.anycall.example.model.TextRequest;
 import dev.kaiquebt.anycall.example.model.Sentiment;
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.core.AnyCallClient;
 import dev.kaiquebt.anycall.core.AsyncCalls;
+import dev.kaiquebt.anycall.core.CallOverrides;
 import dev.kaiquebt.anycall.exception.*;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
@@ -87,6 +88,7 @@ public class AnyCallClientImpl implements AnyCallClient {
         }
         this.timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
         this.registry = new TypeRegistry();
+        checkMaxQueueDepth(defaultMaxQueueDepth);
         this.defaultMaxQueueDepth = defaultMaxQueueDepth;
 
         this.redisClient = RedisClient.create(redisUri);
@@ -125,32 +127,32 @@ public class AnyCallClientImpl implements AnyCallClient {
      */
     @Override
     public <T> T call(String methodName, Object request, Class<T> responseType) {
-        return join(callAsync(methodName, request, responseType, defaultMaxQueueDepth));
+        return join(callAsync(methodName, request, responseType, CallOverrides.NONE));
     }
 
     @Override
-    public <T> T call(String methodName, Object request, Class<T> responseType, long maxQueueDepth) {
-        return join(callAsync(methodName, request, responseType, maxQueueDepth));
+    public <T> T call(String methodName, Object request, Class<T> responseType, CallOverrides overrides) {
+        return join(callAsync(methodName, request, responseType, overrides));
     }
 
     @Override
     public <T> T call(String methodName, Object request) {
-        return join(callAsync(methodName, request, this.<T>registeredType(methodName), defaultMaxQueueDepth));
+        return join(callAsync(methodName, request, this.<T>registeredType(methodName), CallOverrides.NONE));
     }
 
     @Override
-    public <T> T call(String methodName, Object request, long maxQueueDepth) {
-        return join(callAsync(methodName, request, this.<T>registeredType(methodName), maxQueueDepth));
+    public <T> T call(String methodName, Object request, CallOverrides overrides) {
+        return join(callAsync(methodName, request, this.<T>registeredType(methodName), overrides));
     }
 
     @Override
     public Map<String, Object> rawCall(String methodName, Object request) {
-        return join(rawCallAsync(methodName, request, defaultMaxQueueDepth));
+        return join(rawCallAsync(methodName, request, CallOverrides.NONE));
     }
 
     @Override
-    public Map<String, Object> rawCall(String methodName, Object request, long maxQueueDepth) {
-        return join(rawCallAsync(methodName, request, maxQueueDepth));
+    public Map<String, Object> rawCall(String methodName, Object request, CallOverrides overrides) {
+        return join(rawCallAsync(methodName, request, overrides));
     }
 
     @Override
@@ -160,7 +162,15 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     @Override
     public void setDefaultMaxQueueDepth(Long maxQueueDepth) {
+        checkMaxQueueDepth(maxQueueDepth);
         this.defaultMaxQueueDepth = maxQueueDepth;
+    }
+
+    private static void checkMaxQueueDepth(Long maxQueueDepth) {
+        if (maxQueueDepth != null && maxQueueDepth < 1) {
+            throw new IllegalArgumentException(
+                "maxQueueDepth must be at least 1, or null for no limit; got " + maxQueueDepth);
+        }
     }
 
     @Override
@@ -195,8 +205,9 @@ public class AnyCallClientImpl implements AnyCallClient {
     }
 
     @SuppressWarnings("unchecked")
-    private CompletableFuture<Map<String, Object>> rawCallAsync(String methodName, Object request, Long maxQueueDepth) {
-        return callAsync(methodName, request, (Class<Map<String, Object>>) (Class<?>) Map.class, maxQueueDepth);
+    private CompletableFuture<Map<String, Object>> rawCallAsync(String methodName, Object request,
+                                                                CallOverrides overrides) {
+        return callAsync(methodName, request, (Class<Map<String, Object>>) (Class<?>) Map.class, overrides);
     }
 
     /**
@@ -204,18 +215,21 @@ public class AnyCallClientImpl implements AnyCallClient {
      * publishing included, completes the future exceptionally instead of being thrown.
      */
     private <T> CompletableFuture<T> callAsync(String methodName, Object request, Class<T> responseType,
-                                                Long maxQueueDepth) {
+                                                CallOverrides overrides) {
+        CallOverrides callOverrides = overrides == null ? CallOverrides.NONE : overrides;
         String requestId;
         CompletableFuture<String> response;
         try {
             AnyCallRequest anyCallRequest = AnyCallRequest.create(methodName, serialize(methodName, request), clientId);
             requestId = anyCallRequest.requestId();
-            response = publish(methodName, anyCallRequest, maxQueueDepth);
+            response = publish(methodName, anyCallRequest, callOverrides.maxQueueDepthOr(defaultMaxQueueDepth));
         } catch (AnyCallError e) {
             return CompletableFuture.failedFuture(e);
         }
-        if (!timeout.isZero()) {
-            response.orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        // The client's timeout of zero waits with no limit, as a null override does.
+        Duration callTimeout = callOverrides.timeoutOr(timeout.isZero() ? null : timeout);
+        if (callTimeout != null) {
+            response.orTimeout(callTimeout.toMillis(), TimeUnit.MILLISECONDS);
         }
         return response.handle((responseJson, error) -> {
             pending.remove(requestId);
@@ -441,45 +455,40 @@ public class AnyCallClientImpl implements AnyCallClient {
 
         @Override
         public <T> CompletableFuture<T> call(String methodName, Object request, Class<T> responseType) {
-            return callAsync(methodName, request, responseType, defaultMaxQueueDepth);
+            return callAsync(methodName, request, responseType, CallOverrides.NONE);
         }
 
         @Override
         public <T> CompletableFuture<T> call(String methodName, Object request, Class<T> responseType,
-                                             long maxQueueDepth) {
-            return callAsync(methodName, request, responseType, maxQueueDepth);
+                                             CallOverrides overrides) {
+            return callAsync(methodName, request, responseType, overrides);
         }
 
         @Override
         public <T> CompletableFuture<T> call(String methodName, Object request) {
-            Class<T> type;
-            try {
-                type = registeredType(methodName);
-            } catch (AnyCallError e) {
-                return CompletableFuture.failedFuture(e);
-            }
-            return callAsync(methodName, request, type, defaultMaxQueueDepth);
+            return call(methodName, request, CallOverrides.NONE);
         }
 
         @Override
-        public <T> CompletableFuture<T> call(String methodName, Object request, long maxQueueDepth) {
+        public <T> CompletableFuture<T> call(String methodName, Object request, CallOverrides overrides) {
             Class<T> type;
             try {
                 type = registeredType(methodName);
             } catch (AnyCallError e) {
                 return CompletableFuture.failedFuture(e);
             }
-            return callAsync(methodName, request, type, maxQueueDepth);
+            return callAsync(methodName, request, type, overrides);
         }
 
         @Override
         public CompletableFuture<Map<String, Object>> rawCall(String methodName, Object request) {
-            return rawCallAsync(methodName, request, defaultMaxQueueDepth);
+            return rawCallAsync(methodName, request, CallOverrides.NONE);
         }
 
         @Override
-        public CompletableFuture<Map<String, Object>> rawCall(String methodName, Object request, long maxQueueDepth) {
-            return rawCallAsync(methodName, request, maxQueueDepth);
+        public CompletableFuture<Map<String, Object>> rawCall(String methodName, Object request,
+                                                              CallOverrides overrides) {
+            return rawCallAsync(methodName, request, overrides);
         }
     }
 }

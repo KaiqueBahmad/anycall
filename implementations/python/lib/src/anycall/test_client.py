@@ -13,6 +13,7 @@ import pytest
 import redis.exceptions
 
 from .client import AnyCallClientImpl
+from .overrides import CallOverrides
 from .exceptions import (
     AnyCallError,
     BrokerError,
@@ -299,7 +300,7 @@ class TestQueueDepth:
         client = make_client(MockRedisAdapter(queue_depth=5))
 
         with pytest.raises(QueueFullError) as exc_info:
-            client.call("my-op", {}, MockResponse, max_queue_depth=5)
+            client.call("my-op", {}, MockResponse, CallOverrides(max_queue_depth=5))
 
         assert exc_info.value.method_name == "my-op"
         assert exc_info.value.queue_depth == 5
@@ -307,7 +308,7 @@ class TestQueueDepth:
 
     def test_call_proceeds_when_queue_below_max_depth(self, client):
         with pytest.raises(TimeoutError):
-            client.call("my-op", {}, MockResponse, max_queue_depth=5)
+            client.call("my-op", {}, MockResponse, CallOverrides(max_queue_depth=5))
 
     def test_default_max_queue_depth_applies_without_override(self):
         client = make_client(MockRedisAdapter(queue_depth=3), default_max_queue_depth=3)
@@ -319,13 +320,13 @@ class TestQueueDepth:
         client = make_client(MockRedisAdapter(queue_depth=3), default_max_queue_depth=1)
 
         with pytest.raises(TimeoutError):
-            client.call("my-op", {}, MockResponse, max_queue_depth=10)
+            client.call("my-op", {}, MockResponse, CallOverrides(max_queue_depth=10))
 
     def test_raw_call_respects_max_queue_depth(self):
         client = make_client(MockRedisAdapter(queue_depth=2))
 
         with pytest.raises(QueueFullError):
-            client.raw_call("my-op", {}, max_queue_depth=2)
+            client.raw_call("my-op", {}, CallOverrides(max_queue_depth=2))
 
     def test_get_queue_depth_reads_through_adapter(self):
         assert make_client(MockRedisAdapter(queue_depth=7)).get_queue_depth("my-op") == 7
@@ -338,6 +339,74 @@ class TestQueueDepth:
 
         client.set_default_max_queue_depth(None)
         assert client.get_default_max_queue_depth() is None
+
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_default_max_queue_depth_below_one_is_rejected(self, client, bad):
+        with pytest.raises(ValueError):
+            client.set_default_max_queue_depth(bad)
+        with pytest.raises(ValueError):
+            make_client(MockRedisAdapter(), default_max_queue_depth=bad)
+
+
+class TestCallOverrides:
+    """CallOverrides: settings for one call that replace the client's."""
+
+    def test_no_queue_limit_overrides_the_clients_default(self):
+        client = make_client(
+            RespondingAdapter('{"requestId": "REQUEST_ID", "payload": "1", "error": null}'),
+            default_max_queue_depth=1,
+        )
+        client.redis.queue_depth = 50
+
+        assert client.raw_call("my-op", {}, CallOverrides(max_queue_depth=None)) == 1
+
+    def test_left_out_settings_keep_the_clients(self):
+        client = make_client(MockRedisAdapter(queue_depth=3), default_max_queue_depth=3)
+
+        with pytest.raises(QueueFullError):
+            client.call("my-op", {}, MockResponse, CallOverrides(timeout=timedelta(seconds=1)))
+
+    def test_shorter_timeout_overrides_the_clients(self):
+        client = make_client(MockRedisAdapter(), timeout=timedelta(seconds=30))
+        started = time.monotonic()
+
+        with pytest.raises(TimeoutError):
+            client.raw_call("my-op", {}, CallOverrides(timeout=timedelta(milliseconds=100)))
+
+        assert time.monotonic() - started < 5
+
+    def test_no_timeout_overrides_the_clients(self):
+        client = make_client(
+            RespondingAdapter('{"requestId": "REQUEST_ID", "payload": "1", "error": null}', delay=0.4),
+            timeout=timedelta(milliseconds=100),
+        )
+
+        assert client.raw_call("my-op", {}, CallOverrides(timeout=None)) == 1
+
+    def test_awaited_calls_take_overrides(self):
+        client = make_client(MockRedisAdapter(queue_depth=3))
+
+        with pytest.raises(QueueFullError):
+            asyncio.run(client.aio.raw_call("my-op", {}, CallOverrides(max_queue_depth=3)))
+
+    @pytest.mark.parametrize("kwargs", [
+        {"max_queue_depth": 0},
+        {"max_queue_depth": -1},
+        {"timeout": timedelta(0)},
+        {"timeout": timedelta(seconds=-1)},
+    ])
+    def test_out_of_range_values_are_rejected_when_made(self, kwargs):
+        with pytest.raises(ValueError):
+            CallOverrides(**kwargs)
+
+    @pytest.mark.parametrize("kwargs", [
+        {"max_queue_depth": "10"},
+        {"max_queue_depth": True},
+        {"timeout": 5},
+    ])
+    def test_values_of_the_wrong_type_are_rejected_when_made(self, kwargs):
+        with pytest.raises(TypeError):
+            CallOverrides(**kwargs)
 
 
 class TestOneResponseQueue:

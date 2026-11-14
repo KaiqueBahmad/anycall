@@ -3,13 +3,13 @@ package dev.kaiquebt.anycall.core;
 /**
  * Client interface for making remote procedure calls via Redis.
  * Provides synchronous interface with two distinct call paths:
- * - Typed raia: call() with explicit type or registry lookup
- * - Raw raia: rawCall() always returns Map (untyped)
+ * - Typed call: call() with explicit type or registry lookup
+ * - Raw call: rawCall() always returns Map (untyped)
  */
 public interface AnyCallClient {
 
     /**
-     * Typed raia: call with explicit type (fast path).
+     * Typed call: call with explicit type (fast path).
      *
      * Deserializes response JSON to the provided responseType directly.
      * Type comes from argument (trusted), not from wire.
@@ -24,24 +24,22 @@ public interface AnyCallClient {
     <T> T call(String methodName, Object request, Class<T> responseType);
 
     /**
-     * Typed raia: call with explicit type, rejecting at submission if the
-     * method's request queue is already at or above {@code maxQueueDepth}.
-     * Overrides the client's default {@code maxQueueDepth} for this call only.
+     * Typed call: call with explicit type, with settings for this call only that replace the
+     * client's (see {@link CallOverrides}).
      *
      * @param <T> the type of the response object
      * @param methodName the name of the remote method to invoke
      * @param request the request payload object to be serialized and sent
      * @param responseType the class type for deserializing the response
-     * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
-     *        if the request queue's length is at or above this value
+     * @param overrides this call's timeout and queue limit, where they differ from the client's
      * @return the deserialized response from the remote method
      * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails, times out, or the remote method returns an error
      */
-    <T> T call(String methodName, Object request, Class<T> responseType, long maxQueueDepth);
+    <T> T call(String methodName, Object request, Class<T> responseType, CallOverrides overrides);
 
     /**
-     * Typed raia: call with registry-resolved type.
+     * Typed call: call with registry-resolved type.
      *
      * Looks up the response type in the local registry and deserializes to that type.
      * If operation is not registered, raises a clear error suggesting both paths:
@@ -56,23 +54,21 @@ public interface AnyCallClient {
     <T> T call(String methodName, Object request);
 
     /**
-     * Typed raia: call with registry-resolved type, rejecting at submission
-     * if the method's request queue is already at or above {@code maxQueueDepth}.
-     * Overrides the client's default {@code maxQueueDepth} for this call only.
+     * Typed call: call with registry-resolved type, with settings for this call only that
+     * replace the client's (see {@link CallOverrides}).
      *
      * @param <T> the type of the response object
      * @param methodName the name of the remote method to invoke
      * @param request the request payload object to be serialized and sent
-     * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
-     *        if the request queue's length is at or above this value
+     * @param overrides this call's timeout and queue limit, where they differ from the client's
      * @return the deserialized response from the remote method
      * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the operation is not registered or if the call fails
      */
-    <T> T call(String methodName, Object request, long maxQueueDepth);
+    <T> T call(String methodName, Object request, CallOverrides overrides);
 
     /**
-     * Raw raia: call always returning untyped Map.
+     * Raw call: call always returning untyped Map.
      *
      * Never resolves from registry; always returns Map<String,Object>.
      * Use when you want data without a model.
@@ -85,19 +81,17 @@ public interface AnyCallClient {
     java.util.Map<String, Object> rawCall(String methodName, Object request);
 
     /**
-     * Raw raia: call always returning untyped Map, rejecting at submission
-     * if the method's request queue is already at or above {@code maxQueueDepth}.
-     * Overrides the client's default {@code maxQueueDepth} for this call only.
+     * Raw call: call always returning untyped Map, with settings for this call only that
+     * replace the client's (see {@link CallOverrides}).
      *
      * @param methodName the name of the remote method to invoke
      * @param request the request payload object to be serialized and sent
-     * @param maxQueueDepth reject with {@link dev.kaiquebt.anycall.exception.QueueFullError}
-     *        if the request queue's length is at or above this value
+     * @param overrides this call's timeout and queue limit, where they differ from the client's
      * @return raw response as Map<String,Object> (native structure)
      * @throws dev.kaiquebt.anycall.exception.QueueFullError if the queue is full
      * @throws dev.kaiquebt.anycall.exception.AnyCallException if the call fails or times out
      */
-    java.util.Map<String, Object> rawCall(String methodName, Object request, long maxQueueDepth);
+    java.util.Map<String, Object> rawCall(String methodName, Object request, CallOverrides overrides);
 
     /**
      * Reads the current backlog of a method's request queue ({@code LLEN}).
@@ -115,12 +109,13 @@ public interface AnyCallClient {
 
     /**
      * Changes the default {@code maxQueueDepth} applied to calls made through
-     * this client that don't pass a per-call override. Takes effect
-     * immediately for subsequent calls; in-flight calls are unaffected.
-     * Safe to call from any thread.
+     * this client whose overrides don't set one. Takes effect immediately for
+     * subsequent calls; in-flight calls are unaffected. Safe to call from any
+     * thread.
      *
-     * @param maxQueueDepth new default backlog limit, or {@code null} to make
-     *                      calls unbounded again
+     * @param maxQueueDepth new default backlog limit, at least 1, or {@code null}
+     *                      to make calls unbounded again
+     * @throws IllegalArgumentException if it's below 1
      */
     void setDefaultMaxQueueDepth(Long maxQueueDepth);
 
