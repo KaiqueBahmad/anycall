@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A queue limit below 1 is rejected instead of turning every call away
 - Java: `AnycallContext` is a record, read with `requestId()` and `methodName()`
 - Python: `get_queue_depth` is now `queue_depth`
+- The spec is split in two: `PROTOCOL.md`, the contract on Redis every implementation follows, and `LIBRARY.md`, how a library exposes it
 
 ### Removed
 - `setDefaultMaxQueueDepth` / `getDefaultMaxQueueDepth`: use `updateDefaults` and `defaults`
