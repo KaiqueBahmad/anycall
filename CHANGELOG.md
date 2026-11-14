@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Each client reads one response queue, `anycall:responses:<client id>`, instead of one per call: requests carry the client's id (`clientId`)
 - A call's queue limit moves from an argument of its own into `CallOverrides`, and a queue limit below 1 is rejected instead of turning every call away
+- Java: `AnycallContext` is a record, read with `requestId()` and `methodName()`
 - Python: `get_queue_depth` is now `queue_depth`
 
 ## [0.8] - 2026-11-13
