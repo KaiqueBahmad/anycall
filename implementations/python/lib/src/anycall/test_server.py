@@ -12,6 +12,7 @@ from .annotation import supply
 from .context import AnycallContext
 from .exceptions import AnyCallError
 from .redis_adapter import RedisQueueAdapter
+from .options import ServerOptions
 from .queues import Queues
 from .server import AnyCallServer, AnyCallServerImpl
 
@@ -255,3 +256,44 @@ def test_server_takes_and_heartbeats_under_its_prefix():
     assert "billing:servers:alive" in keys
     assert "billing:requests:echo" in keys
     assert server._identity.processing_key.startswith("billing:processing:")
+
+
+def test_update_options_changes_only_what_it_sets():
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter()), ServerOptions(max_concurrency=4))
+
+    server.update_options(ServerOptions())
+    assert server.options.max_concurrency_or(0) == 4
+
+    server.update_options(ServerOptions(max_concurrency=8))
+    assert server.options.max_concurrency_or(0) == 8
+
+    server.update_options(ServerOptions(max_concurrency=None))
+    assert server.options.max_concurrency_or(0) is None
+
+
+def test_raising_the_cap_lets_a_waiter_in():
+    limiter = server_module.ConcurrencyLimiter(1)
+    assert limiter.acquire(0)
+    assert not limiter.acquire(0.05)
+
+    limiter.set_capacity(2)
+
+    assert limiter.acquire(0)
+
+
+def test_lowering_the_cap_lets_running_ones_finish_first():
+    limiter = server_module.ConcurrencyLimiter(3)
+    assert limiter.acquire(0) and limiter.acquire(0)
+
+    limiter.set_capacity(1)
+    limiter.release()
+    assert not limiter.acquire(0.05)
+    limiter.release()
+
+    assert limiter.acquire(0)
+
+
+def test_no_cap_never_waits():
+    limiter = server_module.ConcurrencyLimiter(None)
+
+    assert all(limiter.acquire(0) for _ in range(1000))

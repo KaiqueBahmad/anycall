@@ -79,14 +79,18 @@ DEFAULT_CALL_OPTIONS = CallOptions()
 
 
 class ServerOptions:
-    """A server's settings, passed to `AnyCall.server`.
+    """A server's settings. `None` means no limit.
+
+    Passed to `AnyCall.server`, a setting left out means no limit. Passed to
+    `server.update_options`, a setting left out stays as the server has it.
 
         server = AnyCall.server(uri, ServerOptions(max_concurrency=16))
+        server.update_options(ServerOptions(max_concurrency=32))
     """
 
     __slots__ = ("_max_concurrency",)
 
-    def __init__(self, *, max_concurrency: Optional[int] = None):
+    def __init__(self, *, max_concurrency: Optional[int] | _Unset = _UNSET):
         """
         Args:
             max_concurrency: Server-wide cap on requests processed at the same
@@ -99,16 +103,16 @@ class ServerOptions:
             TypeError: If max_concurrency isn't an int or None
         """
         if isinstance(max_concurrency, bool) or (
-            max_concurrency is not None and not isinstance(max_concurrency, int)
+            max_concurrency is not None and not isinstance(max_concurrency, (int, _Unset))
         ):
             raise TypeError(f"max_concurrency must be an int or None; got {type(max_concurrency).__name__}")
-        if max_concurrency is not None and max_concurrency < 1:
+        if isinstance(max_concurrency, int) and max_concurrency < 1:
             raise ValueError(f"max_concurrency must be at least 1, or None for no limit; got {max_concurrency}")
         self._max_concurrency = max_concurrency
 
-    @property
-    def max_concurrency(self) -> Optional[int]:
-        return self._max_concurrency
+    def max_concurrency_or(self, fallback: Optional[int]) -> Optional[int]:
+        """The cap these options set, or `fallback` if they leave it out."""
+        return fallback if isinstance(self._max_concurrency, _Unset) else self._max_concurrency
 
     def __repr__(self) -> str:
         return f"ServerOptions(max_concurrency={self._max_concurrency!r})"

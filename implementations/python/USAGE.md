@@ -45,7 +45,11 @@ registered method combined:
 from anycall import ServerOptions
 
 server = AnyCall.server("redis://localhost:16379", ServerOptions(max_concurrency=16))
+
+server.update_options(ServerOptions(max_concurrency=32))  # while it runs
 ```
+Lowering the cap lets the requests already running finish; no new one runs
+until fewer than the new cap do.
 
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and

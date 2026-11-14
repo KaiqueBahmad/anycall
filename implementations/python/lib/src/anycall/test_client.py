@@ -439,8 +439,9 @@ class TestCallOptions:
         assert client.raw_call("my-op", {}) == 1
 
     def test_server_options(self):
-        assert ServerOptions().max_concurrency is None
-        assert ServerOptions(max_concurrency=16).max_concurrency == 16
+        assert ServerOptions().max_concurrency_or(8) == 8
+        assert ServerOptions(max_concurrency=16).max_concurrency_or(8) == 16
+        assert ServerOptions(max_concurrency=None).max_concurrency_or(8) is None
         with pytest.raises(ValueError):
             ServerOptions(max_concurrency=0)
         with pytest.raises(TypeError):

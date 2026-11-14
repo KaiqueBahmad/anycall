@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.ServerOptions;
 import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
@@ -143,7 +144,8 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
     private final AnycallQueues queues;
-    private final Semaphore globalConcurrencyLimiter;
+    // The server-wide cap; updateOptions may change it while requests run.
+    private final ConcurrencyLimit globalConcurrencyLimiter;
     private volatile Identity identity;
     // Read loops and the heartbeat, apart from the workers so stop() can wait for every
     // loop to exit before the worker pool stops taking requests.
@@ -151,23 +153,17 @@ public class AnyCallServerImpl implements AnyCallServer {
     private ExecutorService workers;
 
     /**
-     * @param queues         the keys this server takes from and writes to
-     * @param maxConcurrency server-wide cap on how many requests may be processed at
-     *                       the same time, across every registered method combined
-     *                       (see {@link dev.kaiquebt.anycall.annotation.Supply#maxConcurrency()});
-     *                       {@code null} means uncapped — the sum of each method's own
-     *                       {@code maxConcurrency} applies instead
+     * @param queues  the keys this server takes from and writes to
+     * @param options its settings; a setting left out means no limit
      */
-    public AnyCallServerImpl(String redisUri, AnycallQueues queues, Integer maxConcurrency) {
+    public AnyCallServerImpl(String redisUri, AnycallQueues queues, ServerOptions options) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Server: redisUri must not be null or blank");
         }
         this.queues = queues == null ? AnycallQueues.DEFAULT : queues;
         this.identity = new Identity();
-        if (maxConcurrency != null && maxConcurrency < 1) {
-            throw new IllegalArgumentException("AnyCall Server: maxConcurrency must be at least 1");
-        }
-        this.globalConcurrencyLimiter = maxConcurrency != null ? new Semaphore(maxConcurrency) : null;
+        this.globalConcurrencyLimiter = new ConcurrencyLimit(
+            (options == null ? ServerOptions.DEFAULT : options).maxConcurrencyOr(null));
         this.redisClient = RedisClient.create(redisUri);
         // RESP2: Redis 5 has no HELLO, so no RESP3.
         this.redisClient.setOptions(ClientOptions.builder().protocolVersion(ProtocolVersion.RESP2).build());
@@ -231,6 +227,20 @@ public class AnyCallServerImpl implements AnyCallServer {
 
     private void startReader(String methodName, MethodHandler handler) {
         loops.submit(() -> readMethod(methodName, handler));
+    }
+
+    @Override
+    public ServerOptions options() {
+        Integer cap = globalConcurrencyLimiter.capacity();
+        return cap == null ? ServerOptions.DEFAULT.withNoConcurrencyLimit() : ServerOptions.DEFAULT.withMaxConcurrency(cap);
+    }
+
+    @Override
+    public void updateOptions(ServerOptions options) {
+        if (options == null) {
+            return;
+        }
+        globalConcurrencyLimiter.setCapacity(options.maxConcurrencyOr(globalConcurrencyLimiter.capacity()));
     }
 
     public AnyCallServer register(Object... suppliers) {
@@ -585,21 +595,17 @@ public class AnyCallServerImpl implements AnyCallServer {
      */
     private void dispatch(String item, MethodHandler handler, Semaphore methodLimiter, Identity taker)
             throws InterruptedException {
-        if (globalConcurrencyLimiter != null) {
-            try {
-                globalConcurrencyLimiter.acquire();
-            } catch (InterruptedException e) {
-                methodLimiter.release();
-                throw e;
-            }
+        try {
+            globalConcurrencyLimiter.acquire();
+        } catch (InterruptedException e) {
+            methodLimiter.release();
+            throw e;
         }
         workers.submit(() -> {
             try {
                 processRequest(item, handler, taker);
             } finally {
-                if (globalConcurrencyLimiter != null) {
-                    globalConcurrencyLimiter.release();
-                }
+                globalConcurrencyLimiter.release();
                 methodLimiter.release();
             }
         });

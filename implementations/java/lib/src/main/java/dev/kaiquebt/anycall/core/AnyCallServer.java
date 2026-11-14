@@ -41,6 +41,26 @@ public interface AnyCallServer {
     AnyCallServer register(Object... suppliers);
 
     /**
+     * The server's settings, each set: a server-wide cap or no cap.
+     *
+     * @return a snapshot of the server's settings
+     */
+    ServerOptions options();
+
+    /**
+     * Changes the server's settings while it runs. What {@code options} set replaces the
+     * server's, and what they leave out stays as it is. Lowering the server-wide cap lets the
+     * requests already running finish; no new one runs until fewer than the new cap do.
+     *
+     * <pre>{@code
+     * server.updateOptions(ServerOptions.DEFAULT.withMaxConcurrency(32));
+     * }</pre>
+     *
+     * Safe to call from any thread.
+     */
+    void updateOptions(ServerOptions options);
+
+    /**
      * Unregisters a supplier method from the server.
      * Stops the listener thread for the specified method.
      *

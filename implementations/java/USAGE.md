@@ -27,7 +27,11 @@ registered method instead:
 
 ```java
 AnyCallServer server = AnyCall.server(redisUri, ServerOptions.DEFAULT.withMaxConcurrency(16));
+
+server.updateOptions(ServerOptions.DEFAULT.withMaxConcurrency(32));   // while it runs
 ```
+Lowering the cap lets the requests already running finish; no new one runs
+until fewer than the new cap do.
 
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and

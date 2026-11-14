@@ -7,8 +7,8 @@ import dev.kaiquebt.anycall.server.AnyCallServerImpl;
 /**
  * Creates clients and servers. Both find each other through the keys under one prefix,
  * {@value AnycallQueues#DEFAULT_PREFIX} unless another is given; the prefix is fixed for the
- * life of a client or server, while a client's defaults can change (see
- * {@link AnyCallClient#updateDefaults}).
+ * life of a client or server, while its options can change (see
+ * {@link AnyCallClient#updateDefaults} and {@link AnyCallServer#updateOptions}).
  */
 public final class AnyCall {
     private AnyCall() {
@@ -58,7 +58,6 @@ public final class AnyCall {
     }
 
     public static AnyCallServer server(String redisUrl, String prefix, ServerOptions options) {
-        return new AnyCallServerImpl(redisUrl, new AnycallQueues(prefix),
-            (options == null ? ServerOptions.DEFAULT : options).maxConcurrency());
+        return new AnyCallServerImpl(redisUrl, new AnycallQueues(prefix), options);
     }
 }

@@ -362,7 +362,9 @@ made. Java makes them from `CallOptions.DEFAULT` with `withTimeout`,
 returning a copy; Python makes `CallOptions(timeout=..., max_queue_depth=...)`,
 `None` meaning no limit. The response type isn't an option: it stays an
 argument of its own, so the call's return type follows it. Server options are
-`ServerOptions` in both, made the same way.
+`ServerOptions` in both, made the same way: given to the factory, a setting
+left out has no limit; given to `update_options`, it stays as the server has
+it.
 
 **Closing.** `close()` fails every call still waiting with
 `ClientClosedError`, and so does every call made after, before publishing
@@ -386,6 +388,8 @@ registered types, timeout and errors, on the same response queue.
 | unregister | stops serving one method |
 | start, stop, is running | start heartbeats then takes; stop finishes what was taken |
 | server id | the instance's id |
+| `options` | the server's options, each setting set |
+| `update_options(options)` | while it runs: what `options` set replaces the server's, what they leave out stays; a lower `max_concurrency` lets what's running finish |
 
 A supply method takes the context and the request, deserialized to its
 parameter's type.

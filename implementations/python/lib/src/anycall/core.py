@@ -64,7 +64,8 @@ class AnyCall:
 
         Args:
             redis_url: Redis connection URL (e.g., redis://localhost:16379)
-            options: The server's settings; see ServerOptions
+            options: The server's settings; a setting left out means no
+                limit. They can change later with `update_options`.
             prefix: The first part of every key the server uses
                 (`<prefix>:requests:...`); it serves only clients under the
                 same prefix. Fixed for the server's life.
@@ -75,4 +76,4 @@ class AnyCall:
         keys = Queues(prefix)
         redis_client = redis.from_url(redis_url, decode_responses=False, protocol=REDIS_PROTOCOL)
         redis_adapter = RedisQueueAdapter(redis_client)
-        return AnyCallServerImpl(redis_adapter, options.max_concurrency, keys)
+        return AnyCallServerImpl(redis_adapter, options, keys)

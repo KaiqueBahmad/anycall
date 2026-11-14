@@ -55,9 +55,10 @@ class CallOptionsTest {
 
     @Test
     void serverOptions() {
-        assertNull(ServerOptions.DEFAULT.maxConcurrency());
-        assertEquals(16, ServerOptions.DEFAULT.withMaxConcurrency(16).maxConcurrency());
-        assertNull(ServerOptions.DEFAULT.withMaxConcurrency(16).withNoConcurrencyLimit().maxConcurrency());
+        assertNull(ServerOptions.DEFAULT.maxConcurrencyOr(null));
+        assertEquals(8, ServerOptions.DEFAULT.maxConcurrencyOr(8));
+        assertEquals(16, ServerOptions.DEFAULT.withMaxConcurrency(16).maxConcurrencyOr(null));
+        assertNull(ServerOptions.DEFAULT.withMaxConcurrency(16).withNoConcurrencyLimit().maxConcurrencyOr(8));
         assertThrows(IllegalArgumentException.class, () -> ServerOptions.DEFAULT.withMaxConcurrency(0));
     }
 }

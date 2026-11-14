@@ -14,6 +14,7 @@ from . import queues
 from .context import AnycallContext
 from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse, read_reply_address
+from .options import DEFAULT_SERVER_OPTIONS, ServerOptions
 from .queues import Queues
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
@@ -53,16 +54,30 @@ class _Identity:
 
 class ConcurrencyLimiter:
     """A counting semaphore whose `acquire` can give up after a timeout, so a
-    read loop waiting for a free slot still notices the server stopping."""
+    read loop waiting for a free slot still notices the server stopping.
 
-    def __init__(self, capacity: int):
+    Its capacity can change while it's in use (None: no cap). Raising it lets
+    waiters in at once; lowering it lets what's running finish, and lets
+    nothing new in until the count is under the new capacity."""
+
+    def __init__(self, capacity: Optional[int]):
         self._capacity = capacity
         self._in_use = 0
         self._condition = threading.Condition()
 
+    @property
+    def capacity(self) -> Optional[int]:
+        return self._capacity
+
+    def set_capacity(self, capacity: Optional[int]) -> None:
+        with self._condition:
+            self._capacity = capacity
+            self._condition.notify_all()
+
     def acquire(self, timeout: Optional[float] = None) -> bool:
         with self._condition:
-            if not self._condition.wait_for(lambda: self._in_use < self._capacity, timeout):
+            free = lambda: self._capacity is None or self._in_use < self._capacity
+            if not self._condition.wait_for(free, timeout):
                 return False
             self._in_use += 1
             return True
@@ -110,6 +125,25 @@ class AnyCallServer(ABC):
         """Unregister a method."""
         pass
 
+    @property
+    @abstractmethod
+    def options(self) -> ServerOptions:
+        """A snapshot of the server's settings, each set."""
+        pass
+
+    @abstractmethod
+    def update_options(self, options: ServerOptions) -> None:
+        """Change the server's settings while it runs. What `options` set
+        replaces the server's, and what they leave out stays as it is.
+        Lowering the server-wide cap lets the requests already running
+        finish; no new one runs until fewer than the new cap do:
+
+            server.update_options(ServerOptions(max_concurrency=32))
+
+        Safe to call from any thread.
+        """
+        pass
+
 
 class AnyCallServerImpl(AnyCallServer):
     """RPC server implementation.
@@ -145,22 +179,19 @@ class AnyCallServerImpl(AnyCallServer):
     def __init__(
         self,
         redis_adapter: RedisQueueAdapter,
-        max_concurrency: Optional[int] = None,
+        options: ServerOptions = DEFAULT_SERVER_OPTIONS,
         keys: Queues = queues.DEFAULT,
     ):
         """
         Args:
             redis_adapter: Redis queue adapter
-            max_concurrency: Server-wide cap on requests processed at the same
-                time, across every registered @supply method combined (see
-                the `max_concurrency` argument of `supply`). None means
-                uncapped -- the sum of each method's own max_concurrency
-                applies instead.
+            options: The server's settings; a setting left out means no
+                limit. The server-wide max_concurrency caps requests
+                processed at the same time across every registered @supply
+                method combined (see the `max_concurrency` argument of
+                `supply`); with none, the sum of each method's own applies.
             keys: The keys this server takes from and writes to
         """
-        if max_concurrency is not None and max_concurrency < 1:
-            raise ValueError("AnyCall Server: max_concurrency must be at least 1")
-
         self.redis = redis_adapter
         self.method_handlers: Dict[str, MethodHandler] = {}
         self._method_limiters: Dict[str, ConcurrencyLimiter] = {}
@@ -169,7 +200,8 @@ class AnyCallServerImpl(AnyCallServer):
         self._executor: Optional[ThreadPoolExecutor] = None
         self._threads: list[threading.Thread] = []
         self._keys = keys
-        self._global_limiter = ConcurrencyLimiter(max_concurrency) if max_concurrency else None
+        # The server-wide cap; update_options may change it while requests run.
+        self._global_limiter = ConcurrencyLimiter(options.max_concurrency_or(None))
         self._identity = _Identity(keys)
         # Guards `_identity`, `_draining` and every identity's `active_takes`:
         # a read loop counts its take under the same lock a drain switches
@@ -183,6 +215,13 @@ class AnyCallServerImpl(AnyCallServer):
         self._heartbeat_wake = threading.Event()
         self._in_flight_request_ids: set[str] = set()
         self._in_flight_lock = threading.Lock()
+
+    @property
+    def options(self) -> ServerOptions:
+        return ServerOptions(max_concurrency=self._global_limiter.capacity)
+
+    def update_options(self, options: ServerOptions) -> None:
+        self._global_limiter.set_capacity(options.max_concurrency_or(self._global_limiter.capacity))
 
     def register(self, *suppliers: Any) -> "AnyCallServer":
         """Register supplier(s) with this server."""
@@ -424,8 +463,7 @@ class AnyCallServerImpl(AnyCallServer):
 
             # Waits for a server-wide slot here, not before taking: see the
             # class docstring. The request is already on the processing list.
-            if self._global_limiter is not None:
-                self._global_limiter.acquire()
+            self._global_limiter.acquire()
             try:
                 self._executor.submit(self._process_message, item, handler, limiter, taker)
             except RuntimeError:
@@ -436,8 +474,7 @@ class AnyCallServerImpl(AnyCallServer):
                 return
 
     def _release_slots(self, method_limiter: ConcurrencyLimiter) -> None:
-        if self._global_limiter is not None:
-            self._global_limiter.release()
+        self._global_limiter.release()
         method_limiter.release()
 
     def _process_message(
