@@ -145,3 +145,14 @@ client.defaults();   // CallOptions{timeout=PT1M, maxQueueDepth=200}
 ```java
 long depth = client.getQueueDepth("analyze-sentiment");  // LLEN of the request queue
 ```
+
+### Close the client:
+```java
+try (AnyCallClient client = AnyCall.client(redisUri)) {
+    client.call("analyze-sentiment", request, Sentiment.class);
+}
+```
+`close()` stops everything at once: calls still waiting fail with
+`ClientClosedError`, as does any call made after, and the client's connections
+and thread are gone when it returns. A request already published may still be
+processed by a server; its response is dropped.

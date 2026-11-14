@@ -17,6 +17,7 @@ from .options import CallOptions, ServerOptions
 from .exceptions import (
     AnyCallError,
     BrokerError,
+    ClientClosedError,
     QueueFullError,
     SerializationError,
     ServerLostError,
@@ -442,6 +443,106 @@ class TestCallOptions:
             ServerOptions(max_concurrency=0)
         with pytest.raises(TypeError):
             ServerOptions(max_concurrency="16")
+
+
+class ClosingAdapter(MockRedisAdapter):
+    """Records close(), and fails pop() after it, as a closed connection does."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.closed = False
+        self.pushed = 0
+
+    def push(self, queue_key, value):
+        self.pushed += 1
+        return 1
+
+    def pop(self, queue_keys, timeout_seconds):
+        if self.closed:
+            raise ValueError("I/O operation on closed file.")
+        return super().pop(queue_keys, timeout_seconds)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class TestClose:
+    """close(): stops everything at once."""
+
+    def test_waiting_call_fails_at_once(self):
+        adapter = ClosingAdapter()
+        client = make_client(adapter, timeout=timedelta(seconds=30))
+        outcome: list[BaseException] = []
+
+        def call():
+            try:
+                client.raw_call("my-op", {})
+            except BaseException as e:
+                outcome.append(e)
+
+        caller = threading.Thread(target=call)
+        caller.start()
+        while not client._pending:
+            time.sleep(0.005)
+        started = time.monotonic()
+        client.close()
+        caller.join(5)
+
+        assert time.monotonic() - started < 1
+        assert len(outcome) == 1 and isinstance(outcome[0], ClientClosedError)
+        assert outcome[0].service == "my-op"
+
+    def test_awaited_call_fails_at_once(self):
+        client = make_client(ClosingAdapter(), timeout=None)
+
+        async def main():
+            call = asyncio.ensure_future(client.aio.raw_call("my-op", {}))
+            while not client._pending:
+                await asyncio.sleep(0.005)
+            client.close()
+            return await call
+
+        with pytest.raises(ClientClosedError):
+            asyncio.run(main())
+
+    def test_call_after_close_publishes_nothing(self):
+        adapter = ClosingAdapter()
+        client = make_client(adapter)
+        client.close()
+
+        with pytest.raises(ClientClosedError):
+            client.raw_call("my-op", {})
+        with pytest.raises(ClientClosedError):
+            asyncio.run(client.aio.raw_call("my-op", {}))
+        with pytest.raises(ClientClosedError):
+            client.queue_depth("my-op")
+        assert adapter.pushed == 0
+
+    def test_close_closes_the_connection_and_stops_the_reader(self):
+        adapter = ClosingAdapter()
+        client = make_client(adapter)
+        with pytest.raises(TimeoutError):
+            client.raw_call("my-op", {})
+        reader = client._reader
+
+        client.close()
+
+        assert adapter.closed
+        assert not reader.is_alive()
+
+    def test_closing_again_does_nothing(self):
+        client = make_client(ClosingAdapter())
+        client.close()
+        client.close()
+
+    def test_with_closes_the_client(self):
+        adapter = ClosingAdapter()
+        with make_client(adapter) as client:
+            assert not adapter.closed
+
+        assert adapter.closed
+        with pytest.raises(ClientClosedError):
+            client.raw_call("my-op", {})
 
 
 class TestOneResponseQueue:

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calls without blocking: `client.async()` in Java, returning a `CompletableFuture`, and `client.aio` in Python, to `await`
 - `CallOptions`: a call's timeout and queue limit, as the client's defaults or for one call
 - `updateDefaults` / `update_defaults` changes a client's defaults while it runs, and `defaults` reads them
+- `close()` stops a client at once: waiting calls fail with `ClientClosedError`. Java clients are `AutoCloseable`, Python ones work with `with`
 
 ### Changed
 - Each client reads one response queue, `anycall:responses:<client id>`, instead of one per call: requests carry the client's id (`clientId`)

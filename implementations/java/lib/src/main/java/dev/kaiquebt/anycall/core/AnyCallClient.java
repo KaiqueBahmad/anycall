@@ -10,8 +10,9 @@ import java.util.Map;
  * <p>
  * Every call takes the client's {@link CallOptions} (given to {@link AnyCall#client}, changed
  * with {@link #updateDefaults}); one passed as the last argument replaces them for that call.
+ * Close the client when done with it, or use it in a try-with-resources block.
  */
-public interface AnyCallClient {
+public interface AnyCallClient extends AutoCloseable {
 
     /**
      * Typed call: call with explicit type (fast path).
@@ -150,4 +151,14 @@ public interface AnyCallClient {
      * @return the asynchronous view of this client
      */
     AsyncCalls async();
+
+    /**
+     * Closes the client at once: calls still waiting fail with
+     * {@link dev.kaiquebt.anycall.exception.ClientClosedError}, as does any call made after,
+     * and the client's connections and reader thread are gone when this returns. A request
+     * already published may still be processed by a server; its response is dropped.
+     * Closing again does nothing.
+     */
+    @Override
+    void close();
 }

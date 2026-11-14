@@ -126,3 +126,12 @@ class RemoteException(RemoteExecutionError):
 class SerializationError(AnyCallError):
     """JSON encode/decode or type mismatch error."""
     pass
+
+
+class ClientClosedError(AnyCallError):
+    """The client was closed: a call made after `close()` fails with this
+    before anything is published, and a call still waiting when the client
+    closes fails with it at once. A request already published may still be
+    processed by a server; its response is dropped.
+    """
+    pass

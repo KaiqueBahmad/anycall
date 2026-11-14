@@ -154,3 +154,13 @@ client.defaults  # CallOptions(timeout=datetime.timedelta(seconds=60), max_queue
 ```python
 depth = client.queue_depth("analyze-sentiment")  # LLEN of the request queue
 ```
+
+### Close the client:
+```python
+with AnyCall.client(redis_uri) as client:
+    client.call("analyze-sentiment", request, Sentiment)
+```
+`close()` stops everything at once: calls still waiting fail with
+`ClientClosedError`, as does any call made after, and the client's connections
+and thread are gone when it returns. A request already published may still be
+processed by a server; its response is dropped.

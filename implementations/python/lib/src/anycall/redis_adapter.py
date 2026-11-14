@@ -414,5 +414,7 @@ class RedisQueueAdapter:
         return {_text(m) for m in self._stale_script(keys=[key], args=[ttl_seconds])}
 
     def close(self) -> None:
-        """Close Redis connection."""
+        """Close every Redis connection, including one blocked in a command
+        on another thread, which then fails at once."""
         self.redis.close()
+        self.redis.connection_pool.disconnect()

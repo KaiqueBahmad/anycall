@@ -9,7 +9,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional, Type, TypeVar
+from typing import Any, Callable, Optional, Type, TypeVar
 
 import dacite
 import redis.exceptions
@@ -18,6 +18,7 @@ from . import queues
 from .exceptions import (
     AnyCallError,
     BrokerError,
+    ClientClosedError,
     NoServerAvailableError,
     QueueFullError,
     RemoteException,
@@ -155,6 +156,21 @@ class AnyCallClient(ABC):
         """
         pass
 
+    @abstractmethod
+    def close(self) -> None:
+        """Close the client at once: calls still waiting fail with
+        ClientClosedError, as does any call made after, and the client's
+        connections and reader thread are gone when this returns. A request
+        already published may still be processed by a server; its response
+        is dropped. Closing again does nothing."""
+        pass
+
+    def __enter__(self) -> "AnyCallClient":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
     @property
     @abstractmethod
     def aio(self) -> "AsyncCalls":
@@ -290,12 +306,32 @@ class AnyCallClientImpl(AnyCallClient):
 
     def queue_depth(self, method_name: str) -> int:
         """Read the current backlog of a method's request queue (LLEN)."""
+        if self._closed:
+            raise self._closed_error(method_name)
         return self.redis.length(queues.request_queue(method_name))
 
     def close(self) -> None:
-        """Stop reading responses. Calls still waiting fail when their
-        timeout is up (or never, with no timeout); make no calls after."""
-        self._closed = True
+        """Close the client at once. Calls still waiting fail with
+        ClientClosedError, and so does any call made after. Closing the
+        Redis connection ends the reader's BRPOP at once, and the reader is
+        gone when this returns."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            reader = self._reader
+        self._fail_all(lambda request_id, method_name: ClientClosedError(
+            method_name, "The client was closed while the call was waiting"))
+        try:
+            self.redis.close()
+        except Exception as e:
+            logger.debug(f"Failed to close the Redis connection: {e}")
+        if reader is not None:
+            reader.join(WAITER_REAP_SLICE_SECONDS)
+
+    @staticmethod
+    def _closed_error(method_name: str) -> ClientClosedError:
+        return ClientClosedError(method_name, f"The client is closed: method {method_name} was not called")
 
     def _resolve_type(self, method_name: str, response_type: Type | None) -> Type:
         if response_type is not None:
@@ -337,7 +373,10 @@ class AnyCallClientImpl(AnyCallClient):
             NoServerAvailableError: If no server is currently alive
             QueueFullError: If the request queue is already full
             BrokerError: If a Redis command fails
+            ClientClosedError: If the client is closed
         """
+        if self._closed:
+            raise self._closed_error(method_name)
         effective_max_queue_depth = options.max_queue_depth_or(self._max_queue_depth)
         try:
             payload = serialize(request)
@@ -368,6 +407,10 @@ class AnyCallClientImpl(AnyCallClient):
 
         future: concurrent.futures.Future = concurrent.futures.Future()
         with self._lock:
+            # Checked under the lock close() sets it under: a call that gets
+            # past this is failed by close(), one that doesn't is refused.
+            if self._closed:
+                raise self._closed_error(method_name)
             self._pending[rpc_request.request_id] = _Pending(method_name, future)
             self._start_reader()
         try:
@@ -446,8 +489,14 @@ class AnyCallClientImpl(AnyCallClient):
         while not self._closed:
             try:
                 result = self.redis.pop([self._response_queue], WAITER_REAP_SLICE_SECONDS)
-            except redis.exceptions.RedisError as e:
-                self._fail_all(e)
+            except Exception as e:
+                if self._closed:
+                    # close() closed the connection under the BRPOP.
+                    return
+                if not isinstance(e, redis.exceptions.RedisError):
+                    raise
+                self._fail_all(lambda request_id, method_name, error=e: self._broker_error(
+                    request_id, method_name, error))
                 threading.Event().wait(1)
                 continue
             if result is None:
@@ -470,20 +519,25 @@ class AnyCallClientImpl(AnyCallClient):
         if not pending.future.done():
             pending.future.set_result(response_json)
 
-    def _fail_all(self, error: Exception) -> None:
-        """Fail every waiting call after Redis failed under the reader."""
+    def _fail_all(self, error_for: Callable[[str, str], AnyCallError]) -> None:
+        """Fail every waiting call, with the error `error_for` makes from its
+        request id and method."""
         with self._lock:
             pending, self._pending = self._pending, {}
         for request_id, call in pending.items():
-            broker_error = BrokerError(
-                call.method_name,
-                f"Redis failed after the request may have been published: {error}",
-                request_id,
-                published=True,
-            )
-            broker_error.__cause__ = error
             if not call.future.done():
-                call.future.set_exception(broker_error)
+                call.future.set_exception(error_for(request_id, call.method_name))
+
+    @staticmethod
+    def _broker_error(request_id: str, method_name: str, error: Exception) -> BrokerError:
+        broker_error = BrokerError(
+            method_name,
+            f"Redis failed after the request may have been published: {error}",
+            request_id,
+            published=True,
+        )
+        broker_error.__cause__ = error
+        return broker_error
 
     def _reap(self) -> None:
         """Fail back the requests of every server that stopped heartbeating,

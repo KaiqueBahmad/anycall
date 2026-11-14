@@ -31,6 +31,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 
 /**
  * Internal implementation of AnyCallClient.
@@ -76,6 +77,10 @@ public class AnyCallClientImpl implements AnyCallClient {
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
     private final AsyncCalls asyncCalls = new AsyncView();
     private Thread reader;
+    // The reader's connections, held here so close() can close them under it: that ends a
+    // BRPOP blocked for up to a slice at once.
+    private volatile StatefulRedisConnection<String, String> readConnection;
+    private volatile StatefulRedisConnection<String, String> reapConnection;
     private volatile boolean closed;
 
     public AnyCallClientImpl(String redisUri, CallOptions defaults) {
@@ -179,11 +184,47 @@ public class AnyCallClientImpl implements AnyCallClient {
     }
 
     /**
-     * Stops reading responses. Calls still waiting fail when their timeout is up (or never,
-     * with no timeout); make no calls after.
+     * Closes the client at once. Calls still waiting fail with {@link ClientClosedError}, and
+     * so does any call made after. The reader's connection is closed under it, ending its
+     * {@code BRPOP} at once, and every connection is gone when this returns.
      */
+    @Override
     public void close() {
-        closed = true;
+        Thread readerToJoin;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            readerToJoin = reader;
+        }
+        failAll((requestId, methodName) ->
+            new ClientClosedError(methodName, "The client was closed while the call was waiting"));
+        closeQuietly(readConnection);
+        closeQuietly(reapConnection);
+        if (readerToJoin != null) {
+            try {
+                readerToJoin.join(COMMAND_TIMEOUT_MARGIN.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        closeQuietly(connection);
+        redisClient.shutdown(Duration.ZERO, Duration.ofSeconds(2));
+    }
+
+    private static void closeQuietly(StatefulRedisConnection<String, String> connection) {
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (RuntimeException e) {
+                log.debug("Failed to close a connection: {}", e.getMessage());
+            }
+        }
+    }
+
+    private ClientClosedError closedError(String methodName) {
+        return new ClientClosedError(methodName, "The client is closed: method " + methodName + " was not called");
     }
 
     @SuppressWarnings("unchecked")
@@ -212,6 +253,9 @@ public class AnyCallClientImpl implements AnyCallClient {
     private <T> CompletableFuture<T> callAsync(String methodName, Object request, Class<T> responseType,
                                                 CallOptions options) {
         CallOptions callOptions = options == null ? CallOptions.DEFAULT : options;
+        if (closed) {
+            return CompletableFuture.failedFuture(closedError(methodName));
+        }
         String requestId;
         CompletableFuture<String> response;
         try {
@@ -280,6 +324,12 @@ public class AnyCallClientImpl implements AnyCallClient {
 
         CompletableFuture<String> response = new CompletableFuture<>();
         pending.put(request.requestId(), new Pending(methodName, response));
+        // A close() since the check in callAsync would never fail this call: it's not
+        // published yet, so refuse it instead.
+        if (closed) {
+            pending.remove(request.requestId());
+            throw closedError(methodName);
+        }
         startReader();
         try {
             commands.lpush(requestQueue, requestJson);
@@ -362,7 +412,7 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     /** Starts the reader on the first call. */
     private synchronized void startReader() {
-        if (reader == null) {
+        if (reader == null && !closed) {
             reader = new Thread(this::readResponses, "anycall-responses");
             reader.setDaemon(true);
             reader.start();
@@ -380,14 +430,19 @@ public class AnyCallClientImpl implements AnyCallClient {
      * {@link BrokerError}, and reading starts over.
      */
     private void readResponses() {
-        StatefulRedisConnection<String, String> readConnection = null;
-        StatefulRedisConnection<String, String> reapConnection = null;
         while (!closed) {
             try {
                 if (readConnection == null) {
-                    readConnection = redisClient.connect();
-                    readConnection.setTimeout(WAITER_REAP_SLICE.plus(COMMAND_TIMEOUT_MARGIN));
+                    StatefulRedisConnection<String, String> read = redisClient.connect();
+                    read.setTimeout(WAITER_REAP_SLICE.plus(COMMAND_TIMEOUT_MARGIN));
+                    readConnection = read;
                     reapConnection = redisClient.connect();
+                    // close() may have run while connecting, and missed these.
+                    if (closed) {
+                        closeQuietly(readConnection);
+                        closeQuietly(reapConnection);
+                        return;
+                    }
                 }
                 KeyValue<String, String> entry = readConnection.sync().brpop(WAITER_REAP_SLICE.getSeconds(), responseQueue);
                 if (entry != null) {
@@ -395,8 +450,17 @@ public class AnyCallClientImpl implements AnyCallClient {
                 } else if (!pending.isEmpty()) {
                     reap(reapConnection.sync());
                 }
-            } catch (RedisException e) {
-                failAll(e);
+            } catch (RuntimeException e) {
+                if (closed) {
+                    // close() closed the connection under the BRPOP.
+                    return;
+                }
+                if (!(e instanceof RedisException)) {
+                    throw e;
+                }
+                failAll((requestId, methodName) -> new BrokerError(methodName,
+                    "Redis failed after the request may have been published: " + e.getMessage(),
+                    requestId, true, e));
                 try {
                     Thread.sleep(1000);
                 } catch (InterruptedException interrupted) {
@@ -419,14 +483,12 @@ public class AnyCallClientImpl implements AnyCallClient {
         call.future().complete(responseJson);
     }
 
-    /** Fails every waiting call after Redis failed under the reader. */
-    private void failAll(RedisException error) {
+    /** Fails every waiting call, with the error {@code errorFor} makes from its request id and method. */
+    private void failAll(BiFunction<String, String, AnyCallError> errorFor) {
         for (String requestId : pending.keySet()) {
             Pending call = pending.remove(requestId);
             if (call != null) {
-                call.future().completeExceptionally(new BrokerError(call.methodName(),
-                    "Redis failed after the request may have been published: " + error.getMessage(),
-                    requestId, true, error));
+                call.future().completeExceptionally(errorFor.apply(requestId, call.methodName()));
             }
         }
     }

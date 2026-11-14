@@ -346,6 +346,7 @@ its own language's style.
 | `queue_depth(method)` | `LLEN` of the method's queue |
 | `defaults` | the client's call options, both settings set |
 | `update_defaults(options)` | for calls made after: what `options` set replaces the client's, what they leave out stays |
+| `close()` | stops the client at once; again is a no-op |
 
 **Call options.** A call's `timeout` and `max_queue_depth`, each of which can
 be set to no limit. Given to the factory, they're the defaults of every call,
@@ -358,6 +359,14 @@ returning a copy; Python makes `CallOptions(timeout=..., max_queue_depth=...)`,
 `None` meaning no limit. The response type isn't an option: it stays an
 argument of its own, so the call's return type follows it. Server options are
 `ServerOptions` in both, made the same way.
+
+**Closing.** `close()` fails every call still waiting with
+`ClientClosedError`, and so does every call made after, before publishing
+anything. It ends the reader at once, closing its connection under a blocked
+`BRPOP` rather than waiting out the slice, and releases every connection
+before it returns. A request already published may still be processed; its
+response is dropped, and `RESPONSE_TTL` removes the queue. Java clients are
+`AutoCloseable`; Python clients are context managers.
 
 **Asynchronous calls.** `call` and `raw_call` MUST also be offered without
 blocking, returning the language's future or awaitable instead of the
@@ -391,3 +400,4 @@ parameter's type.
 | `RemoteExecutionError` | `AnyCallError` | base of remote errors |
 | `RemoteException` | `RemoteExecutionError` | the response has an `error` |
 | `SerializationError` | `AnyCallError` | encoding or decoding failed |
+| `ClientClosedError` | `AnyCallError` | the client was closed: a call made after, or one still waiting |
