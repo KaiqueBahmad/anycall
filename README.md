@@ -59,7 +59,7 @@ else. Either language can be the server or the client.
 |---|---|---|
 | **Python** 3.10+ | `pip install anycall-py` (imported as `anycall`) | [Usage](implementations/python/USAGE.md) |
 | **Java** 17+ | `dev.kaiquebt.anycall:anycall` | [Usage](implementations/java/USAGE.md) |
-| **Spring Boot** 3 | `dev.kaiquebt.anycall:anycall-spring` | [Usage](integrations/spring/README.md) |
+| **Spring Boot** 3.5 or 4 | `dev.kaiquebt.anycall:anycall-spring` | [Usage](integrations/spring/README.md) |
 
 You need a Redis 5.0 or later. To try anycall locally, `docker compose up -d`
 in this repository starts one on `localhost:16379`.

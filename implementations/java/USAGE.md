@@ -22,6 +22,14 @@ public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
 }
 ```
 
+2. **Register and start the server:**
+```java
+String redisUri = System.getenv("REDIS_URI");
+AnyCallServer server = AnyCall.server(redisUri);
+server.register(new SentimentAnalyzer());
+server.start();
+```
+
 Pass `ServerOptions` to `AnyCall.server(...)` for a server-wide cap across every
 registered method instead:
 
@@ -73,14 +81,6 @@ created:
 ```java
 AnyCallServer server = AnyCall.server(redisUri, "billing");
 AnyCallClient client = AnyCall.client(redisUri, "billing", CallOptions.DEFAULT.withTimeout(Duration.ofSeconds(30)));
-```
-
-2. **Register and start the server:**
-```java
-String redisUri = System.getenv("REDIS_URI");
-AnyCallServer server = AnyCall.server(redisUri);
-server.register(new SentimentAnalyzer());
-server.start();
 ```
 
 ### If a server dies mid-request

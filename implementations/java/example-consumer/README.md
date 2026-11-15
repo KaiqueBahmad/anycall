@@ -4,7 +4,7 @@ This is an example of a **consumer** (client) using the AnyCall library.
 
 ## Description
 
-The consumer sends requests to Redis that will be processed by any available supplier. In this example, the `ConsumerApplication` makes 100 RPC calls to the `analyze-sentiment` operation and displays latency statistics.
+The consumer sends requests to Redis that will be processed by any available supplier. In this example, the `ConsumerApplication` fires `CONCURRENCY` calls (1 by default) to the `analyze-sentiment` operation at once and logs each response with its latency.
 
 ## Prerequisites
 
@@ -24,11 +24,13 @@ docker-compose up -d
 
 ## Running
 
+From `implementations/java`:
+
 ```bash
-mvn spring-boot:run
+./run-consumer.sh
 ```
 
-The application will make 100 calls to the sentiment analyzer and print latency statistics.
+The application fires `CONCURRENCY` calls to the sentiment analyzer and logs each response with its latency.
 
 ## Structure
 

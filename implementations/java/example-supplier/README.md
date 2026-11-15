@@ -22,8 +22,10 @@ docker-compose up -d
 
 ## Running
 
+From `implementations/java`:
+
 ```bash
-mvn spring-boot:run
+./run-supplier.sh
 ```
 
 The supplier will listen for requests on the Redis queue for the `analyze-sentiment` operation.
@@ -31,5 +33,5 @@ The supplier will listen for requests on the Redis queue for the `analyze-sentim
 ## Structure
 
 - `SentimentAnalyzer` - Class with method decorated with `@Supply` 
-- `AnyCallConfiguration` - Configures and starts the AnyCall server
+- `SupplierApplication` - Entry point that creates, registers and starts the AnyCall server
 - `Sentiment` and `TextRequest` - Data models

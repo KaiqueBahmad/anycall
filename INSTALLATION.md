@@ -85,7 +85,7 @@ startup and says which `anycall` to use.
 
 ### Spring Boot
 
-- Spring Boot 3
+- Spring Boot 3.5 or 4
 - If the application declares `anycall` itself, one of the same contract as `anycall-spring`
 
 ---
@@ -114,7 +114,7 @@ uv run python -m example_supplier.main
 # Clone and navigate to the Java reactor root
 cd implementations/java
 
-# Build all modules (lib + examples)
+# Build all modules (lib, anycall-spring, examples)
 mvn clean install
 
 # Run the examples (compiles and executes via exec-maven-plugin)

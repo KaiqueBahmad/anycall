@@ -16,7 +16,7 @@ a release with it, declare `anycall` too, of the same contract (`X.Y`): their
 versions may differ in the last number. With one of another contract, the
 context fails at startup and says which to use.
 
-Spring Boot 3, Java 17.
+Spring Boot 3.5 or 4, Java 17.
 
 ## Settings
 
