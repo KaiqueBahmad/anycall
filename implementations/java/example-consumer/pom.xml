@@ -53,15 +53,6 @@
                         <argument>dev.kaiquebt.anycall.example.ConsumerApplication</argument>
                     </arguments>
                 </configuration>
-                <executions>
-                    <execution>
-                        <id>run-consumer</id>
-                        <phase>compile</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
 
             <!-- Como é executável (main class), precisa empacotar
@@ -82,4 +73,29 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- Runs the example at the end of compile, only with -Prun (as ../run-consumer.sh does): a build
+         without it just builds, instead of starting an app that never exits. -->
+    <profiles>
+        <profile>
+            <id>run</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>run-consumer</id>
+                                <phase>compile</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

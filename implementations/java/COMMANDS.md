@@ -18,16 +18,17 @@ mvn clean compile
 
 ## Rodar com Maven (manual)
 
-Os exemplos rodam via `exec-maven-plugin`, ligado à fase `compile`. O comando
-abaixo compila o módulo (e suas dependências, via `-am`) e executa a `mainClass`
-configurada:
+Os exemplos rodam via `exec-maven-plugin`, ligado à fase `compile` só no profile
+`run`. O comando abaixo compila o módulo (e suas dependências, via `-am`) e
+executa a `mainClass` configurada. Sem `-Prun`, um build só compila, sem rodar
+nenhum exemplo:
 
 ```bash
 # Consumer (ConsumerApplication)
-mvn compile -pl example-consumer -am -DskipTests -q
+mvn compile -pl example-consumer -am -DskipTests -q -Prun
 
 # Supplier (SupplierApplication)
-mvn compile -pl example-supplier -am -DskipTests -q
+mvn compile -pl example-supplier -am -DskipTests -q -Prun
 ```
 
 > A classe `dev.kaiquebt.anycall.example.runners.InvalidPayloadClient` existe no
