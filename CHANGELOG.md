@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Speaks protocol 0.9, unchanged: it shares a Redis with 0.9.
+Protocol version: 0.9
 
 ### Added
 - A server serves a function under a name: `register(SupplyMethod, handler)` in Java, `register_method` in Python
