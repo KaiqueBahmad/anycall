@@ -14,40 +14,43 @@ the result back, as if the function were local. Redis sits in between, so
 there are no `.proto` files, no code generation and no ports to open between
 services, and every server that registers the same name shares its load.
 
-## A Python function, called from Java
+## Example: serve in Python, call from Java
 
 **Server (Python)**
 ```python
 from dataclasses import dataclass
+from sentence_transformers import SentenceTransformer
 from anycall import AnyCall, AnyCallContext, supply
 
 @dataclass
-class TextRequest:
+class EmbedRequest:
     text: str
 
 @dataclass
-class Sentiment:
-    text: str
-    label: str
+class Embedding:
+    vector: list[float]
 
-class SentimentAnalyzer:
-    @supply("analyze-sentiment")
-    def analyze(self, ctx: AnyCallContext, req: TextRequest) -> Sentiment:
-        return Sentiment(text=req.text, label="positive")
+class Embedder:
+    def __init__(self):
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    @supply("embed")
+    def embed(self, ctx: AnyCallContext, req: EmbedRequest) -> Embedding:
+        return Embedding(vector=self.model.encode(req.text).tolist())
 
 server = AnyCall.server("redis://localhost:16379")
-server.register(SentimentAnalyzer())
+server.register(Embedder())
 server.start()
 ```
 
 **Client (Java)**
 ```java
-record TextRequest(String text) {}
-record Sentiment(String text, String label) {}
+record EmbedRequest(String text) {}
+record Embedding(float[] vector) {}
 
 AnyCallClient client = AnyCall.client("redis://localhost:16379");
 
-Sentiment sentiment = client.call("analyze-sentiment", new TextRequest("This is great!"), Sentiment.class);
+Embedding embedding = client.call("embed", new EmbedRequest("wireless headphones"), Embedding.class);
 ```
 
 The two sides agree on the method name and on the JSON field names, nothing
@@ -73,21 +76,21 @@ and troubleshooting.
 <summary><b>Java</b></summary>
 
 ```java
-public class SentimentAnalyzer {
-    @Supply(methodName = "analyze-sentiment")
-    public Sentiment analyze(AnyCallContext ctx, TextRequest req) {
-        return new Sentiment(req.text(), "positive");
+public class Embedder {
+    @Supply(methodName = "embed")
+    public Embedding embed(AnyCallContext ctx, EmbedRequest req) {
+        return new Embedding(model.embed(req.text()));
     }
 }
 
 // Server
 AnyCallServer server = AnyCall.server("redis://localhost:16379");
-server.register(new SentimentAnalyzer());
+server.register(new Embedder());
 server.start();
 
 // Client
 AnyCallClient client = AnyCall.client("redis://localhost:16379");
-Sentiment sentiment = client.call("analyze-sentiment", new TextRequest("This is great!"), Sentiment.class);
+Embedding embedding = client.call("embed", new EmbedRequest("wireless headphones"), Embedding.class);
 ```
 
 </details>
@@ -96,19 +99,19 @@ Sentiment sentiment = client.call("analyze-sentiment", new TextRequest("This is 
 <summary><b>Python</b></summary>
 
 ```python
-class SentimentAnalyzer:
-    @supply("analyze-sentiment")
-    def analyze(self, ctx: AnyCallContext, req: TextRequest) -> Sentiment:
-        return Sentiment(text=req.text, label="positive")
+class Embedder:
+    @supply("embed")
+    def embed(self, ctx: AnyCallContext, req: EmbedRequest) -> Embedding:
+        return Embedding(vector=self.model.encode(req.text).tolist())
 
 # Server
 server = AnyCall.server("redis://localhost:16379")
-server.register(SentimentAnalyzer())
+server.register(Embedder())
 server.start()
 
 # Client
 client = AnyCall.client("redis://localhost:16379")
-sentiment = client.call("analyze-sentiment", TextRequest(text="This is great!"), Sentiment)
+embedding = client.call("embed", EmbedRequest(text="wireless headphones"), Embedding)
 ```
 
 </details>
@@ -120,18 +123,18 @@ sentiment = client.call("analyze-sentiment", TextRequest(text="This is great!"),
 // Server: served while the application runs
 @Component
 @AnyCallSupplier
-public class SentimentAnalyzer {
-    @Supply(methodName = "analyze-sentiment")
-    public Sentiment analyze(AnyCallContext ctx, TextRequest req) {
-        return new Sentiment(req.text(), "positive");
+public class Embedder {
+    @Supply(methodName = "embed")
+    public Embedding embed(AnyCallContext ctx, EmbedRequest req) {
+        return new Embedding(model.embed(req.text()));
     }
 }
 
 // Client: an interface whose methods call remote ones
 @AnyCallApi
-public interface SentimentApi {
-    @Call("analyze-sentiment")
-    Sentiment analyze(TextRequest request);
+public interface EmbeddingApi {
+    @Call("embed")
+    Embedding embed(EmbedRequest request);
 }
 ```
 
