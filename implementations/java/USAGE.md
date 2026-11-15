@@ -175,7 +175,7 @@ client.defaults();   // CallOptions{timeout=PT1M, maxQueueDepth=200}
 
 ### Check the current backlog:
 ```java
-long depth = client.getQueueDepth("analyze-sentiment");  // LLEN of the request queue
+long depth = client.queueDepth("analyze-sentiment");  // LLEN of the request queue
 ```
 
 ### Close the client:

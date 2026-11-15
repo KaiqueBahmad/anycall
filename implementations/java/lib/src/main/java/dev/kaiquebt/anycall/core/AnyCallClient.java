@@ -106,7 +106,7 @@ public interface AnyCallClient extends AutoCloseable {
      * @param method the name of the remote method
      * @return the number of entries currently in the method's request queue
      */
-    long getQueueDepth(String method);
+    long queueDepth(String method);
 
     /**
      * The settings every call takes unless its own options replace them, both set: a timeout

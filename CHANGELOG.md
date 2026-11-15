@@ -18,6 +18,7 @@ Protocol version: 0.9
 
 ### Changed
 - `AnycallContext` is now `AnyCallContext`, in Java and Python, and Java's `AnycallUtils` is `AnyCallUtils`
+- Java: `getQueueDepth` is now `queueDepth`, as in Python
 
 ### Fixed
 - Java: a handler's exception reaches the client with its own message, not `java.lang.reflect.InvocationTargetException`. solves #15

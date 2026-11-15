@@ -160,7 +160,7 @@ public class AnyCallClientImpl implements AnyCallClient {
     }
 
     @Override
-    public long getQueueDepth(String methodName) {
+    public long queueDepth(String methodName) {
         return commands.llen(queues.requestQueue(methodName));
     }
 
