@@ -170,7 +170,7 @@ is failed back to its caller.
 
 | | |
 |---|---|
-| The contract on Redis that every implementation follows | [PROTOCOL.md](PROTOCOL.md) |
+| The protocol on Redis that every implementation follows | [PROTOCOL.md](PROTOCOL.md) |
 | How a library exposes it | [LIBRARY.md](LIBRARY.md) |
 | What happens when a server dies mid-request | [docs/reaping.md](docs/reaping.md) |
 | How a server takes a request without a crash losing it | [docs/taking-requests.md](docs/taking-requests.md) |
@@ -218,9 +218,11 @@ call each other, and you'd rather not stand up a full RPC stack to do it.
 ## Status
 
 anycall is in `0.x`, and each minor version may break the previous one. A
-version's first two numbers are its **contract**: a client and a server must be of the same contract to talk
-to each other, whatever their languages. See the
-[changelog](CHANGELOG.md).
+client and a server can talk to each other, whatever their languages, when
+they speak the same **protocol** version: the version of the release that
+last changed what goes on Redis. 0.10 speaks protocol 0.9, so it works with
+0.9. Each release's [changelog](CHANGELOG.md) section says which protocol it
+speaks.
 
 ## License
 

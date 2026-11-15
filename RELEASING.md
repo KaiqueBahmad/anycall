@@ -6,11 +6,23 @@ This guide explains how to release AnyCall following the polyglot versioning mod
 
 - **Contract Version (X.Y)**: Synchronized API across all languages
 - **Patch Version (Z)**: Independent bug fixes per language
+- **Protocol Version**: what's on Redis ([PROTOCOL.md](PROTOCOL.md)). It's
+  the contract version of the release that last changed the protocol, and it
+  only moves on such a release: one that changes keys, messages, scripts or
+  constants. Implementations that speak the same protocol version can share a
+  Redis.
 
 Example:
 - Java: 1.2.0, 1.2.1, 1.2.2
 - Python: 1.2.0, 1.2.1
 - All are **contract 1.2**, fully compatible
+- If 1.2 changed the protocol and 1.3 didn't, both speak **protocol 1.2**,
+  and a 1.2 client can call a 1.3 server. A 1.4 that changes it speaks
+  protocol 1.4, which neither 1.2 nor 1.3 can share a Redis with.
+
+A contract release that changes the protocol updates the version in
+`PROTOCOL.md`'s title; one that doesn't leaves it, and its CHANGELOG section
+says which protocol it speaks.
 
 > **Note:** per SemVer, `0.Y.Z` is unstable. The contract and internal working is still not well defined, so it can vary a lot between versions.
 

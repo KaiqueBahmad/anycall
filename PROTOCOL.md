@@ -1,4 +1,10 @@
-# AnyCall Protocol — Contract 0.9
+# AnyCall Protocol 0.9
+
+A protocol version is the version of the release that last changed the
+protocol: its keys, messages, scripts or constants. A release that changes
+none of them keeps speaking the protocol before it, so the number only moves
+when the wire does. Implementations that speak the same protocol version can
+share a Redis, whatever their language or release.
 
 ## 1. Conventions
 
@@ -69,12 +75,12 @@ JSON objects, UTF-8, one List entry each.
   when unused, not `null`.
 
 A message MUST NOT carry any other field, and a reader MUST reject one that
-does. Adding a field is therefore a breaking change. Different contract
-versions MUST NOT share a Redis.
+does. Adding a field is therefore a breaking change. Implementations of
+different protocol versions MUST NOT share a Redis.
 
 ## 4. Constants
 
-Fixed by the contract; implementations MUST NOT make them configurable.
+Fixed by the protocol; implementations MUST NOT make them configurable.
 
 | Name | Value | Meaning |
 |---|---|---|
