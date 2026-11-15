@@ -1,0 +1,43 @@
+name: Test Spring
+
+on:
+  push:
+    branches: [main, next]
+    paths:
+      - 'implementations/java/lib/**'
+      - 'integrations/spring/**'
+      - '.github/workflows/test-spring.yml'
+  pull_request:
+    paths:
+      - 'implementations/java/lib/**'
+      - 'integrations/spring/**'
+      - '.github/workflows/test-spring.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spring-boot: ['3.5.10', '4.1.2']
+    name: Spring Boot ${{ matrix.spring-boot }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      # Only the lib: building the whole reactor also runs the example apps, which never exit.
+      - name: Install the lib
+        run: |
+          cd implementations/java/lib
+          mvn -B install -DskipTests
+
+      - name: Test anycall-spring
+        run: |
+          cd integrations/spring
+          mvn -B test -Dspring-boot.version=${{ matrix.spring-boot }}
