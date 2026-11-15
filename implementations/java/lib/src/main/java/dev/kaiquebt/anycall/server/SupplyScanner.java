@@ -1,7 +1,7 @@
 package dev.kaiquebt.anycall.server;
 
 import dev.kaiquebt.anycall.annotation.Supply;
-import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.AnyCallContext;
 import dev.kaiquebt.anycall.core.SupplyHandler;
 import dev.kaiquebt.anycall.core.SupplyMethod;
 
@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * Finds the {@code @Supply} methods an object declares, checking each the way a server does
  * when it registers the object. Internal: shared by the server and
- * {@link dev.kaiquebt.anycall.core.AnycallUtils}, so both see the same methods and reject the
+ * {@link dev.kaiquebt.anycall.core.AnyCallUtils}, so both see the same methods and reject the
  * same mistakes.
  */
 public final class SupplyScanner {
@@ -24,7 +24,7 @@ public final class SupplyScanner {
     /**
      * The {@code @Supply} methods {@code supplier}'s class declares (not inherited ones).
      *
-     * @throws IllegalStateException if one doesn't take {@code (AnycallContext, <request>)},
+     * @throws IllegalStateException if one doesn't take {@code (AnyCallContext, <request>)},
      *                               or has a {@code maxConcurrency} below 1
      */
     public static List<MethodHandler> scan(Object supplier) {
@@ -37,11 +37,11 @@ public final class SupplyScanner {
             if (method.getParameterCount() != 2) {
                 throw new IllegalStateException(
                     "Method " + method.getName() + " annotated with @Supply must have exactly two parameters: "
-                        + "(AnycallContext, <request type>)");
+                        + "(AnyCallContext, <request type>)");
             }
-            if (method.getParameterTypes()[0] != AnycallContext.class) {
+            if (method.getParameterTypes()[0] != AnyCallContext.class) {
                 throw new IllegalStateException(
-                    "Method " + method.getName() + " annotated with @Supply must declare AnycallContext "
+                    "Method " + method.getName() + " annotated with @Supply must declare AnyCallContext "
                         + "as its first parameter");
             }
             if (supply.maxConcurrency() < 1) {

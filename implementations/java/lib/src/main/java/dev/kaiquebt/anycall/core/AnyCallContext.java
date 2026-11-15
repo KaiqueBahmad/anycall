@@ -8,5 +8,5 @@ package dev.kaiquebt.anycall.core;
  * @param requestId  the unique identifier of the request being processed
  * @param methodName the {@code @Supply} operation name handling the request
  */
-public record AnycallContext(String requestId, String methodName) {
+public record AnyCallContext(String requestId, String methodName) {
 }

@@ -10,9 +10,9 @@ import java.util.List;
  * the object the way {@link AnyCallServer#register} does, so what this accepts a server
  * registers, and what it rejects a server rejects too.
  */
-public final class AnycallUtils {
+public final class AnyCallUtils {
 
-    private AnycallUtils() {
+    private AnyCallUtils() {
     }
 
     /**

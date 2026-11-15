@@ -8,17 +8,17 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class AnycallUtilsTest {
+class AnyCallUtilsTest {
 
     @AnyCallSupplier
     static class Methods {
         @Supply(methodName = "slow", maxConcurrency = 4)
-        public Map<String, Object> slow(AnycallContext ctx, Map<String, Object> req) {
+        public Map<String, Object> slow(AnyCallContext ctx, Map<String, Object> req) {
             return req;
         }
 
         @Supply(methodName = "echo")
-        public Map<String, Object> echo(AnycallContext ctx, Map<String, Object> req) {
+        public Map<String, Object> echo(AnyCallContext ctx, Map<String, Object> req) {
             return req;
         }
 
@@ -36,28 +36,28 @@ class AnycallUtilsTest {
 
     @Test
     void methodsListsTheSupplyMethodsSorted() {
-        assertEquals(List.of("echo", "slow"), AnycallUtils.methods(new Methods()));
+        assertEquals(List.of("echo", "slow"), AnyCallUtils.methods(new Methods()));
     }
 
     @Test
     void methodsOfAnObjectWithNoneIsEmpty() {
-        assertEquals(List.of(), AnycallUtils.methods(new Object()));
+        assertEquals(List.of(), AnyCallUtils.methods(new Object()));
     }
 
     @Test
     void methodReadsWhatTheObjectDeclares() {
-        assertEquals(new SupplyMethod("slow", 4, Map.class, Map.class), AnycallUtils.method(new Methods(), "slow"));
-        assertEquals(1, AnycallUtils.method(new Methods(), "echo").maxConcurrency());
+        assertEquals(new SupplyMethod("slow", 4, Map.class, Map.class), AnyCallUtils.method(new Methods(), "slow"));
+        assertEquals(1, AnyCallUtils.method(new Methods(), "echo").maxConcurrency());
     }
 
     @Test
     void methodNotDeclaredFails() {
-        assertThrows(IllegalArgumentException.class, () -> AnycallUtils.method(new Methods(), "missing"));
-        assertThrows(IllegalArgumentException.class, () -> AnycallUtils.method(new Methods(), "notSupplied"));
+        assertThrows(IllegalArgumentException.class, () -> AnyCallUtils.method(new Methods(), "missing"));
+        assertThrows(IllegalArgumentException.class, () -> AnyCallUtils.method(new Methods(), "notSupplied"));
     }
 
     @Test
     void anInvalidSupplyMethodIsRejectedAsAServerWould() {
-        assertThrows(IllegalStateException.class, () -> AnycallUtils.methods(new Broken()));
+        assertThrows(IllegalStateException.class, () -> AnyCallUtils.methods(new Broken()));
     }
 }

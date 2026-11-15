@@ -15,7 +15,7 @@ AnyCall is a framework that allows Java applications to communicate asynchronous
 - **AnyCallServer** - Server for registering and executing methods
 
 ### Publisher
-- **AnycallQueues** - Manages message queues
+- **AnyCallQueues** - Manages message queues
 
 ### Annotation
 - **Supply** - Annotation to mark methods as supply

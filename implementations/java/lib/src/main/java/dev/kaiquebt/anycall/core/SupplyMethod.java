@@ -1,7 +1,7 @@
 package dev.kaiquebt.anycall.core;
 
 /**
- * A supply method as declared: from an object's {@code @Supply}, as {@link AnycallUtils#method}
+ * A supply method as declared: from an object's {@code @Supply}, as {@link AnyCallUtils#method}
  * reads it, or given to {@link AnyCallServer#register(SupplyMethod, SupplyHandler)} with the
  * handler that runs it. For a method a server is running, with values that can change, see
  * {@link MethodInfo}.

@@ -63,7 +63,7 @@ public interface AnyCallServer extends AutoCloseable {
      *
      * <pre>{@code
      * server.register(new SupplyMethod("shout", 4, String.class, String.class),
-     *     (AnycallContext ctx, String text) -> text.toUpperCase());
+     *     (AnyCallContext ctx, String text) -> text.toUpperCase());
      * }</pre>
      *
      * @throws IllegalArgumentException if the name is blank, {@code maxConcurrency} is below 1,

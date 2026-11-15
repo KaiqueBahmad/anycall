@@ -3,7 +3,7 @@ package dev.kaiquebt.anycall.spring;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnyCallSupplier;
-import dev.kaiquebt.anycall.core.AnycallUtils;
+import dev.kaiquebt.anycall.core.AnyCallUtils;
 import dev.kaiquebt.anycall.core.SupplyHandler;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -57,7 +57,7 @@ public class AnyCallServerLifecycle implements SmartLifecycle {
         for (Map.Entry<String, Object> entry : context.getBeansWithAnnotation(AnyCallSupplier.class).entrySet()) {
             String beanName = entry.getKey();
             Object bean = entry.getValue();
-            for (String method : AnycallUtils.methods(declaring(bean))) {
+            for (String method : AnyCallUtils.methods(declaring(bean))) {
                 beansOfMethod.computeIfAbsent(method, m -> new ArrayList<>()).add(beanName);
             }
             beans.put(beanName, bean);
@@ -104,7 +104,7 @@ public class AnyCallServerLifecycle implements SmartLifecycle {
                     + " is final, so its proxy can't call it; make it not final");
             }
             ReflectionUtils.makeAccessible(invocable);
-            server.register(AnycallUtils.method(declaring, supply.methodName()), invoking(bean, invocable));
+            server.register(AnyCallUtils.method(declaring, supply.methodName()), invoking(bean, invocable));
         }
     }
 

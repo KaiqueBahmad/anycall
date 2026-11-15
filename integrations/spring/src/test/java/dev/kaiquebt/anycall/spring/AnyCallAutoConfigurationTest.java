@@ -4,7 +4,7 @@ import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallClient;
 import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnyCallSupplier;
-import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.AnyCallContext;
 import dev.kaiquebt.anycall.core.CallOptions;
 import dev.kaiquebt.anycall.core.SupplyHandler;
 import dev.kaiquebt.anycall.core.SupplyMethod;
@@ -63,7 +63,7 @@ class AnyCallAutoConfigurationTest {
     @AnyCallSupplier
     static class Analyzer {
         @Supply(methodName = "analyze-sentiment")
-        public Map<String, Object> analyze(AnycallContext ctx, Map<String, Object> request) {
+        public Map<String, Object> analyze(AnyCallContext ctx, Map<String, Object> request) {
             return request;
         }
     }
@@ -153,7 +153,7 @@ class AnyCallAutoConfigurationTest {
     @AnyCallSupplier
     static class Logger {
         @Supply(methodName = "log")
-        public Map<String, Object> log(AnycallContext ctx, Map<String, Object> request) {
+        public Map<String, Object> log(AnyCallContext ctx, Map<String, Object> request) {
             return request;
         }
     }
@@ -204,7 +204,7 @@ class AnyCallAutoConfigurationTest {
             verify(context.getBean(AnyCallServer.class)).register(
                 eq(new SupplyMethod("analyze-sentiment", 1, Map.class, Map.class)), handler.capture());
 
-            Object response = handler.getValue().handle(new AnycallContext("r1", "analyze-sentiment"),
+            Object response = handler.getValue().handle(new AnyCallContext("r1", "analyze-sentiment"),
                 Map.of("text", "bom"));
 
             assertThat(response).isEqualTo(Map.of("text", "bom"));
@@ -215,7 +215,7 @@ class AnyCallAutoConfigurationTest {
     @AnyCallSupplier
     static class PrivateSupplier {
         @Supply(methodName = "hidden")
-        private Map<String, Object> hidden(AnycallContext ctx, Map<String, Object> request) {
+        private Map<String, Object> hidden(AnyCallContext ctx, Map<String, Object> request) {
             return request;
         }
     }

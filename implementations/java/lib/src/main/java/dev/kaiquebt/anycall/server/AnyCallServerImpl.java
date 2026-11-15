@@ -2,7 +2,7 @@ package dev.kaiquebt.anycall.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.kaiquebt.anycall.core.AnyCallServer;
-import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.AnyCallContext;
 import dev.kaiquebt.anycall.core.MethodInfo;
 import dev.kaiquebt.anycall.core.ServerOptions;
 import dev.kaiquebt.anycall.core.SupplyHandler;
@@ -10,9 +10,9 @@ import dev.kaiquebt.anycall.core.SupplyMethod;
 import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
-import dev.kaiquebt.anycall.publisher.AnycallQueues;
-import dev.kaiquebt.anycall.publisher.AnycallReaping;
-import dev.kaiquebt.anycall.publisher.AnycallResponses;
+import dev.kaiquebt.anycall.publisher.AnyCallQueues;
+import dev.kaiquebt.anycall.publisher.AnyCallReaping;
+import dev.kaiquebt.anycall.publisher.AnyCallResponses;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.LMoveArgs;
 import io.lettuce.core.RedisClient;
@@ -63,7 +63,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * processing list. That overshoots the cap on taking by at most one request per method.
  * <p>
  * Every heartbeat tick also fails back the requests of servers that stopped heartbeating
- * (see {@link AnycallReaping}): their clients get a {@code ServerLostError} instead of
+ * (see {@link AnyCallReaping}): their clients get a {@code ServerLostError} instead of
  * waiting out their whole timeout.
  * <p>
  * A take reads a single queue and holds its connection while it blocks, so the
@@ -79,13 +79,13 @@ public class AnyCallServerImpl implements AnyCallServer {
     private static final long TAKE_BLOCK_SECONDS = 2;
 
     private static final Duration HEARTBEAT_PERIOD = Duration.ofSeconds(2);
-    private static final Duration HEARTBEAT_TTL = AnycallQueues.HEARTBEAT_TTL;
+    private static final Duration HEARTBEAT_TTL = AnyCallQueues.HEARTBEAT_TTL;
     // KEYS[1] = live servers sorted set, ARGV[1] = server id, ARGV[2] = ttl seconds,
     // ARGV[3] = '1' on the server id's first heartbeat. A server whose entry is gone, or
     // older than the ttl, was declared dead: past its first heartbeat, it gets {-1} and
     // nothing is written, so a dead server never comes back. Otherwise refreshes its entry
     // and returns {0, every member older than the ttl}. Prunes nothing: a dead server
-    // leaves the set only once AnycallReaping has emptied its processing list, so that list
+    // leaves the set only once AnyCallReaping has emptied its processing list, so that list
     // is never forgotten.
     // Kept byte-for-byte identical to the Python server's copy.
     private static final String HEARTBEAT_SCRIPT = """
@@ -150,7 +150,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AnycallQueues queues;
+    private final AnyCallQueues queues;
     // The server-wide cap; updateOptions may change it while requests run.
     private final ConcurrencyLimit globalConcurrencyLimiter;
     private volatile Identity identity;
@@ -163,11 +163,11 @@ public class AnyCallServerImpl implements AnyCallServer {
      * @param queues  the keys this server takes from and writes to
      * @param options its settings; a setting left out means no limit
      */
-    public AnyCallServerImpl(String redisUri, AnycallQueues queues, ServerOptions options) {
+    public AnyCallServerImpl(String redisUri, AnyCallQueues queues, ServerOptions options) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Server: redisUri must not be null or blank");
         }
-        this.queues = queues == null ? AnycallQueues.DEFAULT : queues;
+        this.queues = queues == null ? AnyCallQueues.DEFAULT : queues;
         this.identity = new Identity();
         this.globalConcurrencyLimiter = new ConcurrencyLimit(
             (options == null ? ServerOptions.DEFAULT : options).maxConcurrencyOr(null));
@@ -509,7 +509,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             dead.add((String) member);
         }
         RedisCommands<String, String> reap = reapConnection.sync();
-        AnycallReaping.reapDeadServers(reap, queues, dead);
+        AnyCallReaping.reapDeadServers(reap, queues, dead);
 
         // A draining id with no take left on it can't get anything on its list anymore: make
         // sure its list was reaped, then delete its tombstone.
@@ -523,8 +523,8 @@ public class AnyCallServerImpl implements AnyCallServer {
             draining.removeAll(idle);
         }
         for (Identity old : idle) {
-            AnycallReaping.reapDeadServers(reap, queues, List.of(old.serverId));
-            AnycallReaping.dropTombstone(reap, queues, old.serverId);
+            AnyCallReaping.reapDeadServers(reap, queues, List.of(old.serverId));
+            AnyCallReaping.dropTombstone(reap, queues, old.serverId);
         }
     }
 
@@ -698,7 +698,7 @@ public class AnyCallServerImpl implements AnyCallServer {
 
             Object parameter = OBJECT_MAPPER.readValue(request.payload(), handler.parameterType());
 
-            AnycallContext ctx = new AnycallContext(requestId, methodName);
+            AnyCallContext ctx = new AnyCallContext(requestId, methodName);
             Object result = handler.handler().handle(ctx, parameter);
 
             String resultJson = OBJECT_MAPPER.writeValueAsString(result);
@@ -767,7 +767,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             return;
         }
         try {
-            AnycallResponses.pushAndRelease(writeCommands, queues, response, clientId, taker.processingKey, requestJson);
+            AnyCallResponses.pushAndRelease(writeCommands, queues, response, clientId, taker.processingKey, requestJson);
         } catch (Exception e) {
             log.error("Error sending response: {}", response.requestId(), e);
         }

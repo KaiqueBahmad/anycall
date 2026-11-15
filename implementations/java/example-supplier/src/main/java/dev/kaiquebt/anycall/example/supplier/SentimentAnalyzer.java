@@ -1,14 +1,14 @@
 package dev.kaiquebt.anycall.example.supplier;
 
 import dev.kaiquebt.anycall.annotation.Supply;
-import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.AnyCallContext;
 import dev.kaiquebt.anycall.example.model.Sentiment;
 import dev.kaiquebt.anycall.example.model.TextRequest;
 
 public class SentimentAnalyzer {
 
     @Supply(methodName = "analyze-sentiment", maxConcurrency = 1)
-    public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
+    public Sentiment analyzeSentiment(AnyCallContext ctx, TextRequest req) {
         System.out.println("[java-supplier] analyze-sentiment received: " + req.text());
         try {
             Thread.sleep(1000);

@@ -1,12 +1,12 @@
 package dev.kaiquebt.anycall.core;
 
 import dev.kaiquebt.anycall.client.AnyCallClientImpl;
-import dev.kaiquebt.anycall.publisher.AnycallQueues;
+import dev.kaiquebt.anycall.publisher.AnyCallQueues;
 import dev.kaiquebt.anycall.server.AnyCallServerImpl;
 
 /**
  * Creates clients and servers. Both find each other through the keys under one prefix,
- * {@value AnycallQueues#DEFAULT_PREFIX} unless another is given; the prefix is fixed for the
+ * {@value AnyCallQueues#DEFAULT_PREFIX} unless another is given; the prefix is fixed for the
  * life of a client or server, while its options can change (see
  * {@link AnyCallClient#updateDefaults} and {@link AnyCallServer#updateOptions}).
  */
@@ -16,7 +16,7 @@ public final class AnyCall {
 
     /** A client whose calls wait with no limit and are published however full the queue is. */
     public static AnyCallClient client(String redisUrl) {
-        return client(redisUrl, AnycallQueues.DEFAULT_PREFIX, CallOptions.DEFAULT);
+        return client(redisUrl, AnyCallQueues.DEFAULT_PREFIX, CallOptions.DEFAULT);
     }
 
     /**
@@ -24,7 +24,7 @@ public final class AnyCall {
      *                 no limit, and a call's own {@link CallOptions} replace them
      */
     public static AnyCallClient client(String redisUrl, CallOptions defaults) {
-        return client(redisUrl, AnycallQueues.DEFAULT_PREFIX, defaults);
+        return client(redisUrl, AnyCallQueues.DEFAULT_PREFIX, defaults);
     }
 
     /**
@@ -36,17 +36,17 @@ public final class AnyCall {
     }
 
     public static AnyCallClient client(String redisUrl, String prefix, CallOptions defaults) {
-        return new AnyCallClientImpl(redisUrl, new AnycallQueues(prefix), defaults);
+        return new AnyCallClientImpl(redisUrl, new AnyCallQueues(prefix), defaults);
     }
 
     /** A server with no server-wide concurrency limit. */
     public static AnyCallServer server(String redisUrl) {
-        return server(redisUrl, AnycallQueues.DEFAULT_PREFIX, ServerOptions.DEFAULT);
+        return server(redisUrl, AnyCallQueues.DEFAULT_PREFIX, ServerOptions.DEFAULT);
     }
 
     /** @param options the server's settings; a setting left out means no limit */
     public static AnyCallServer server(String redisUrl, ServerOptions options) {
-        return server(redisUrl, AnycallQueues.DEFAULT_PREFIX, options);
+        return server(redisUrl, AnyCallQueues.DEFAULT_PREFIX, options);
     }
 
     /**
@@ -58,6 +58,6 @@ public final class AnyCall {
     }
 
     public static AnyCallServer server(String redisUrl, String prefix, ServerOptions options) {
-        return new AnyCallServerImpl(redisUrl, new AnycallQueues(prefix), options);
+        return new AnyCallServerImpl(redisUrl, new AnyCallQueues(prefix), options);
     }
 }

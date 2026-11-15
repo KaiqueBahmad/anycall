@@ -4,17 +4,17 @@ import pytest
 
 from . import utils
 from .annotation import supply
-from .context import AnycallContext
+from .context import AnyCallContext
 from .server import SupplyMethod
 
 
 class Methods:
     @supply("slow", max_concurrency=4)
-    def slow(self, ctx: AnycallContext, request: dict) -> dict:
+    def slow(self, ctx: AnyCallContext, request: dict) -> dict:
         return request
 
     @supply("echo")
-    def echo(self, ctx: AnycallContext, request: dict) -> dict:
+    def echo(self, ctx: AnyCallContext, request: dict) -> dict:
         return request
 
     def not_supplied(self) -> None:
@@ -43,7 +43,7 @@ def test_method_reads_what_the_object_declares():
 def test_method_without_a_return_annotation_has_no_response_type():
     class Bare:
         @supply("bare")
-        def bare(self, ctx: AnycallContext, request: dict):
+        def bare(self, ctx: AnyCallContext, request: dict):
             return request
 
     assert utils.method(Bare(), "bare").response_type is None

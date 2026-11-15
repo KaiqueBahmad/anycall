@@ -11,5 +11,5 @@ package dev.kaiquebt.anycall.core;
 @FunctionalInterface
 public interface SupplyHandler<Q, R> {
 
-    R handle(AnycallContext ctx, Q request) throws Exception;
+    R handle(AnyCallContext ctx, Q request) throws Exception;
 }

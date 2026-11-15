@@ -19,7 +19,7 @@ services, and every server that registers the same name shares its load.
 **Server (Python)**
 ```python
 from dataclasses import dataclass
-from anycall import AnyCall, AnycallContext, supply
+from anycall import AnyCall, AnyCallContext, supply
 
 @dataclass
 class TextRequest:
@@ -32,7 +32,7 @@ class Sentiment:
 
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
-    def analyze(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
+    def analyze(self, ctx: AnyCallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 
 server = AnyCall.server("redis://localhost:16379")
@@ -75,7 +75,7 @@ and troubleshooting.
 ```java
 public class SentimentAnalyzer {
     @Supply(methodName = "analyze-sentiment")
-    public Sentiment analyze(AnycallContext ctx, TextRequest req) {
+    public Sentiment analyze(AnyCallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
 }
@@ -98,7 +98,7 @@ Sentiment sentiment = client.call("analyze-sentiment", new TextRequest("This is 
 ```python
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
-    def analyze(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
+    def analyze(self, ctx: AnyCallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 
 # Server
@@ -122,7 +122,7 @@ sentiment = client.call("analyze-sentiment", TextRequest(text="This is great!"),
 @AnyCallSupplier
 public class SentimentAnalyzer {
     @Supply(methodName = "analyze-sentiment")
-    public Sentiment analyze(AnycallContext ctx, TextRequest req) {
+    public Sentiment analyze(AnyCallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
 }

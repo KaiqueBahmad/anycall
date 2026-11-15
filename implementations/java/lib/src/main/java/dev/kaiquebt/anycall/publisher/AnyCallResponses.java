@@ -9,13 +9,13 @@ import io.lettuce.core.api.sync.RedisCommands;
 /**
  * How a server writes a response: pushed onto its response queue together with the queue's
  * expiry and the removal of its request from the server's processing list, atomically and
- * in one round trip. A reaper writes its own in a transaction (see {@link AnycallReaping}).
+ * in one round trip. A reaper writes its own in a transaction (see {@link AnyCallReaping}).
  * <p>
  * A waiting client pops the response within milliseconds and deletes the queue; the
  * expiry only matters when nobody reads it (the client timed out or died, or a server
  * reaped as dead answered late), so it doesn't sit in Redis forever.
  */
-public final class AnycallResponses {
+public final class AnyCallResponses {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -29,7 +29,7 @@ public final class AnycallResponses {
         + "redis.call('LREM', KEYS[2], 1, ARGV[3])\n"
         + "return 1";
 
-    private AnycallResponses() {
+    private AnyCallResponses() {
     }
 
     /**
@@ -40,13 +40,13 @@ public final class AnycallResponses {
      * @param processingKey the processing list the request was taken onto
      * @param item the request json exactly as it was taken
      */
-    public static void pushAndRelease(RedisCommands<String, String> commands, AnycallQueues queues,
+    public static void pushAndRelease(RedisCommands<String, String> commands, AnyCallQueues queues,
                                       AnyCallResponse response, String clientId, String processingKey,
                                       String item)
             throws JsonProcessingException {
         commands.eval(PUSH_AND_RELEASE_SCRIPT, ScriptOutputType.INTEGER,
             new String[] {queues.responseQueue(clientId), processingKey},
             OBJECT_MAPPER.writeValueAsString(response),
-            String.valueOf(AnycallQueues.RESPONSE_TTL.getSeconds()), item);
+            String.valueOf(AnyCallQueues.RESPONSE_TTL.getSeconds()), item);
     }
 }

@@ -49,7 +49,7 @@ but no longer holds up the close:
 @AnyCallSupplier
 public class SentimentAnalyzer {
     @Supply(methodName = "analyze-sentiment", maxConcurrency = 4)
-    public Sentiment analyze(AnycallContext ctx, TextRequest request) {
+    public Sentiment analyze(AnyCallContext ctx, TextRequest request) {
         return new Sentiment(request.text().contains("good") ? "positive" : "negative");
     }
 }

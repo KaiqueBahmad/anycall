@@ -16,6 +16,9 @@ Protocol version: 0.9
 - `close()` on a server stops it and closes its Redis connections. Java servers are `AutoCloseable`, Python ones work with `with`
 - Spring Boot auto-configuration (`anycall-spring`): a client bean from `anycall.*` settings, a server serving the context's `@AnyCallSupplier` beans while the context runs, and `@AnyCallApi` interfaces whose methods call remote ones (`@Call`), with settings written in place or taken from configuration. `@Supply` methods are called through the bean's proxy, so `@Transactional` and other advice run
 
+### Changed
+- `AnycallContext` is now `AnyCallContext`, in Java and Python, and Java's `AnycallUtils` is `AnyCallUtils`
+
 ### Fixed
 - Java: a handler's exception reaches the client with its own message, not `java.lang.reflect.InvocationTargetException`. solves #15
 

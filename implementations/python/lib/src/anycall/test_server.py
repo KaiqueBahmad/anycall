@@ -10,7 +10,7 @@ import redis.exceptions
 
 from . import server as server_module
 from .annotation import supply
-from .context import AnycallContext
+from .context import AnyCallContext
 from .exceptions import AnyCallError
 from .redis_adapter import RedisQueueAdapter
 from .options import ServerOptions
@@ -20,7 +20,7 @@ from .server import AnyCallServer, AnyCallServerImpl, MethodInfo, SupplyMethod
 
 class Echo:
     @supply("echo")
-    def echo(self, ctx: AnycallContext, request: dict) -> dict:
+    def echo(self, ctx: AnyCallContext, request: dict) -> dict:
         return request
 
 
@@ -337,7 +337,7 @@ def test_no_cap_never_waits():
 
 class Slow:
     @supply("slow", max_concurrency=2)
-    def slow(self, ctx: AnycallContext, request: dict) -> dict:
+    def slow(self, ctx: AnyCallContext, request: dict) -> dict:
         return request
 
 
@@ -373,7 +373,7 @@ def test_running_counts_requests_while_they_run():
 
     class Blocking:
         @supply("block")
-        def block(self, ctx: AnycallContext, request: dict) -> dict:
+        def block(self, ctx: AnyCallContext, request: dict) -> dict:
             started.set()
             release.wait(2)
             return request

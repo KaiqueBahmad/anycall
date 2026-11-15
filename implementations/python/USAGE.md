@@ -4,7 +4,7 @@
 
 1. **Define a class with methods decorated with `@supply`:**
 ```python
-from anycall import AnycallContext, supply
+from anycall import AnyCallContext, supply
 from dataclasses import dataclass
 
 @dataclass
@@ -18,7 +18,7 @@ class Sentiment:
 
 class SentimentAnalyzer:
     @supply("analyze-sentiment")
-    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
+    def analyze_sentiment(self, ctx: AnyCallContext, req: TextRequest) -> Sentiment:
         return Sentiment(text=req.text, label="positive")
 ```
 
@@ -26,7 +26,7 @@ class SentimentAnalyzer:
 that operation a single server instance may process at the same time.
 ```python
     @supply("analyze-sentiment", max_concurrency=4)
-    def analyze_sentiment(self, ctx: AnycallContext, req: TextRequest) -> Sentiment:
+    def analyze_sentiment(self, ctx: AnyCallContext, req: TextRequest) -> Sentiment:
         ...
 ```
 

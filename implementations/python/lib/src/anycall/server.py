@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Optional
 import redis.exceptions
 
 from . import queues
-from .context import AnycallContext
+from .context import AnyCallContext
 from .exceptions import AnyCallError
 from .model import AnyCallRequest, AnyCallResponse, read_reply_address
 from .options import DEFAULT_SERVER_OPTIONS, ServerOptions
@@ -142,9 +142,9 @@ class _Count:
 @dataclass
 class MethodHandler:
     """A method a server serves: how it's declared, and the function that
-    runs it, called with (AnycallContext, request)."""
+    runs it, called with (AnyCallContext, request)."""
     declared: SupplyMethod
-    handler: Callable[[AnycallContext, Any], Any]
+    handler: Callable[[AnyCallContext, Any], Any]
 
     @property
     def method_name(self) -> str:
@@ -166,7 +166,7 @@ def scan_supplier(supplier: Any) -> list[MethodHandler]:
     mistakes.
 
     Raises:
-        ValueError: If one doesn't take (AnycallContext, <request>) with the
+        ValueError: If one doesn't take (AnyCallContext, <request>) with the
             request's type annotated
     """
     handlers = []
@@ -176,11 +176,11 @@ def scan_supplier(supplier: Any) -> list[MethodHandler]:
         params = list(inspect.signature(method).parameters.values())
         if len(params) != 2:
             raise ValueError(
-                f"Method {name} must have exactly 2 parameters (AnycallContext, <request type>), "
+                f"Method {name} must have exactly 2 parameters (AnyCallContext, <request type>), "
                 f"got {len(params)}"
             )
-        if params[0].annotation is not AnycallContext:
-            raise ValueError(f"Method {name} must declare AnycallContext as its first parameter")
+        if params[0].annotation is not AnyCallContext:
+            raise ValueError(f"Method {name} must declare AnyCallContext as its first parameter")
         parameter_type = params[1].annotation
         if parameter_type == inspect.Parameter.empty:
             raise ValueError(f"Method {name} parameter must have a type annotation")
@@ -237,7 +237,7 @@ class AnyCallServer(ABC):
 
     @abstractmethod
     def register_method(
-        self, declared: SupplyMethod, handler: Callable[[AnycallContext, Any], Any]
+        self, declared: SupplyMethod, handler: Callable[[AnyCallContext, Any], Any]
     ) -> "AnyCallServer":
         """Serve one method, run by `handler(ctx, request)`, under
         `declared.name`: its request is read into `declared.request_type`, at
@@ -426,7 +426,7 @@ class AnyCallServerImpl(AnyCallServer):
         return self
 
     def register_method(
-        self, declared: SupplyMethod, handler: Callable[[AnycallContext, Any], Any]
+        self, declared: SupplyMethod, handler: Callable[[AnyCallContext, Any], Any]
     ) -> "AnyCallServer":
         if not isinstance(declared.name, str) or not declared.name.strip():
             raise ValueError("A method needs a name")
@@ -713,7 +713,7 @@ class AnyCallServerImpl(AnyCallServer):
 
             param = deserialize(rpc_request.payload, handler.parameter_type)
 
-            ctx = AnycallContext(request_id=rpc_request.request_id, method_name=rpc_request.method_name)
+            ctx = AnyCallContext(request_id=rpc_request.request_id, method_name=rpc_request.method_name)
             result = handler.handler(ctx, param)
 
             result_json = serialize(result)

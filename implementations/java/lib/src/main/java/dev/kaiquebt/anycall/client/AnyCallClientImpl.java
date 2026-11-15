@@ -8,8 +8,8 @@ import dev.kaiquebt.anycall.core.CallOptions;
 import dev.kaiquebt.anycall.exception.*;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
-import dev.kaiquebt.anycall.publisher.AnycallQueues;
-import dev.kaiquebt.anycall.publisher.AnycallReaping;
+import dev.kaiquebt.anycall.publisher.AnyCallQueues;
+import dev.kaiquebt.anycall.publisher.AnyCallReaping;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.KeyValue;
@@ -51,7 +51,7 @@ public class AnyCallClientImpl implements AnyCallClient {
     private static final Duration COMMAND_TIMEOUT_MARGIN = Duration.ofSeconds(5);
     // The reader blocks on the response queue in slices of at most this long; after each one
     // that ends empty while calls are waiting, it reaps dead servers itself (see
-    // AnycallReaping), so their requests are failed back even with no server left alive to
+    // AnyCallReaping), so their requests are failed back even with no server left alive to
     // do it.
     private static final Duration WAITER_REAP_SLICE = Duration.ofSeconds(10);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -71,7 +71,7 @@ public class AnyCallClientImpl implements AnyCallClient {
     private volatile Long maxQueueDepth;
     private final TypeRegistry registry;
     private final String clientId = UUID.randomUUID().toString();
-    private final AnycallQueues queues;
+    private final AnyCallQueues queues;
     private final String responseQueue;
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
     private final AsyncCalls asyncCalls = new AsyncView();
@@ -86,11 +86,11 @@ public class AnyCallClientImpl implements AnyCallClient {
      * @param queues   the keys this client publishes to and reads from
      * @param defaults every call's settings; a setting left out means no limit
      */
-    public AnyCallClientImpl(String redisUri, AnycallQueues queues, CallOptions defaults) {
+    public AnyCallClientImpl(String redisUri, AnyCallQueues queues, CallOptions defaults) {
         if (redisUri == null || redisUri.isEmpty()) {
             throw new IllegalArgumentException("AnyCall Client: redisUri must not be null or blank");
         }
-        this.queues = queues == null ? AnycallQueues.DEFAULT : queues;
+        this.queues = queues == null ? AnyCallQueues.DEFAULT : queues;
         this.responseQueue = this.queues.responseQueue(clientId);
         updateDefaults(defaults);
         this.registry = new TypeRegistry();
@@ -478,7 +478,7 @@ public class AnyCallClientImpl implements AnyCallClient {
      */
     private void reap(RedisCommands<String, String> reap) {
         try {
-            AnycallReaping.reapDeadServers(reap, queues, AnycallReaping.staleServers(reap, queues));
+            AnyCallReaping.reapDeadServers(reap, queues, AnyCallReaping.staleServers(reap, queues));
         } catch (Exception e) {
             log.warn("Failed to reap dead servers: {}", e.getMessage());
         }

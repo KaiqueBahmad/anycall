@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class AnycallContext:
+class AnyCallContext:
     """Per-invocation context passed as the first parameter to every @supply method.
 
     Reserved for future additions (e.g. auth, tracing, metadata) without requiring

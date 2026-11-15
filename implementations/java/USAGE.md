@@ -6,7 +6,7 @@
 ```java
 public class SentimentAnalyzer {
     @Supply(methodName = "analyze-sentiment")
-    public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
+    public Sentiment analyzeSentiment(AnyCallContext ctx, TextRequest req) {
         return new Sentiment(req.text(), "positive");
     }
 }
@@ -17,7 +17,7 @@ this method a single server instance will process at the same time.
 
 ```java
 @Supply(methodName = "analyze-sentiment", maxConcurrency = 4)
-public Sentiment analyzeSentiment(AnycallContext ctx, TextRequest req) {
+public Sentiment analyzeSentiment(AnyCallContext ctx, TextRequest req) {
     return new Sentiment(req.text(), "positive");
 }
 ```
@@ -52,8 +52,8 @@ server.setMaxConcurrency("analyze-sentiment", 8);
 The same view of an object before registering it, checked the way `register`
 checks it:
 ```java
-AnycallUtils.methods(new SentimentAnalyzer());                          // [analyze-sentiment]
-AnycallUtils.method(new SentimentAnalyzer(), "analyze-sentiment");      // SupplyMethod[..., maxConcurrency=4, requestType=class TextRequest, responseType=class Sentiment]
+AnyCallUtils.methods(new SentimentAnalyzer());                          // [analyze-sentiment]
+AnyCallUtils.method(new SentimentAnalyzer(), "analyze-sentiment");      // SupplyMethod[..., maxConcurrency=4, requestType=class TextRequest, responseType=class Sentiment]
 ```
 
 `close()` stops the server, as `stop()` does, then closes its Redis
@@ -71,7 +71,7 @@ A method can also be served without a class, as a function under a name. Its
 `maxConcurrency`, and request and response types:
 ```java
 server.register(new SupplyMethod("shout", 4, String.class, String.class),
-    (AnycallContext ctx, String text) -> text.toUpperCase());
+    (AnyCallContext ctx, String text) -> text.toUpperCase());
 ```
 
 ### Key prefix
