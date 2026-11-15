@@ -69,6 +69,7 @@ same response queue.
 | register | makes methods servable, each under a name, with a `max_concurrency` (default 1); registering a name again replaces it |
 | unregister | stops serving one method, by name |
 | start, stop, is running | start heartbeats then takes; stop finishes what was taken |
+| close | stops, then releases every connection; a closed server can't start again; again is a no-op |
 | server id | the instance's id |
 | options | the server's options, each setting set |
 | update options(options) | while it runs: what `options` set replaces the server's, what they leave out stays; a lower `max_concurrency` lets what's running finish |

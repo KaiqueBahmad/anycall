@@ -147,6 +147,7 @@ public class AnyCallServerImpl implements AnyCallServer {
     private final Map<String, AtomicInteger> runningRequests = new ConcurrentHashMap<>();
     private final Set<String> inFlightRequestIds;
     private final AtomicBoolean running;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AnycallQueues queues;
     // The server-wide cap; updateOptions may change it while requests run.
     private final ConcurrencyLimit globalConcurrencyLimiter;
@@ -190,9 +191,13 @@ public class AnyCallServerImpl implements AnyCallServer {
      * @return this server instance for method chaining
      * @throws AnyCallError if the first heartbeat fails; the server is left stopped and can
      *                      be started again
+     * @throws IllegalStateException if the server is closed
      */
     @Override
     public synchronized AnyCallServer start() {
+        if (closed.get()) {
+            throw new IllegalStateException("AnyCall Server: closed, can't be started again");
+        }
         if (!running.get()) {
             // A restart starts clean: the last run's id ages out with an empty list.
             if (identity.registered) {
@@ -332,6 +337,31 @@ public class AnyCallServerImpl implements AnyCallServer {
             workers.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Stops the server, then closes its connections and Redis client. If the stop was
+     * interrupted, requests given up on may still be running; their responses then fail to
+     * send, as the stop's interrupt already promised.
+     */
+    @Override
+    public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+        stop();
+        // An interrupted stop leaves the flag set, which would make the shutdown below give up.
+        boolean interrupted = Thread.interrupted();
+        try {
+            reapConnection.close();
+            writeConnection.close();
+            redisClient.shutdown();
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        log.info("Closed AnyCall server");
     }
 
     /**

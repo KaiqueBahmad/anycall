@@ -204,6 +204,23 @@ class AnyCallServer(ABC):
         pass
 
     @abstractmethod
+    def close(self) -> None:
+        """Stop the server as `stop` does, then close its Redis connections.
+        A closed server can't be started again. Closing again does nothing.
+
+            with AnyCall.server(redis_url) as server:
+                server.register(SentimentAnalyzer()).start()
+                ...
+        """
+        pass
+
+    def __enter__(self) -> "AnyCallServer":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    @abstractmethod
     def is_running(self) -> bool:
         """Check if server is running."""
         pass
@@ -322,6 +339,7 @@ class AnyCallServerImpl(AnyCallServer):
         # across a method registered again, whose old requests may still run.
         self._running_requests: Dict[str, _Count] = {}
         self._running = False
+        self._closed = False
         self._running_lock = threading.Lock()
         self._executor: Optional[ThreadPoolExecutor] = None
         self._threads: list[threading.Thread] = []
@@ -398,8 +416,11 @@ class AnyCallServerImpl(AnyCallServer):
         Raises:
             AnyCallError: If the first heartbeat fails; the server is left
                 stopped and can be started again.
+            RuntimeError: If the server is closed.
         """
         with self._running_lock:
+            if self._closed:
+                raise RuntimeError("AnyCall Server: closed, can't be started again")
             if self._running:
                 return self
 
@@ -695,6 +716,16 @@ class AnyCallServerImpl(AnyCallServer):
             thread.join()
         if self._executor:
             self._executor.shutdown(wait=True)
+
+    def close(self) -> None:
+        """Stop the server, then close its Redis connections."""
+        with self._running_lock:
+            if self._closed:
+                return
+            self._closed = True
+        self.stop()
+        self.redis.close()
+        logger.info("Closed AnyCall server")
 
     def is_running(self) -> bool:
         """Check if server is running."""

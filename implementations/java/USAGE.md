@@ -48,6 +48,16 @@ AnycallUtils.methods(new SentimentAnalyzer());                          // [anal
 AnycallUtils.method(new SentimentAnalyzer(), "analyze-sentiment");      // SupplyMethod[..., maxConcurrency=4, requestType=class TextRequest, responseType=class Sentiment]
 ```
 
+`close()` stops the server, as `stop()` does, then closes its Redis
+connections; a closed server can't be started again. Servers are
+`AutoCloseable`:
+```java
+try (AnyCallServer server = AnyCall.server(redisUri)) {
+    server.register(new SentimentAnalyzer()).start();
+    ...
+}
+```
+
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and
 a server see each other only under the same prefix, and it's fixed once they're

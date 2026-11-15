@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- `close()` on a server stops it and closes its Redis connections. Java servers are `AutoCloseable`, Python ones work with `with`
+
 ## [0.9] - 2026-11-14
 
 ### Added

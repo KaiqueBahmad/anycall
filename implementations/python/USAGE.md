@@ -68,6 +68,15 @@ utils.methods(SentimentAnalyzer())                          # ['analyze-sentimen
 utils.method(SentimentAnalyzer(), "analyze-sentiment")       # SupplyMethod(..., max_concurrency=4, request_type=TextRequest, response_type=Sentiment)
 ```
 
+`close()` stops the server, as `stop()` does, then closes its Redis
+connections; a closed server can't be started again. A server works with
+`with`:
+```python
+with AnyCall.server(redis_uri) as server:
+    server.register(SentimentAnalyzer()).start()
+    ...
+```
+
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and
 a server see each other only under the same prefix, and it's fixed once they're

@@ -39,6 +39,7 @@ class FakeRedisAdapter:
         self.reaped: list[str] = []
         self.dropped_tombstones: list[str] = []
         self.tombstoned: set[str] = set()
+        self.closes = 0
 
     def detect_blmove(self) -> bool:
         return True
@@ -71,6 +72,9 @@ class FakeRedisAdapter:
 
     def release(self, processing_key: str, item: str):
         self.released.append(item)
+
+    def close(self):
+        self.closes += 1
 
 
 def make_server(adapter: FakeRedisAdapter) -> AnyCallServer:
@@ -110,6 +114,37 @@ def test_start_can_be_retried_after_first_heartbeat_fails():
         assert adapter.takes > 0
     finally:
         server.stop()
+
+
+def test_close_stops_the_server_and_closes_its_connections_once():
+    adapter = FakeRedisAdapter()
+    server = make_server(adapter)
+    server.start()
+
+    server.close()
+    server.close()
+
+    assert not server.is_running()
+    assert adapter.closes == 1
+    with pytest.raises(RuntimeError, match="closed"):
+        server.start()
+
+
+def test_a_server_closes_at_the_end_of_a_with_block():
+    adapter = FakeRedisAdapter()
+    with make_server(adapter) as server:
+        server.start()
+        assert server.is_running()
+
+    assert not server.is_running()
+    assert adapter.closes == 1
+
+
+def test_a_server_never_started_closes_its_connections_too():
+    adapter = FakeRedisAdapter()
+    make_server(adapter).close()
+
+    assert adapter.closes == 1
 
 
 def process(adapter: FakeRedisAdapter, item: str) -> None:

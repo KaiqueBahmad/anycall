@@ -4,7 +4,7 @@ package dev.kaiquebt.anycall.core;
  * Server interface for processing remote procedure calls from Redis.
  * Manages the lifecycle and state of an AnyCall server that listens for and processes remote method invocations.
  */
-public interface AnyCallServer {
+public interface AnyCallServer extends AutoCloseable {
 
     /**
      * Starts the server and begins processing incoming requests from Redis.
@@ -22,6 +22,20 @@ public interface AnyCallServer {
      * This method is idempotent - calling it multiple times on an already stopped server has no effect.
      */
     void stop();
+
+    /**
+     * Stops the server as {@link #stop()} does, then closes its Redis connections. A closed
+     * server can't be started again. Idempotent.
+     *
+     * <pre>{@code
+     * try (AnyCallServer server = AnyCall.server(redisUri)) {
+     *     server.register(new SentimentAnalyzer()).start();
+     *     ...
+     * }
+     * }</pre>
+     */
+    @Override
+    void close();
 
     /**
      * Checks if the server is currently running and processing requests.
