@@ -77,6 +77,15 @@ with AnyCall.server(redis_uri) as server:
     ...
 ```
 
+A method can also be served without a class, as a function under a name. Its
+`SupplyMethod` gives what `@supply` and the method's signature would: the name,
+`max_concurrency`, and request and response types:
+```python
+from anycall import SupplyMethod
+
+server.register_method(SupplyMethod("shout", 4, str, str), lambda ctx, text: text.upper())
+```
+
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and
 a server see each other only under the same prefix, and it's fixed once they're

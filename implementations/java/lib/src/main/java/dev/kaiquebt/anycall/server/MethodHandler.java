@@ -1,24 +1,25 @@
 package dev.kaiquebt.anycall.server;
 
+import dev.kaiquebt.anycall.core.SupplyHandler;
 import dev.kaiquebt.anycall.core.SupplyMethod;
 
-import java.lang.reflect.Method;
-
 /**
- * A remotely callable method found on a supplier object: what a server needs to invoke it
- * when one of its requests arrives. Internal; see {@link SupplyScanner}.
+ * A method a server serves: how it's declared, and what runs it. Internal.
  *
- * @param methodName     the name it's served under, from {@code @Supply(methodName)}
- * @param bean           the object instance containing the method
- * @param method         the Method object to invoke
- * @param parameterType  the class type of the request, its second parameter
- * @param maxConcurrency its {@code @Supply(maxConcurrency)}
+ * @param declared its name, {@code maxConcurrency}, and request and response types
+ * @param handler  what runs it
  */
-public record MethodHandler(String methodName, Object bean, Method method, Class<?> parameterType,
-                            int maxConcurrency) {
+public record MethodHandler(SupplyMethod declared, SupplyHandler<Object, Object> handler) {
 
-    /** The method as declared: its {@code @Supply} values and its request and response types. */
-    public SupplyMethod declared() {
-        return new SupplyMethod(methodName, maxConcurrency, parameterType, method.getReturnType());
+    public String methodName() {
+        return declared.name();
+    }
+
+    public int maxConcurrency() {
+        return declared.maxConcurrency();
+    }
+
+    public Class<?> parameterType() {
+        return declared.requestType();
     }
 }

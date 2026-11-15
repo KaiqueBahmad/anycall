@@ -10,7 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A server serves a function under a name: `register(SupplyMethod, handler)` in Java, `register_method` in Python
 - `close()` on a server stops it and closes its Redis connections. Java servers are `AutoCloseable`, Python ones work with `with`
+
+### Fixed
+- Java: a handler's exception reaches the client with its own message, not `java.lang.reflect.InvocationTargetException`. solves #15
 
 ## [0.9] - 2026-11-14
 

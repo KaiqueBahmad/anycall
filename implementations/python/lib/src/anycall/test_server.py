@@ -404,3 +404,42 @@ def test_set_max_concurrency_rejects_bad_values_and_unknown_methods():
         server.set_max_concurrency("echo", True)
     with pytest.raises(KeyError):
         server.set_max_concurrency("missing", 3)
+
+
+def test_a_function_registered_with_its_declaration_is_served():
+    adapter = FakeRedisAdapter()
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, adapter))
+    server.register_method(SupplyMethod("shout", 3, str, str), lambda ctx, text: text.upper())
+
+    assert server.methods == ["shout"]
+    assert server.method("shout") == MethodInfo(3, 0, SupplyMethod("shout", 3, str, str))
+
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "shout", "payload": '"hi"'})
+    server._process_request(server.method_handlers["shout"], item, server._identity)
+    assert adapter.responses["anycall:responses:c1"]["payload"] == '"HI"'
+
+
+def test_what_a_registered_function_raises_is_its_calls_error():
+    adapter = FakeRedisAdapter()
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, adapter))
+
+    def fails(ctx, request):
+        raise ValueError("text is empty")
+
+    server.register_method(SupplyMethod("shout", 1, str, str), fails)
+    item = json.dumps({"requestId": "r1", "clientId": "c1", "methodName": "shout", "payload": '""'})
+    server._process_request(server.method_handlers["shout"], item, server._identity)
+
+    assert adapter.responses["anycall:responses:c1"]["error"] == "text is empty"
+
+
+def test_register_method_rejects_a_bad_declaration_or_handler():
+    server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter()))
+
+    with pytest.raises(ValueError, match="needs a name"):
+        server.register_method(SupplyMethod(" ", 1, str, str), lambda ctx, r: r)
+    with pytest.raises(ValueError, match="at least 1"):
+        server.register_method(SupplyMethod("x", 0, str, str), lambda ctx, r: r)
+    with pytest.raises(TypeError, match="callable"):
+        server.register_method(SupplyMethod("x", 1, str, str), "not a function")
+    assert server.methods == []

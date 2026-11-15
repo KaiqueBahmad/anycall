@@ -55,6 +55,23 @@ public interface AnyCallServer extends AutoCloseable {
     AnyCallServer register(Object... suppliers);
 
     /**
+     * Serves one method, run by {@code handler}, under {@code declared.name()}: its request is
+     * read into {@code declared.requestType()}, at most {@code declared.maxConcurrency()} run at
+     * once, and {@code declared.responseType()} is only reported by {@link #method}. As with
+     * {@link #register(Object...)}, a name registered again replaces the old method, and if the
+     * server is running, it starts taking the method's requests at once.
+     *
+     * <pre>{@code
+     * server.register(new SupplyMethod("shout", 4, String.class, String.class),
+     *     (AnycallContext ctx, String text) -> text.toUpperCase());
+     * }</pre>
+     *
+     * @throws IllegalArgumentException if the name is blank, {@code maxConcurrency} is below 1,
+     *                                  or the request type or handler is missing
+     */
+    AnyCallServer register(SupplyMethod declared, SupplyHandler<?, ?> handler);
+
+    /**
      * The server's settings, each set: a server-wide cap or no cap.
      *
      * @return a snapshot of the server's settings

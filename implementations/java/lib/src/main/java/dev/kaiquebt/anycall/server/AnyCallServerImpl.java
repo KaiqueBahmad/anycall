@@ -5,6 +5,8 @@ import dev.kaiquebt.anycall.core.AnyCallServer;
 import dev.kaiquebt.anycall.core.AnycallContext;
 import dev.kaiquebt.anycall.core.MethodInfo;
 import dev.kaiquebt.anycall.core.ServerOptions;
+import dev.kaiquebt.anycall.core.SupplyHandler;
+import dev.kaiquebt.anycall.core.SupplyMethod;
 import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
@@ -295,21 +297,44 @@ public class AnyCallServerImpl implements AnyCallServer {
         }
         return this;
     }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public AnyCallServer register(SupplyMethod declared, SupplyHandler<?, ?> handler) {
+        if (declared == null || declared.name() == null || declared.name().isBlank()) {
+            throw new IllegalArgumentException("AnyCall Server: a method needs a name");
+        }
+        if (declared.maxConcurrency() < 1) {
+            throw new IllegalArgumentException("AnyCall Server: " + declared.name() + " has maxConcurrency "
+                + declared.maxConcurrency() + "; it must be at least 1");
+        }
+        if (declared.requestType() == null || handler == null) {
+            throw new IllegalArgumentException("AnyCall Server: " + declared.name()
+                + " needs a request type and a handler");
+        }
+        registerHandler(new MethodHandler(declared, (SupplyHandler<Object, Object>) handler));
+        return this;
+    }
+
     private void scanAndRegisterSupplier(Object supplier) {
         for (MethodHandler handler : SupplyScanner.scan(supplier)) {
-            String methodName = handler.methodName();
-            synchronized (this) {
-                methodConcurrencyLimiters.put(methodName, new ConcurrencyLimit(handler.maxConcurrency()));
-                runningRequests.computeIfAbsent(methodName, name -> new AtomicInteger());
-                // Replacing a handler makes the old one's loop exit on its next
-                // iteration; the new one gets a loop of its own.
-                methodHandlers.put(methodName, handler);
-                if (running.get()) {
-                    startReader(methodName, handler);
-                }
-            }
-            log.debug("Registered supplier method: {} (maxConcurrency={})", methodName, handler.maxConcurrency());
+            registerHandler(handler);
         }
+    }
+
+    private void registerHandler(MethodHandler handler) {
+        String methodName = handler.methodName();
+        synchronized (this) {
+            methodConcurrencyLimiters.put(methodName, new ConcurrencyLimit(handler.maxConcurrency()));
+            runningRequests.computeIfAbsent(methodName, name -> new AtomicInteger());
+            // Replacing a handler makes the old one's loop exit on its next
+            // iteration; the new one gets a loop of its own.
+            methodHandlers.put(methodName, handler);
+            if (running.get()) {
+                startReader(methodName, handler);
+            }
+        }
+        log.debug("Registered method: {} (maxConcurrency={})", methodName, handler.maxConcurrency());
     }
 
     /**
@@ -674,7 +699,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             Object parameter = OBJECT_MAPPER.readValue(request.payload(), handler.parameterType());
 
             AnycallContext ctx = new AnycallContext(requestId, methodName);
-            Object result = handler.method().invoke(handler.bean(), ctx, parameter);
+            Object result = handler.handler().handle(ctx, parameter);
 
             String resultJson = OBJECT_MAPPER.writeValueAsString(result);
 

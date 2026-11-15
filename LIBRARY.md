@@ -67,6 +67,7 @@ same response queue.
 | Operation | Behavior |
 |---|---|
 | register | makes methods servable, each under a name, with a `max_concurrency` (default 1); registering a name again replaces it |
+| register method(declaration, handler) | serves one function under the declaration's name, request type and `max_concurrency`, as register does |
 | unregister | stops serving one method, by name |
 | start, stop, is running | start heartbeats then takes; stop finishes what was taken |
 | close | stops, then releases every connection; a closed server can't start again; again is a no-op |

@@ -2,7 +2,10 @@ package dev.kaiquebt.anycall.server;
 
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnycallContext;
+import dev.kaiquebt.anycall.core.SupplyHandler;
+import dev.kaiquebt.anycall.core.SupplyMethod;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,9 +50,30 @@ public final class SupplyScanner {
                         + supply.maxConcurrency() + "; it must be at least 1");
             }
             method.setAccessible(true);
-            handlers.add(new MethodHandler(supply.methodName(), supplier, method, method.getParameterTypes()[1],
-                supply.maxConcurrency()));
+            SupplyMethod declared = new SupplyMethod(supply.methodName(), supply.maxConcurrency(),
+                method.getParameterTypes()[1], method.getReturnType());
+            handlers.add(new MethodHandler(declared, invoking(supplier, method)));
         }
         return handlers;
+    }
+
+    /**
+     * Runs {@code method} on {@code supplier}, throwing what the method throws rather than the
+     * {@link InvocationTargetException} reflection wraps it in.
+     */
+    public static SupplyHandler<Object, Object> invoking(Object supplier, Method method) {
+        return (ctx, request) -> {
+            try {
+                return method.invoke(supplier, ctx, request);
+            } catch (InvocationTargetException e) {
+                if (e.getCause() instanceof Exception cause) {
+                    throw cause;
+                }
+                if (e.getCause() instanceof Error error) {
+                    throw error;
+                }
+                throw e;
+            }
+        };
     }
 }

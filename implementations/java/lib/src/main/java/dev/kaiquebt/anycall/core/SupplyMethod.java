@@ -1,9 +1,10 @@
 package dev.kaiquebt.anycall.core;
 
 /**
- * A supply method as its object declares it, from {@link AnycallUtils#method}: what a server
- * would serve if the object were registered. For a method a server is running, with values
- * that can change, see {@link MethodInfo}.
+ * A supply method as declared: from an object's {@code @Supply}, as {@link AnycallUtils#method}
+ * reads it, or given to {@link AnyCallServer#register(SupplyMethod, SupplyHandler)} with the
+ * handler that runs it. For a method a server is running, with values that can change, see
+ * {@link MethodInfo}.
  *
  * @param name           the name it's served under, from {@code @Supply(methodName)}
  * @param maxConcurrency its {@code @Supply(maxConcurrency)}

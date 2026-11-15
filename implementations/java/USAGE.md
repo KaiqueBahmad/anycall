@@ -58,6 +58,14 @@ try (AnyCallServer server = AnyCall.server(redisUri)) {
 }
 ```
 
+A method can also be served without a class, as a function under a name. Its
+`SupplyMethod` gives what `@Supply` and the method's signature would: the name,
+`maxConcurrency`, and request and response types:
+```java
+server.register(new SupplyMethod("shout", 4, String.class, String.class),
+    (AnycallContext ctx, String text) -> text.toUpperCase());
+```
+
 ### Key prefix
 Every key starts with `anycall` unless another prefix is given. A client and
 a server see each other only under the same prefix, and it's fixed once they're

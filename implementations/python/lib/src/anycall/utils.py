@@ -26,4 +26,4 @@ def method(supplier: Any, method_name: str) -> SupplyMethod:
     found = [handler for handler in scan_supplier(supplier) if handler.method_name == method_name]
     if not found:
         raise KeyError(f"{type(supplier).__name__} has no @supply method {method_name!r}")
-    return found[-1].declared()
+    return found[-1].declared
