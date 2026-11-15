@@ -11,6 +11,7 @@
 
     <modules>
         <module>lib</module>
+        <module>../../integrations/spring</module>
         <module>example-consumer</module>
         <module>example-supplier</module>
     </modules>

@@ -26,7 +26,7 @@ Add the Maven dependency to your `pom.xml`:
 <dependency>
     <groupId>dev.kaiquebt.anycall</groupId>
     <artifactId>anycall</artifactId>
-    <version>0.1.1</version>
+    <version>0.10.0</version>
 </dependency>
 ```
 
@@ -37,8 +37,26 @@ cd implementations/java
 mvn clean install
 ```
 
-This installs the `anycall` library to your local Maven repository as
-`dev.kaiquebt.anycall:anycall:0-SNAPSHOT`.
+This installs the `anycall` library and `anycall-spring` to your local Maven
+repository as `dev.kaiquebt.anycall:anycall:0-SNAPSHOT` and
+`dev.kaiquebt.anycall:anycall-spring:0-SNAPSHOT`.
+
+### Spring Boot
+
+Add `anycall-spring`, which brings `anycall` in:
+
+```xml
+<dependency>
+    <groupId>dev.kaiquebt.anycall</groupId>
+    <artifactId>anycall-spring</artifactId>
+    <version>0.10.0</version>
+</dependency>
+```
+
+To take a fix of `anycall` before `anycall-spring` has a release with it,
+declare `anycall` too, of the same contract (`X.Y`): their versions may differ
+in the last number. With one of another contract, the application fails at
+startup and says which `anycall` to use.
 
 ---
 
@@ -64,6 +82,11 @@ This installs the `anycall` library to your local Maven repository as
   - `lettuce-core` — Async Redis client
   - `jackson-databind` — JSON serialization
   - `junit-jupiter` — Testing framework (optional)
+
+### Spring Boot
+
+- Spring Boot 3
+- If the application declares `anycall` itself, one of the same contract as `anycall-spring`
 
 ---
 
@@ -175,6 +198,16 @@ docker run -d -p 16379:6379 redis:7-alpine
 export REDIS_URI="redis://your-redis-host:16379"
 ```
 
+### "anycall-spring ... is for contract ..., but anycall ... is of contract ..."
+
+`anycall` and `anycall-spring` must share the contract, the `X.Y` of their
+versions. Use the `anycall` the message names, and check what in your build (a
+direct declaration, a BOM, a `dependencyManagement`) pins the one you have:
+
+```bash
+mvn dependency:tree -Dincludes=dev.kaiquebt.anycall
+```
+
 ### Java compilation fails
 
 Ensure you have Java 17+ and Maven 3.8+:
@@ -192,4 +225,5 @@ After installation, see:
 
 - **Python**: [implementations/python/USAGE.md](implementations/python/USAGE.md)
 - **Java**: [implementations/java/USAGE.md](implementations/java/USAGE.md)
+- **Spring Boot**: [integrations/spring/README.md](integrations/spring/README.md)
 - **Root**: [README.md](README.md) for architectural overview
