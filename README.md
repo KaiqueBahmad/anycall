@@ -64,8 +64,7 @@ else. Either language can be the server or the client.
 | **Java** 17+ | `dev.kaiquebt.anycall:anycall` | [Usage](implementations/java/USAGE.md) |
 | **Spring Boot** 3.5 or 4 | `dev.kaiquebt.anycall:anycall-spring` | [Usage](integrations/spring/README.md) |
 
-You need a Redis 5.0 or later. To try anycall locally, `docker compose up -d`
-in this repository starts one on `localhost:16379`.
+You need a Redis 5.0 or later.
 
 → [Installation guide](INSTALLATION.md): Maven snippets, building from source
 and troubleshooting.
