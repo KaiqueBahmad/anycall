@@ -37,6 +37,7 @@ git push origin v1.3
 
 **What happens:**
 - GitHub Actions publishes Java 1.3.0 to Maven Central
+- GitHub Actions publishes `anycall-spring` 1.3.0 to Maven Central, bringing in anycall 1.3.0
 - GitHub Actions publishes Python 1.3.0 to PyPI (when configured)
 
 ---
@@ -82,6 +83,24 @@ git push origin python-v1.2.1
 
 ---
 
+### Type 4: Spring Patch Release
+
+Use when fixing `anycall-spring` (`integrations/spring`), or to make it bring in
+a newer anycall patch. Its patch number is its own: `anycall-spring` 1.2.1 may
+bring in anycall 1.2.3.
+
+```bash
+git tag spring-v1.2.1
+git push origin spring-v1.2.1
+```
+
+**What happens:**
+- GitHub Actions finds the newest anycall 1.2.x on Maven Central and publishes
+  `anycall-spring` 1.2.1 bringing it in
+- It fails if no anycall 1.2.x is on Maven Central yet
+
+---
+
 ## Checklist Before Each Release
 
 ### All Releases
@@ -97,7 +116,7 @@ git push origin python-v1.2.1
 - [ ] Update all build files to X.Y.0
 - [ ] Announce breaking changes (if any) in CHANGELOG
 
-### Patch Releases Only (java-v1.2.1)
+### Patch Releases Only (java-v1.2.1, python-v1.2.1, spring-v1.2.1)
 - [ ] Only update ONE language version
 - [ ] Do NOT update contract version
 
@@ -130,6 +149,8 @@ Online:
 
 ## CI/CD Workflow Files
 
-- `.github/workflows/test.yml` - Runs on every push to main (unit tests)
-- `.github/workflows/release.yml` - Triggers on `v*` and `java-v*` tags (publishes to Maven Central)
-- `.github/workflows/release-python.yml` - (TBD) Triggers on `python-v*` tags
+- `.github/workflows/release-contract.yml` - Triggers on `vX.Y` tags: publishes Java and `anycall-spring` X.Y.0 to Maven Central and Python X.Y.0 to PyPI, and makes the GitHub release
+- `.github/workflows/release-java.yml` - Triggers on `java-v*` tags: publishes a Java patch
+- `.github/workflows/release-python.yml` - Triggers on `python-v*` tags: publishes a Python patch
+- `.github/workflows/release-spring.yml` - Triggers on `spring-v*` tags: publishes an `anycall-spring` patch
+- `.github/workflows/test-spring.yml` - Runs on pushes and PRs that touch the Java lib or `integrations/spring`: `anycall-spring`'s tests on Spring Boot 3.5 and 4

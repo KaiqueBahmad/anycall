@@ -64,11 +64,25 @@ jobs:
             -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
             -Dorg.slf4j.simpleLogger.defaultLogLevel=info
 
+      # A new contract needs its anycall-spring: the one before fails the contract check
+      # against this anycall. It's built against the anycall deployed just above, which the
+      # deploy also installed locally.
+      - name: Deploy Spring to Maven Central
+        run: |
+          cd integrations/spring
+          mvn deploy -P release \
+            -Drevision="${{ steps.version.outputs.version }}" \
+            -Danycall.version="${{ steps.version.outputs.version }}" \
+            -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
+            -Dorg.slf4j.simpleLogger.defaultLogLevel=info
+
       - name: Upload jar artifact
         uses: actions/upload-artifact@v4
         with:
           name: java-jar
-          path: implementations/java/lib/target/anycall-${{ steps.version.outputs.version }}.jar
+          path: |
+            implementations/java/lib/target/anycall-${{ steps.version.outputs.version }}.jar
+            integrations/spring/target/anycall-spring-${{ steps.version.outputs.version }}.jar
           if-no-files-found: error
 
   release-python:

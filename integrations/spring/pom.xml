@@ -21,6 +21,20 @@
         </license>
     </licenses>
 
+    <developers>
+        <developer>
+            <name>Kaique</name>
+            <email>kaiquebahmadt@gmail.com</email>
+            <organization>dev.kaiquebt</organization>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/KaiqueBahmad/anycall.git</connection>
+        <developerConnection>scm:git:ssh://github.com/KaiqueBahmad/anycall.git</developerConnection>
+        <url>https://github.com/KaiqueBahmad/anycall</url>
+    </scm>
+
     <properties>
         <revision>0-SNAPSHOT</revision>
         <!-- The anycall this module brings in. Applications may override it with another of
@@ -82,6 +96,37 @@
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
+            <!-- Publishes the -sources.jar and -javadoc.jar Maven Central requires -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <configuration>
+                    <doclint>none</doclint>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Publishes a pom with versions written out: ${revision} and ${anycall.version}
                  would otherwise reach users as 0-SNAPSHOT -->
             <plugin>
@@ -122,4 +167,39 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <!-- Signs every artifact, as Maven Central requires -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.4</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.11.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <tokenAuth>true</tokenAuth>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
