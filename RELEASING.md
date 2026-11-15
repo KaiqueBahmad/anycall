@@ -35,11 +35,16 @@ Use when adding features or making changes that affect all implementations.
 **Example**: Releasing contract 1.3 with new RPC features
 
 ```bash
-# 1. Update pom.xml, setup.py, Cargo.toml to 1.3.0
-# 2. Update CHANGELOG.md with [1.3] section
-# 3. Update VERSIONS.md
+# 1. CHANGELOG.md: [Unreleased] becomes [1.3] - <date>; it says which protocol
+#    1.3 speaks
+# 2. Python's version, the one place a version is written down (Java's and
+#    anycall-spring's come from the tag):
+#    implementations/python/lib/pyproject.toml, implementations/python/uv.lock
+#    and tools/visualizer/uv.lock to 1.3.0
+# 3. Only if 1.3 changes the protocol: PROTOCOL.md's title to Protocol 1.3
 
-git add implementations/java/pom.xml implementations/python/setup.py CHANGELOG.md VERSIONS.md
+git add CHANGELOG.md implementations/python/lib/pyproject.toml \
+    implementations/python/uv.lock tools/visualizer/uv.lock
 git commit -m "chore(release): bump contract to 1.3"
 
 # 4. Tag and push
@@ -50,7 +55,8 @@ git push origin v1.3
 **What happens:**
 - GitHub Actions publishes Java 1.3.0 to Maven Central
 - GitHub Actions publishes `anycall-spring` 1.3.0 to Maven Central, bringing in anycall 1.3.0
-- GitHub Actions publishes Python 1.3.0 to PyPI (when configured)
+- GitHub Actions publishes Python 1.3.0 to PyPI and makes the GitHub release
+- Each Maven Central deployment then waits to be published in the Central portal
 
 ---
 
@@ -61,18 +67,9 @@ Use when fixing a bug in just one implementation.
 **Example**: Fixing a Java-only timeout bug
 
 ```bash
-# 1. Update implementations/java/lib/pom.xml version from 1.2.0 to 1.2.1
-# 2. Update CHANGELOG.md:
-#    ```
-#    ### Java
-#    - **1.2.1** (2026-06-15): Fixed connection timeout issue
-#    ```
-# 3. Update VERSIONS.md Java version to 1.2.1
-
-git add implementations/java/lib/pom.xml CHANGELOG.md VERSIONS.md
-git commit -m "fix(java): timeout issue in Redis connection"
-
-# 4. Tag with language prefix
+# 1. Commit the fix on the branch of contract 1.2: main while 1.2 is the
+#    latest, or release/1.2 (made from the v1.2 tag) once it isn't
+# 2. Tag with the language prefix; the version comes from the tag
 git tag java-v1.2.1
 git push origin java-v1.2.1
 ```
@@ -116,16 +113,16 @@ git push origin spring-v1.2.1
 ## Checklist Before Each Release
 
 ### All Releases
-- [ ] Update version in build files (pom.xml, setup.py, etc.)
-- [ ] Update CHANGELOG.md
-- [ ] Update VERSIONS.md
-- [ ] Run tests locally: `mvn clean test` (Java) / `pytest` (Python)
+- [ ] Run tests locally: `mvn clean install` in `implementations/java` (lib, `anycall-spring`, examples) / `uv run pytest` in `implementations/python/lib`
 - [ ] Commit changes
 - [ ] Create git tag
+- [ ] Publish each Maven Central deployment in the Central portal
 
 ### Contract Releases Only (v1.3)
 - [ ] Ensure ALL implementations are ready
-- [ ] Update all build files to X.Y.0
+- [ ] CHANGELOG.md: date the section and say which protocol it speaks
+- [ ] Python's version (pyproject.toml and both uv.lock) to X.Y.0
+- [ ] PROTOCOL.md's title, only if the protocol changed
 - [ ] Announce breaking changes (if any) in CHANGELOG
 
 ### Patch Releases Only (java-v1.2.1, python-v1.2.1, spring-v1.2.1)
