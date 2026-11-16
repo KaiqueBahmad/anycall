@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.11] - 2026-11-16
+
+Protocol version: 0.9
 
 ### Added
 - Type checking against the [payload types](LIBRARY.md#payload-types), what JSON itself has: a type when it's declared, a value when it's written
