@@ -13,12 +13,12 @@ class AnyCallUtilsTest {
     @AnyCallSupplier
     static class Methods {
         @Supply(methodName = "slow", maxConcurrency = 4)
-        public Map<String, Object> slow(AnyCallContext ctx, Map<String, Object> req) {
+        public Map<String, String> slow(AnyCallContext ctx, Map<String, String> req) {
             return req;
         }
 
         @Supply(methodName = "echo")
-        public Map<String, Object> echo(AnyCallContext ctx, Map<String, Object> req) {
+        public Map<String, String> echo(AnyCallContext ctx, Map<String, String> req) {
             return req;
         }
 
@@ -29,7 +29,7 @@ class AnyCallUtilsTest {
     @AnyCallSupplier
     static class Broken {
         @Supply(methodName = "broken")
-        public Object broken(Map<String, Object> req) {
+        public Object broken(Map<String, String> req) {
             return req;
         }
     }
@@ -46,7 +46,11 @@ class AnyCallUtilsTest {
 
     @Test
     void methodReadsWhatTheObjectDeclares() {
-        assertEquals(new SupplyMethod("slow", 4, Map.class, Map.class), AnyCallUtils.method(new Methods(), "slow"));
+        SupplyMethod slow = AnyCallUtils.method(new Methods(), "slow");
+        assertEquals("slow", slow.name());
+        assertEquals(4, slow.maxConcurrency());
+        assertEquals("java.util.Map<java.lang.String, java.lang.String>", slow.requestType().getTypeName());
+        assertEquals("java.util.Map<java.lang.String, java.lang.String>", slow.responseType().getTypeName());
         assertEquals(1, AnyCallUtils.method(new Methods(), "echo").maxConcurrency());
     }
 

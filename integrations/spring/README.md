@@ -99,14 +99,13 @@ public class Reviews {
 
 | Returns | Call |
 |---|---|
-| `T`, a class with no type parameters | waits, and reads the response into `T` |
-| `JsonNode` | the same, as a tree |
+| `T`, a class with no type parameters, made of [payload types](../../LIBRARY.md#payload-types) | waits, and reads the response into `T` |
 | `Map<String, Object>` | a raw call: waits, and returns the response as a map |
 | `void` | waits, and drops the response |
 | `CompletableFuture<…>` of any of these | the same, without waiting (`Void` for `void`) |
 
-Anything else, such as `Object`, `List<Foo>` or a raw `CompletableFuture`,
-fails the context at startup, as do a method without `@Call` and one taking
+Anything else, such as `Object`, `List<Foo>`, a model with an `Instant` or a
+raw `CompletableFuture`, fails the context at startup, as do a method without `@Call` and one taking
 more than the request.
 
 ### Settings

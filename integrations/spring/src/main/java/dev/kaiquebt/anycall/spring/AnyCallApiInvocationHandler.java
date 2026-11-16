@@ -1,6 +1,7 @@
 package dev.kaiquebt.anycall.spring;
 
 import dev.kaiquebt.anycall.core.AnyCallClient;
+import dev.kaiquebt.anycall.core.AnyCallUtils;
 import dev.kaiquebt.anycall.core.CallOptions;
 import org.springframework.boot.convert.DurationStyle;
 
@@ -98,11 +99,16 @@ class AnyCallApiInvocationHandler implements InvocationHandler {
         }
         if (returned instanceof Class<?> type && type != Object.class && type != Map.class
                 && type.getTypeParameters().length == 0 && !type.isPrimitive()) {
+            try {
+                AnyCallUtils.checkPayloadType(type, where + "'s response");
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException(e.getMessage());
+            }
             return Shape.TYPED;
         }
         throw new IllegalStateException(where + " returns " + returned.getTypeName() + "; it must return a "
-            + "class with no type parameters (a model, or JsonNode), Map<String, Object> for the response as "
-            + "a map, or " + (async ? "Void" : "void") + (async ? "" : ", or a CompletableFuture of one of these"));
+            + "class with no type parameters (a model of payload types), Map<String, Object> for the response "
+            + "as a map, or " + (async ? "Void" : "void") + (async ? "" : ", or a CompletableFuture of one of these"));
     }
 
     private static String name(String method, String where) {

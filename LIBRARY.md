@@ -110,3 +110,79 @@ publish error at once.
 | `RemoteException` | `RemoteExecutionError` | the response has an `error` |
 | `SerializationError` | `AnyCallError` | encoding or decoding failed |
 | `ClientClosedError` | `AnyCallError` | the client was closed: a call made after, or one still waiting |
+
+## Payload types
+
+A method's request and response, and the type a call reads its result into,
+are limited on purpose to what JSON itself has, so a type means the same in
+every language. Every implementation MUST accept these and only these. A
+type has to be a `T`:
+
+```
+T = boolean
+  | integer
+  | number
+  | string
+  | array of T
+  | map of string to T
+  | record of fields, each a T
+  | T or null
+```
+
+- An integer is between −(2^53 − 1) and 2^53 − 1, the range a 64-bit float
+  holds exactly: some languages read every JSON number as one, and a larger
+  integer would arrive rounded. A larger value goes as a string. A number is
+  a 64-bit float.
+- A map's keys are data: any string. A record's fields are part of the type:
+  each named, each with its own `T`. Both are a JSON object on the wire; the
+  type declared on the reading side says which, at every level, never the
+  wire.
+- A type MAY refer to itself, as a category with an array of categories.
+
+Anything else is not a payload type: bytes, enums, dates and durations,
+UUIDs, arbitrary-precision numbers, sets, tuples, maps keyed by anything but
+a string, unions other than `T or null`. Their meaning differs between
+languages, so the code using the library converts them to a string or a
+number of its own choosing. Where the language's JSON library would convert
+one of them on its own, the implementation MUST still reject it, or it would
+work in one language only.
+
+**Checking.** Where the language can read types at runtime, a declared type
+MUST be checked when it's given, not when the first request arrives:
+registering a method checks its request and response types, and registering
+a type for a method or calling with one checks that type. A type that isn't
+a payload type fails with the language's usual error for a bad argument,
+naming the field and its type. A value is also checked as it's written, by
+the same rules, and fails with `SerializationError`; a call whose request
+fails this way publishes nothing.
+
+**Writing.**
+- Every field of a record MUST be written, `null` ones included.
+- An integer out of range MUST NOT be written: a call whose request has one
+  publishes nothing, and a server whose method returns one answers with a
+  remote error instead.
+- `NaN` and the infinities MUST NOT be written; JSON has no such numbers.
+- A payload is a tree. Cyclic data MUST fail. The same object reached twice
+  is written twice and read back as two.
+
+**Reading**, into the declared type:
+- A record with a field it doesn't declare, or missing one it does, MUST be
+  rejected.
+- `null` is read only where the type is `T or null`, except as the whole
+  payload: a method that returns null sends `null` whatever its type (see
+  [PROTOCOL.md](PROTOCOL.md)).
+- An integer MAY be read where a number is declared: JSON doesn't tell `1`
+  from `1.0`, and languages write either. A number with a fraction, or an
+  integer out of range or that doesn't fit the declared one, MUST be
+  rejected where an integer is declared.
+- A boolean is never read as a number, nor a number as a boolean.
+- A server answers a request that doesn't fit its method's request type
+  with a remote error (see [PROTOCOL.md](PROTOCOL.md)); a call whose result
+  doesn't fit fails with `SerializationError`.
+
+A raw call reads with no declared type: an object as the language's native
+map, an array as its native list, and the rest as its own boolean, integer,
+number, string and null.
+
+Each implementation's usage guide MUST give its mapping both ways: which of
+its types each `T` is written from, and which it can be read into.

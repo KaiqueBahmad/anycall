@@ -10,6 +10,8 @@ import dev.kaiquebt.anycall.model.AnyCallRequest;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnyCallQueues;
 import dev.kaiquebt.anycall.publisher.AnyCallReaping;
+import dev.kaiquebt.anycall.payload.PayloadException;
+import dev.kaiquebt.anycall.payload.Payloads;
 import dev.kaiquebt.anycall.registry.TypeRegistry;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.KeyValue;
@@ -131,12 +133,12 @@ public class AnyCallClientImpl implements AnyCallClient {
      */
     @Override
     public <T> T call(String methodName, Object request, Class<T> responseType) {
-        return join(callAsync(methodName, request, responseType, CallOptions.DEFAULT));
+        return join(callAsync(methodName, request, checked(methodName, responseType), CallOptions.DEFAULT));
     }
 
     @Override
     public <T> T call(String methodName, Object request, Class<T> responseType, CallOptions options) {
-        return join(callAsync(methodName, request, responseType, options));
+        return join(callAsync(methodName, request, checked(methodName, responseType), options));
     }
 
     @Override
@@ -185,6 +187,7 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     @Override
     public void registerType(String method, Class<?> responseType) {
+        Payloads.checkType(responseType, "the response type of " + method);
         registry.register(method, responseType);
     }
 
@@ -232,6 +235,16 @@ public class AnyCallClientImpl implements AnyCallClient {
         return new ClientClosedError(methodName, "The client is closed: method " + methodName + " was not called");
     }
 
+    /**
+     * {@code responseType}, checked to be a payload type.
+     *
+     * @throws IllegalArgumentException if it isn't one
+     */
+    private static <T> Class<T> checked(String methodName, Class<T> responseType) {
+        Payloads.checkType(responseType, "the response type of " + methodName);
+        return responseType;
+    }
+
     @SuppressWarnings("unchecked")
     private <T> Class<T> registeredType(String methodName) {
         Class<?> resolved = registry.get(methodName);
@@ -245,10 +258,13 @@ public class AnyCallClientImpl implements AnyCallClient {
         return (Class<T>) resolved;
     }
 
+    /** Reads a raw call's result: with no declared type, an object as a map. */
+    private static final Class<?> RAW = Map.class;
+
     @SuppressWarnings("unchecked")
     private CompletableFuture<Map<String, Object>> rawCallAsync(String methodName, Object request,
                                                                 CallOptions options) {
-        return callAsync(methodName, request, (Class<Map<String, Object>>) (Class<?>) Map.class, options);
+        return callAsync(methodName, request, (Class<Map<String, Object>>) RAW, options);
     }
 
     /**
@@ -294,9 +310,9 @@ public class AnyCallClientImpl implements AnyCallClient {
 
     private static String serialize(String methodName, Object request) {
         try {
-            return OBJECT_MAPPER.writeValueAsString(request);
-        } catch (JsonProcessingException e) {
-            throw new SerializationError(methodName, "Failed to serialize request for method: " + methodName, e);
+            return Payloads.toJson(request);
+        } catch (PayloadException e) {
+            throw new SerializationError(methodName, "Failed to serialize request: " + e.getMessage(), e);
         }
     }
 
@@ -366,10 +382,19 @@ public class AnyCallClientImpl implements AnyCallClient {
             throw new SerializationError(methodName, "Response from method " + methodName
                 + " has neither a payload nor an error; the method may have run");
         }
+        if (responseType == RAW) {
+            try {
+                return OBJECT_MAPPER.readValue(response.payload(), responseType);
+            } catch (JsonProcessingException e) {
+                throw new SerializationError(methodName, "Failed to deserialize the result of method: " + methodName, e);
+            }
+        }
         try {
-            return OBJECT_MAPPER.readValue(response.payload(), responseType);
-        } catch (JsonProcessingException e) {
-            throw new SerializationError(methodName, "Failed to deserialize the result of method: " + methodName, e);
+            @SuppressWarnings("unchecked")
+            T result = (T) Payloads.fromJson(response.payload(), Payloads.javaType(responseType));
+            return result;
+        } catch (PayloadException e) {
+            throw new SerializationError(methodName, "Response payload doesn't fit: " + e.getMessage(), e);
         }
     }
 
@@ -489,13 +514,13 @@ public class AnyCallClientImpl implements AnyCallClient {
 
         @Override
         public <T> CompletableFuture<T> call(String methodName, Object request, Class<T> responseType) {
-            return callAsync(methodName, request, responseType, CallOptions.DEFAULT);
+            return callAsync(methodName, request, checked(methodName, responseType), CallOptions.DEFAULT);
         }
 
         @Override
         public <T> CompletableFuture<T> call(String methodName, Object request, Class<T> responseType,
                                              CallOptions options) {
-            return callAsync(methodName, request, responseType, options);
+            return callAsync(methodName, request, checked(methodName, responseType), options);
         }
 
         @Override

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- Type checking against the [payload types](LIBRARY.md#payload-types), what JSON itself has: a type when it's declared, a value when it's written
+- Python: a list of dataclasses can be sent and returned
+- Java: `AnyCallUtils.checkPayloadType` checks a type as a call does
+
+### Changed
+- Types outside the payload types (bytes, enums, dates, ...) are rejected
+- Integers are limited to ±(2^53 − 1). Send larger ones as strings
+- `NaN`, infinities and cyclic data fail with `SerializationError` when written
+- Records must have exactly their fields: unknown and missing ones fail
+- Python: every result is checked against its type, not only dataclasses
+- Java: `null` into a primitive fails instead of becoming `0`
+- Java: `SupplyMethod`'s request and response types keep their generic arguments, so a `List<Point>` request is read as points
+- Spring: an `@Call` method returning `JsonNode`, or a model that isn't made of payload types, fails the context at startup
+
+### Removed
+- Python: the `dacite` dependency
+
 ## [0.10] - 2026-11-15
 
 Protocol version: 0.9

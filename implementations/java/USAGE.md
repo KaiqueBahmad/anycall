@@ -188,3 +188,60 @@ try (AnyCallClient client = AnyCall.client(redisUri)) {
 `ClientClosedError`, as does any call made after, and the client's connections
 and thread are gone when it returns. A request already published may still be
 processed by a server; its response is dropped.
+
+## Payload types
+
+Requests and responses use only the
+[payload types](../../LIBRARY.md#payload-types), what JSON itself has.
+Declaring any other type throws an `IllegalArgumentException` naming the
+field, from `register`, `registerType` or the call, before anything is
+published.
+
+**Writing**
+
+| Java | Wire |
+|---|---|
+| `null` | `null` |
+| `boolean`, `Boolean` | boolean |
+| `int`, `long`, `Integer`, `Long` | integer; a `long` only between −(2^53 − 1) and 2^53 − 1 |
+| `double`, `float`, `Double`, `Float` | number; not `NaN` or infinite |
+| `String` | string |
+| `List<T>`, `T[]` | array of T |
+| `Map<String, T>` | map of string to T |
+| record, POJO | record, every field written, `null` ones too |
+
+**Reading**
+
+| Wire | Java, as declared |
+|---|---|
+| `null` | any reference type; never a primitive |
+| boolean | `boolean`, `Boolean` |
+| integer | `int`, `long`, `double`, `float` and their boxes; an `int` only if it fits |
+| number with a fraction | `double`, `float` and their boxes; a `float` rounds to the nearest one |
+| string | `String` |
+| array | `List<T>`, `T[]` |
+| object | `Map<String, T>`, with any keys; a record or POJO, with exactly its fields |
+
+`rawCall` reads with no declared type: an object as `Map<String, Object>`,
+whose values are `Map`, `List`, `String`, `Integer` or `Long` (whichever
+fits), `Double`, `Boolean` or `null`. A payload that isn't an object is a
+`SerializationError`.
+
+`AnyCallUtils.checkPayloadType(type)` checks a type the same way, without a
+client or a server.
+
+**Not payload types**
+
+| Instead of | Declare |
+|---|---|
+| `byte[]` | `String`, with `Base64.getEncoder()` / `getDecoder()` |
+| `enum` | `String` or `int`, converted by your code |
+| `Instant`, `LocalDate`, `Duration`, `Date` | `String` (ISO 8601) or `long` |
+| `UUID` | `String` |
+| `BigDecimal`, `BigInteger` | `String` |
+| a `long` past 2^53 − 1, such as a 64-bit id | `String` |
+| `byte`, `short`, `char` | `int`, or `String` for a `char` |
+| `Set<T>` | `List<T>` |
+| `Map` with keys other than `String` | a `List` of records |
+| `Optional<T>` | a nullable field |
+| `Object`, wildcards, raw types | a concrete type |

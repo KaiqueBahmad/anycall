@@ -9,6 +9,7 @@ import dev.kaiquebt.anycall.core.SupplyHandler;
 import dev.kaiquebt.anycall.core.SupplyMethod;
 import dev.kaiquebt.anycall.exception.AnyCallError;
 import dev.kaiquebt.anycall.model.AnyCallRequest;
+import dev.kaiquebt.anycall.payload.Payloads;
 import dev.kaiquebt.anycall.model.AnyCallResponse;
 import dev.kaiquebt.anycall.publisher.AnyCallQueues;
 import dev.kaiquebt.anycall.publisher.AnyCallReaping;
@@ -312,6 +313,7 @@ public class AnyCallServerImpl implements AnyCallServer {
             throw new IllegalArgumentException("AnyCall Server: " + declared.name()
                 + " needs a request type and a handler");
         }
+        SupplyScanner.checkTypes(declared);
         registerHandler(new MethodHandler(declared, (SupplyHandler<Object, Object>) handler));
         return this;
     }
@@ -696,12 +698,12 @@ public class AnyCallServerImpl implements AnyCallServer {
 
             log.debug("Processing request: {} for method: {}", requestId, methodName);
 
-            Object parameter = OBJECT_MAPPER.readValue(request.payload(), handler.parameterType());
+            Object parameter = Payloads.fromJson(request.payload(), Payloads.javaType(handler.parameterType()));
 
             AnyCallContext ctx = new AnyCallContext(requestId, methodName);
             Object result = handler.handler().handle(ctx, parameter);
 
-            String resultJson = OBJECT_MAPPER.writeValueAsString(result);
+            String resultJson = Payloads.toJson(result);
 
             AnyCallResponse response = AnyCallResponse.success(requestId, resultJson);
             sendResponse(response, clientId, requestJson, taker);

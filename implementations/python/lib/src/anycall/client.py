@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Callable, Optional, Type, TypeVar
 
-import dacite
 import redis.exceptions
 
 from . import queues
@@ -31,6 +30,7 @@ from .queues import Queues
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueuePort
 from .registry import TypeRegistry
+from .payload import PayloadError, check_type, from_json, to_json
 from .serialization import deserialize, serialize
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 WAITER_REAP_SLICE_SECONDS = 10
 
 T = TypeVar("T")
+
+# The type a raw call reads into: none, the payload as json.loads reads it.
+_RAW = object()
 
 
 class AnyCallClient(ABC):
@@ -279,7 +282,7 @@ class AnyCallClientImpl(AnyCallClient):
             BrokerError: If a Redis command fails during the call
             AnyCallError: On timeout or remote error
         """
-        return self._call_sync(method_name, request, dict, options)
+        return self._call_sync(method_name, request, _RAW, options)
 
     def register_type(self, operation: str, response_type: Type) -> None:
         """Register response type for an operation.
@@ -294,6 +297,7 @@ class AnyCallClientImpl(AnyCallClient):
         Raises:
             AnyCallError: If operation already registered with different type
         """
+        check_type(response_type, f"the response type of {operation}")
         self._registry.register(operation, response_type)
 
     @property
@@ -338,6 +342,7 @@ class AnyCallClientImpl(AnyCallClient):
 
     def _resolve_type(self, method_name: str, response_type: Type | None) -> Type:
         if response_type is not None:
+            check_type(response_type, f"the response type of {method_name}")
             return response_type
         resolved = self._registry.get(method_name)
         if resolved is None:
@@ -381,8 +386,8 @@ class AnyCallClientImpl(AnyCallClient):
             raise self._closed_error(method_name)
         effective_max_queue_depth = options.max_queue_depth_or(self._max_queue_depth)
         try:
-            payload = serialize(request)
-        except (TypeError, ValueError) as e:
+            payload = to_json(request)
+        except PayloadError as e:
             raise SerializationError(method_name, f"Failed to serialize request: {e}")
         rpc_request = AnyCallRequest.create(method_name, payload, self._client_id)
         request_queue = self._keys.request_queue(method_name)
@@ -465,11 +470,13 @@ class AnyCallClientImpl(AnyCallClient):
                 f"the method may have run",
             )
         try:
-            return deserialize(payload, response_type)
+            if response_type is _RAW:
+                return json.loads(payload)
+            return from_json(payload, response_type)
         except json.JSONDecodeError as e:
             raise SerializationError(method_name, f"Failed to decode response payload: {e}")
-        except dacite.DaciteError as e:
-            raise SerializationError(method_name, f"Response payload doesn't fit {response_type.__name__}: {e}")
+        except PayloadError as e:
+            raise SerializationError(method_name, f"Response payload doesn't fit: {e}")
 
     def _start_reader(self) -> None:
         """Start the reader on the first call. Called under `_lock`."""
@@ -576,7 +583,7 @@ class AsyncCalls:
 
     async def raw_call(self, method_name: str, request: Any, options: CallOptions = DEFAULT_CALL_OPTIONS) -> dict:
         """`AnyCallClient.raw_call`, to await."""
-        return await self._call(method_name, request, dict, options)
+        return await self._call(method_name, request, _RAW, options)
 
     async def _call(self, method_name: str, request: Any, response_type: Type, options: CallOptions) -> Any:
         client = self._client

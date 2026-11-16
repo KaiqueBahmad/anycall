@@ -18,6 +18,7 @@ from .options import DEFAULT_SERVER_OPTIONS, ServerOptions
 from .queues import Queues
 from .reaping import reap_dead_servers
 from .redis_adapter import RedisQueueAdapter
+from .payload import check_type, from_json, to_json
 from .serialization import deserialize, serialize
 
 logger = logging.getLogger(__name__)
@@ -106,8 +107,20 @@ class SupplyMethod:
     # method's request parameter.
     request_type: Any
     # The method's return annotation, or None without one. Only informative:
-    # a server sends back whatever the method returns.
+    # a server sends back whatever the method returns, checked only as a
+    # payload as it's written.
     response_type: Any
+
+
+def _check_declared(declared: "SupplyMethod") -> None:
+    """Check a method's request and response types are payload types.
+
+    Raises:
+        TypeError: naming the field whose type isn't one
+    """
+    check_type(declared.request_type, f"method {declared.name}'s request")
+    if declared.response_type is not None:
+        check_type(declared.response_type, f"method {declared.name}'s response")
 
 
 @dataclass(frozen=True)
@@ -168,6 +181,7 @@ def scan_supplier(supplier: Any) -> list[MethodHandler]:
     Raises:
         ValueError: If one doesn't take (AnyCallContext, <request>) with the
             request's type annotated
+        TypeError: If its request or response type isn't a payload type
     """
     handlers = []
     for name, method in inspect.getmembers(supplier, predicate=inspect.ismethod):
@@ -191,6 +205,7 @@ def scan_supplier(supplier: Any) -> list[MethodHandler]:
             request_type=parameter_type,
             response_type=None if returns is inspect.Signature.empty else returns,
         )
+        _check_declared(declared)
         handlers.append(MethodHandler(declared, method))
     return handlers
 
@@ -437,6 +452,7 @@ class AnyCallServerImpl(AnyCallServer):
             )
         if not callable(handler):
             raise TypeError(f"{declared.name} needs a callable handler; got {type(handler).__name__}")
+        _check_declared(declared)
         self._register_handler(MethodHandler(declared, handler))
         return self
 
@@ -711,12 +727,12 @@ class AnyCallServerImpl(AnyCallServer):
             with self._in_flight_lock:
                 self._in_flight_request_ids.add(request_id)
 
-            param = deserialize(rpc_request.payload, handler.parameter_type)
+            param = from_json(rpc_request.payload, handler.parameter_type)
 
             ctx = AnyCallContext(request_id=rpc_request.request_id, method_name=rpc_request.method_name)
             result = handler.handler(ctx, param)
 
-            result_json = serialize(result)
+            result_json = to_json(result)
             response = AnyCallResponse.success(rpc_request.request_id, result_json)
 
         except Exception as e:

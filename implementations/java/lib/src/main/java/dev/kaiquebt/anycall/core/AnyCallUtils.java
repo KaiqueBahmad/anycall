@@ -1,14 +1,16 @@
 package dev.kaiquebt.anycall.core;
 
+import dev.kaiquebt.anycall.payload.Payloads;
 import dev.kaiquebt.anycall.server.MethodHandler;
 import dev.kaiquebt.anycall.server.SupplyScanner;
 
+import java.lang.reflect.Type;
 import java.util.List;
 
 /**
  * Looks at a supplier object without a server: which methods it would serve and how. Checks
  * the object the way {@link AnyCallServer#register} does, so what this accepts a server
- * registers, and what it rejects a server rejects too.
+ * registers, and what it rejects a server rejects too. Also checks a type the way a call does.
  */
 public final class AnyCallUtils {
 
@@ -22,6 +24,26 @@ public final class AnyCallUtils {
      */
     public static List<String> methods(Object supplier) {
         return SupplyScanner.scan(supplier).stream().map(MethodHandler::methodName).distinct().sorted().toList();
+    }
+
+    /**
+     * Checks that {@code type} is a payload type, as registering a method or a type, or calling
+     * with one, checks it: what JSON itself has (see LIBRARY.md).
+     *
+     * @throws IllegalArgumentException naming the field whose type isn't one
+     */
+    public static void checkPayloadType(Type type) {
+        checkPayloadType(type, type == null ? "the type" : type.getTypeName());
+    }
+
+    /**
+     * {@link #checkPayloadType(Type)}, with {@code what} naming the type in the error, such as
+     * "method embed's response".
+     *
+     * @throws IllegalArgumentException naming the field whose type isn't one
+     */
+    public static void checkPayloadType(Type type, String what) {
+        Payloads.checkType(type, what);
     }
 
     /**

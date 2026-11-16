@@ -1,5 +1,6 @@
 package dev.kaiquebt.anycall.spring;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallClient;
 import dev.kaiquebt.anycall.core.AnyCallServer;
@@ -22,6 +23,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -40,6 +42,9 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(OutputCaptureExtension.class)
 class AnyCallAutoConfigurationTest {
+
+    /** {@code Map<String, String>}, the request and response type of the test's suppliers. */
+    private static final Type TEXTS = new TypeReference<Map<String, String>>() { }.getType();
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of(AnyCallContractAutoConfiguration.class, AnyCallAutoConfiguration.class));
@@ -63,7 +68,7 @@ class AnyCallAutoConfigurationTest {
     @AnyCallSupplier
     static class Analyzer {
         @Supply(methodName = "analyze-sentiment")
-        public Map<String, Object> analyze(AnyCallContext ctx, Map<String, Object> request) {
+        public Map<String, String> analyze(AnyCallContext ctx, Map<String, String> request) {
             return request;
         }
     }
@@ -153,7 +158,7 @@ class AnyCallAutoConfigurationTest {
     @AnyCallSupplier
     static class Logger {
         @Supply(methodName = "log")
-        public Map<String, Object> log(AnyCallContext ctx, Map<String, Object> request) {
+        public Map<String, String> log(AnyCallContext ctx, Map<String, String> request) {
             return request;
         }
     }
@@ -173,7 +178,7 @@ class AnyCallAutoConfigurationTest {
         runner.withUserConfiguration(FakeClient.class, FakeServer.class, WithSupplier.class).run(context -> {
             AnyCallServer server = context.getBean(AnyCallServer.class);
             assertThat(context.getBean(AnyCallServerLifecycle.class).isRunning()).isTrue();
-            verify(server).register(eq(new SupplyMethod("analyze-sentiment", 1, Map.class, Map.class)),
+            verify(server).register(eq(new SupplyMethod("analyze-sentiment", 1, TEXTS, TEXTS)),
                 any(SupplyHandler.class));
             verify(server).start();
         });
@@ -202,7 +207,7 @@ class AnyCallAutoConfigurationTest {
         runner.withUserConfiguration(FakeClient.class, FakeServer.class, AdvisedSupplier.class).run(context -> {
             ArgumentCaptor<SupplyHandler<Object, Object>> handler = ArgumentCaptor.forClass(SupplyHandler.class);
             verify(context.getBean(AnyCallServer.class)).register(
-                eq(new SupplyMethod("analyze-sentiment", 1, Map.class, Map.class)), handler.capture());
+                eq(new SupplyMethod("analyze-sentiment", 1, TEXTS, TEXTS)), handler.capture());
 
             Object response = handler.getValue().handle(new AnyCallContext("r1", "analyze-sentiment"),
                 Map.of("text", "bom"));
@@ -215,7 +220,7 @@ class AnyCallAutoConfigurationTest {
     @AnyCallSupplier
     static class PrivateSupplier {
         @Supply(methodName = "hidden")
-        private Map<String, Object> hidden(AnyCallContext ctx, Map<String, Object> request) {
+        private Map<String, String> hidden(AnyCallContext ctx, Map<String, String> request) {
             return request;
         }
     }

@@ -1,7 +1,5 @@
 package dev.kaiquebt.anycall.spring;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import dev.kaiquebt.anycall.core.AnyCallClient;
 import dev.kaiquebt.anycall.core.AsyncCalls;
 import dev.kaiquebt.anycall.core.CallOptions;
@@ -71,18 +69,6 @@ class AnyCallApiInvocationHandlerTest {
         verify(async).call(eq("analyze-sentiment"), eq(request), eq(SentimentApi.Sentiment.class), options.capture());
         assertThat(options.getValue().timeoutOr(null)).isEqualTo(Duration.ofSeconds(2));
         assertThat(options.getValue().maxQueueDepthOr(7L)).isNull();
-    }
-
-    @Test
-    void jsonNodeIsATypedCallLikeAnyClass() {
-        JsonNode tree = JsonNodeFactory.instance.objectNode().put("label", "x");
-        when(client.call(eq("analyze-sentiment"), eq(request), eq(JsonNode.class), any(CallOptions.class))).thenReturn(tree);
-        when(client.async()).thenReturn(async);
-        when(async.call(eq("analyze-sentiment"), eq(request), eq(JsonNode.class), any(CallOptions.class)))
-            .thenReturn(CompletableFuture.completedFuture(tree));
-
-        assertThat(api(SentimentApi.class).analyzeTree(request).path("label").asText()).isEqualTo("x");
-        assertThat(api(SentimentApi.class).analyzeTreeAsync(request).join()).isSameAs(tree);
     }
 
     @Test
@@ -181,6 +167,12 @@ class AnyCallApiInvocationHandlerTest {
 
     interface ReturnsOtherMap { @Call("x") Map<String, Integer> map(Object request); }
 
+    interface ReturnsJsonNode { @Call("x") com.fasterxml.jackson.databind.JsonNode tree(Object request); }
+
+    record Logged(java.time.Instant at) { }
+
+    interface ReturnsInstantModel { @Call("x") CompletableFuture<Logged> logged(Object request); }
+
     interface ReturnsVoidFutureOfVoid { @Call("x") CompletableFuture<Object> future(Object request); }
 
     private void failsWith(Class<?> type, String message) {
@@ -196,6 +188,8 @@ class AnyCallApiInvocationHandlerTest {
         failsWith(ReturnsList.class, "returns java.util.List<java.lang.String>");
         failsWith(ReturnsOtherMap.class, "returns java.util.Map<java.lang.String, java.lang.Integer>");
         failsWith(ReturnsVoidFutureOfVoid.class, "returns java.lang.Object");
+        failsWith(ReturnsJsonNode.class, "tree's response is JsonNode, not an AnyCall payload type");
+        failsWith(ReturnsInstantModel.class, "logged's response: Logged.at is Instant, not an AnyCall payload type");
     }
 
     interface Configured {

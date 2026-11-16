@@ -4,6 +4,7 @@ import dev.kaiquebt.anycall.annotation.Supply;
 import dev.kaiquebt.anycall.core.AnyCallContext;
 import dev.kaiquebt.anycall.core.SupplyHandler;
 import dev.kaiquebt.anycall.core.SupplyMethod;
+import dev.kaiquebt.anycall.payload.Payloads;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -24,8 +25,9 @@ public final class SupplyScanner {
     /**
      * The {@code @Supply} methods {@code supplier}'s class declares (not inherited ones).
      *
-     * @throws IllegalStateException if one doesn't take {@code (AnyCallContext, <request>)},
-     *                               or has a {@code maxConcurrency} below 1
+     * @throws IllegalStateException    if one doesn't take {@code (AnyCallContext, <request>)},
+     *                                  or has a {@code maxConcurrency} below 1
+     * @throws IllegalArgumentException if its request or response type isn't a payload type
      */
     public static List<MethodHandler> scan(Object supplier) {
         List<MethodHandler> handlers = new ArrayList<>();
@@ -51,10 +53,24 @@ public final class SupplyScanner {
             }
             method.setAccessible(true);
             SupplyMethod declared = new SupplyMethod(supply.methodName(), supply.maxConcurrency(),
-                method.getParameterTypes()[1], method.getReturnType());
+                method.getGenericParameterTypes()[1], method.getGenericReturnType());
+            checkTypes(declared);
             handlers.add(new MethodHandler(declared, invoking(supplier, method)));
         }
         return handlers;
+    }
+
+    /**
+     * Checks a method's request and response types are payload types; a {@code void} response
+     * declares none.
+     *
+     * @throws IllegalArgumentException naming the field whose type isn't one
+     */
+    public static void checkTypes(SupplyMethod declared) {
+        Payloads.checkType(declared.requestType(), "method " + declared.name() + "'s request");
+        if (declared.responseType() != null && !Payloads.isVoid(declared.responseType())) {
+            Payloads.checkType(declared.responseType(), "method " + declared.name() + "'s response");
+        }
     }
 
     /**

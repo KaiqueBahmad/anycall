@@ -10,11 +10,11 @@ from .server import SupplyMethod
 
 class Methods:
     @supply("slow", max_concurrency=4)
-    def slow(self, ctx: AnyCallContext, request: dict) -> dict:
+    def slow(self, ctx: AnyCallContext, request: dict[str, str]) -> dict[str, str]:
         return request
 
     @supply("echo")
-    def echo(self, ctx: AnyCallContext, request: dict) -> dict:
+    def echo(self, ctx: AnyCallContext, request: dict[str, str]) -> dict[str, str]:
         return request
 
     def not_supplied(self) -> None:
@@ -23,7 +23,7 @@ class Methods:
 
 class Broken:
     @supply("broken")
-    def broken(self, request: dict) -> dict:
+    def broken(self, request: dict[str, str]) -> dict[str, str]:
         return request
 
 
@@ -36,14 +36,14 @@ def test_methods_of_an_object_with_none_is_empty():
 
 
 def test_method_reads_what_the_object_declares():
-    assert utils.method(Methods(), "slow") == SupplyMethod("slow", 4, dict, dict)
+    assert utils.method(Methods(), "slow") == SupplyMethod("slow", 4, dict[str, str], dict[str, str])
     assert utils.method(Methods(), "echo").max_concurrency == 1
 
 
 def test_method_without_a_return_annotation_has_no_response_type():
     class Bare:
         @supply("bare")
-        def bare(self, ctx: AnyCallContext, request: dict):
+        def bare(self, ctx: AnyCallContext, request: dict[str, str]):
             return request
 
     assert utils.method(Bare(), "bare").response_type is None

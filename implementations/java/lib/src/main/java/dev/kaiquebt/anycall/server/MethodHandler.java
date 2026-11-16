@@ -3,6 +3,8 @@ package dev.kaiquebt.anycall.server;
 import dev.kaiquebt.anycall.core.SupplyHandler;
 import dev.kaiquebt.anycall.core.SupplyMethod;
 
+import java.lang.reflect.Type;
+
 /**
  * A method a server serves: how it's declared, and what runs it. Internal.
  *
@@ -19,7 +21,7 @@ public record MethodHandler(SupplyMethod declared, SupplyHandler<Object, Object>
         return declared.maxConcurrency();
     }
 
-    public Class<?> parameterType() {
+    public Type parameterType() {
         return declared.requestType();
     }
 }

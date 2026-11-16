@@ -197,3 +197,56 @@ with AnyCall.client(redis_uri) as client:
 `ClientClosedError`, as does any call made after, and the client's connections
 and thread are gone when it returns. A request already published may still be
 processed by a server; its response is dropped.
+
+## Payload types
+
+Requests and responses use only the
+[payload types](../../LIBRARY.md#payload-types), what JSON itself has.
+Declaring any other type raises a `TypeError` naming the field, from
+`register`, `register_method`, `register_type` or the call, before anything
+is published.
+
+**Writing**
+
+| Python | Wire |
+|---|---|
+| `None` | `null` |
+| `bool` | boolean |
+| `int` | integer, between −(2^53 − 1) and 2^53 − 1 |
+| `float` | number; not `nan` or `inf` |
+| `str` | string |
+| `list[T]` | array of T |
+| `dict[str, T]` | map of string to T |
+| `@dataclass` | record, every field written, `None` ones too |
+
+**Reading**
+
+| Wire | Python, as declared |
+|---|---|
+| `null` | `None`, where the type is `T \| None` (or `Optional[T]`) |
+| boolean | `bool` |
+| integer | `int`, `float` |
+| number with a fraction | `float` |
+| string | `str` |
+| array | `list[T]` |
+| object | `dict[str, T]`, with any keys; a `@dataclass`, with exactly its fields |
+
+A dataclass field's default doesn't make it optional on the wire: a payload
+missing the field is rejected. `raw_call` reads with no declared type: an
+object as `dict`, an array as `list`, and the rest as `str`, `int`, `float`,
+`bool` or `None`.
+
+**Not payload types**
+
+| Instead of | Declare |
+|---|---|
+| `bytes` | `str`, with `base64.b64encode` / `b64decode` |
+| `Enum` | `str` or `int`, converted by your code |
+| `datetime`, `date`, `timedelta` | `str` (ISO 8601) or `int` |
+| `UUID` | `str` |
+| `Decimal` | `str` |
+| an `int` past 2^53 − 1, such as a 64-bit id | `str` |
+| `set`, `tuple` | `list` |
+| `dict` with keys other than `str` | a `list` of dataclasses |
+| a union other than `T \| None` | a dataclass with one field per case |
+| numpy arrays and scalars | `list[float]`, `int`, `float`, via `.tolist()` / `.item()` |

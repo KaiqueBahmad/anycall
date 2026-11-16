@@ -20,7 +20,7 @@ from .server import AnyCallServer, AnyCallServerImpl, MethodInfo, SupplyMethod
 
 class Echo:
     @supply("echo")
-    def echo(self, ctx: AnyCallContext, request: dict) -> dict:
+    def echo(self, ctx: AnyCallContext, request: dict[str, str]) -> dict[str, str]:
         return request
 
 
@@ -337,7 +337,7 @@ def test_no_cap_never_waits():
 
 class Slow:
     @supply("slow", max_concurrency=2)
-    def slow(self, ctx: AnyCallContext, request: dict) -> dict:
+    def slow(self, ctx: AnyCallContext, request: dict[str, str]) -> dict[str, str]:
         return request
 
 
@@ -353,7 +353,7 @@ def test_methods_lists_every_registered_name():
 def test_method_reads_one_methods_cap_and_running_count():
     server = AnyCallServerImpl(cast(RedisQueueAdapter, FakeRedisAdapter())).register(Slow(), Echo())
 
-    assert server.method("slow") == MethodInfo(2, 0, SupplyMethod("slow", 2, dict, dict))
+    assert server.method("slow") == MethodInfo(2, 0, SupplyMethod("slow", 2, dict[str, str], dict[str, str]))
     with pytest.raises(KeyError):
         server.method("missing")
 
@@ -373,7 +373,7 @@ def test_running_counts_requests_while_they_run():
 
     class Blocking:
         @supply("block")
-        def block(self, ctx: AnyCallContext, request: dict) -> dict:
+        def block(self, ctx: AnyCallContext, request: dict[str, str]) -> dict[str, str]:
             started.set()
             release.wait(2)
             return request

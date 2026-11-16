@@ -14,13 +14,13 @@ import java.lang.annotation.Target;
  * <table>
  *   <caption>Return types</caption>
  *   <tr><th>Returns</th><th>Call</th></tr>
- *   <tr><td>{@code T}, a class</td><td>waits, and reads the response into {@code T}</td></tr>
- *   <tr><td>{@code JsonNode}</td><td>the same, as a tree</td></tr>
+ *   <tr><td>{@code T}, a class of payload types</td><td>waits, and reads the response into {@code T}</td></tr>
  *   <tr><td>{@code Map<String, Object>}</td><td>a raw call: waits, and returns the response as a map</td></tr>
  *   <tr><td>{@code void}</td><td>waits, and drops the response</td></tr>
  *   <tr><td>{@code CompletableFuture<…>} of any of these</td><td>the same, without waiting ({@code Void} for void)</td></tr>
  * </table>
- * Anything else, such as {@code Object} or {@code List<Foo>}, fails the context at startup.
+ * Anything else, such as {@code Object}, {@code List<Foo>} or a model with an {@code Instant},
+ * fails the context at startup.
  * <p>
  * Every attribute may hold property placeholders ({@code ${...}}, with an optional default
  * after a colon), so a setting can be fixed or come from configuration:

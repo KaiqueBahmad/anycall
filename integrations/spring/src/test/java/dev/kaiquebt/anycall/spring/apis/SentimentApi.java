@@ -1,6 +1,5 @@
 package dev.kaiquebt.anycall.spring.apis;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import dev.kaiquebt.anycall.spring.AnyCallApi;
 import dev.kaiquebt.anycall.spring.Call;
 
@@ -18,12 +17,6 @@ public interface SentimentApi {
 
     @Call(value = "analyze-sentiment", timeout = "2s", maxQueueDepth = "none")
     CompletableFuture<Sentiment> analyzeAsync(Map<String, Object> request);
-
-    @Call("analyze-sentiment")
-    JsonNode analyzeTree(Map<String, Object> request);
-
-    @Call("analyze-sentiment")
-    CompletableFuture<JsonNode> analyzeTreeAsync(Map<String, Object> request);
 
     @Call("analyze-sentiment")
     Map<String, Object> analyzeRaw(Map<String, Object> request);

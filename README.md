@@ -54,7 +54,8 @@ Embedding embedding = client.call("embed", new EmbedRequest("wireless headphones
 ```
 
 The two sides agree on the method name and on the JSON field names, nothing
-else. Either language can be the server or the client.
+else, and both use only the [payload types](#payload-types). Either language
+can be the server or the client.
 
 ## Install
 
@@ -156,6 +157,28 @@ public interface EmbeddingApi {
   or dict when you have no model for it.
 - **Isolation by prefix.** Clients and servers only see each other under the
   same key prefix, so several applications can share one Redis.
+
+## Payload types
+
+Arguments and results are limited on purpose to what JSON itself has, so a
+type means the same in every language. A type has to be a `T`:
+
+```
+T = boolean
+  | integer
+  | number
+  | string
+  | array of T
+  | map of string to T
+  | record of fields, each a T
+  | T or null
+```
+
+For anything else (bytes, enums, dates), you should declare a string or a
+number and convert it in your code: a type outside these is rejected when a
+method or a call declares it. → [The rules](LIBRARY.md#payload-types), and each type in
+[Python](implementations/python/USAGE.md#payload-types) and
+[Java](implementations/java/USAGE.md#payload-types).
 
 ## How it works
 
